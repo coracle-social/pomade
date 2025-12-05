@@ -1,0 +1,29 @@
+{
+  "name": "frost-homomorphic-email-recovery",
+  "version": "0.0.0",
+  "author": "hodlbod",
+  "license": "MIT",
+  "description": "A collection of utilities.",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "pnpm run clean && pnpm run compile --force",
+    "clean": "rimraf ./dist",
+    "compile": "tsc -b tsconfig.build.json",
+    "prepublishOnly": "pnpm run build"
+  },
+  "devDependencies": {
+    "rimraf": "~6.0.0",
+    "typescript": "^5.9.3"
+  }
+}
