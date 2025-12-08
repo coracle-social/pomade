@@ -1,13 +1,11 @@
+# Pomade
+
 Nostr uses secp256k1 keypairs which are used to sign, encrypt, and decrypt messages. This project has several goals:
 
 - Secure key storage using Shamir Secret Sharing via FROST (Schnorr) threshold signatures.
 - Non-interactive signing of messages.
 - Email/otp "log in" such that users can recover a signing session with only an email.
 - Key recovery such that users can recover their secret key, with no trusted third parties.
-
-Todo:
-
-- Switch away from nip 59, use ephemeral keys to hide metadata
 
 ## Components
 
