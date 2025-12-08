@@ -1,9 +1,9 @@
 {
-  "name": "frost-homomorphic-email-recovery",
+  "name": "pomade",
   "version": "0.0.0",
   "author": "hodlbod",
   "license": "MIT",
-  "description": "A collection of utilities.",
+  "description": "Email recovery protocol and implementation for nostr multisig signers.",
   "publishConfig": {
     "access": "public"
   },
