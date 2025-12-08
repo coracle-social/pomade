@@ -62,13 +62,13 @@ The following private tags are required:
 
 `shard` is a hex-encoded concatenation of:
 
-- [encoded-public-shard]: given by:
-  - [public-shard-id]: 2-bytes (little-endian)
-  - [number-of-vss-commits]: 4-bytes (little-endian)
-  - [shard-public-key]: 33-bytes (compressed)
-  - <number-of-vss-commits> * [vss-commit]: 33-bytes (compressed) each
-- [shard-secret-key]: 32-bytes (big-endian)
-- [user-pubkey]: 33-bytes (compressed)
+- encoded-public-shard: given by:
+  - public-shard-id: 2-bytes (little-endian)
+  - number-of-vss-commits: 4-bytes (little-endian)
+  - shard-public-key: 33-bytes (compressed)
+  - <number-of-vss-commits> * vss-commit: 33-bytes (compressed) each
+- shard-secret-key: 32-bytes (big-endian)
+- user-pubkey: 33-bytes (compressed)
 
 The registration event MAY contain recovery information in its private tags, including:
 
@@ -172,10 +172,10 @@ The signer must then look up the `kind REGISTER` event corresponding to the give
 
 In which the `commit` tag contains the hex-encoded concatenation of:
 
-- [commit-id]: 8-bytes (little-endian)
-- [signer-id]: 2-bytes (little-endian)
-- [binding-nonce-point]: 33-bytes (compressed)
-- [hiding-nonce-point]: 33-bytes (compressed)
+- commit-id: 8-bytes (little-endian)
+- signer-id: 2-bytes (little-endian)
+- binding-nonce-point: 33-bytes (compressed)
+- hiding-nonce-point: 33-bytes (compressed)
 
 Upon receiving commits from all signers, the client then aggregates the commits into a group commit and sends it back to all the signers using a `kind COMMIT_GROUP`, along with the event that is to be signed:
 
@@ -195,8 +195,8 @@ Upon receiving commits from all signers, the client then aggregates the commits 
 
 In which the `commit` tag contains the hex-encoded concatenation of:
 
-- [first-nonce]: 33-bytes (compressed)
-- [second-nonce]: 33-bytes (compressed)
+- first-nonce: 33-bytes (compressed)
+- second-nonce: 33-bytes (compressed)
 
 Finally, each signer uses all commits together with their secret nonces and the hash of the event to be signed to produce a partial signature and sends that back to the client in a `kind PARTIAL_SIGNATURE` event:
 
@@ -216,8 +216,8 @@ Finally, each signer uses all commits together with their secret nonces and the 
 
 In which the `sig` tag contains the hex-encoded concatenation of:
 
-- [signer-id]: 2-bytes (little-endian)
-- [partial-signature-scalar]: 32-bytes (big-endian)
+- signer-id: 2-bytes (little-endian)
+- partial-signature-scalar: 32-bytes (big-endian)
 
 The client then combines the partial signatures into an aggregated signature which can be applied to the event.
 
