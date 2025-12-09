@@ -56,7 +56,7 @@ export class Client {
     const userEmailCiphertext = await nip44.encrypt(emailService, clientSecret, userEmail)
     const remainingSignerPubkeys = Array.from(this.options.signerPubkeys)
     const errorsBySignerPubkey = new Map<string, string>()
-    const signerPubkeys: string[] = []
+    const signerPubkeysByIndex = new Map<number, string>()
 
     await Promise.all(
       shares.map(async (share, i) => {
@@ -93,7 +93,6 @@ export class Client {
           const controller = new AbortController()
           const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
 
-
           let ackReceived = false
 
           await request({
@@ -113,7 +112,7 @@ export class Client {
               const status = getTagValue('status', tags)
 
               if (status === 'ok') {
-                signerPubkeys.push(signerPubkey)
+                signerPubkeysByIndex.set(i, signerPubkey)
                 ackReceived = true
                 controller.abort()
               }
@@ -133,7 +132,7 @@ export class Client {
     )
 
     // Check if we have enough successful registrations
-    if (signerPubkeys.length < total) {
+    if (signerPubkeysByIndex.size < total) {
       const errors = Array.from(errorsBySignerPubkey.entries())
         .map(([pubkey, error]) => `${pubkey}: ${error}`)
         .join('\n')
@@ -141,7 +140,7 @@ export class Client {
       throw new Error(`Failed to register all shards:\n${errors}`)
     }
 
-    return new Signer(this, {group, clientSecret, signerPubkeys})
+    return new Signer(this, {group, clientSecret, signerPubkeysByIndex})
   }
 
 
@@ -164,7 +163,7 @@ export class Client {
 export type SignerOptions = {
   group: GroupPackage,
   clientSecret: string,
-  signerPubkeys: string[],
+  signerPubkeysByIndex: Map<number, string>,
 }
 
 export class Signer implements ISigner {
@@ -173,7 +172,7 @@ export class Signer implements ISigner {
   getPubkey = async () => this.state.group.group_pk
 
   sign = (event: StampedEvent, options: SignOptions = {}) => {
-    const {group, signerPubkeys} = this.state
+    const {group, clientSecret, signerPubkeysByIndex} = this.state
     const controller = new AbortController()
     const hashedEvent = prep(event, group.group_pk)
     const members = sample(group.threshold, group.commits).map(c => c.idx)
@@ -184,12 +183,28 @@ export class Signer implements ISigner {
     }
 
     const pkg = Lib.create_session_pkg(group, template)
+    const promise = Promise.all(
+      members.map(async idx => {
+        const signerPubkey = signerPubkeysByIndex.get(idx)!
 
-    const promise = call(async () => {
-      // Todo: Implement signing flow
-      // pass controller.signal into all network requests
-      throw new Error("Not implemented")
-    })
+        return publish({
+          relays: await fetchRelays({
+            pubkey: signerPubkey,
+            signal: controller.signal,
+            relays: this.client.indexerRelays,
+          }),
+          event: makeRPCEvent({
+            authorSecret: clientSecret,
+            recipientPubkey: signerPubkey,
+            kind: Kinds.SignatureRequest,
+            content: [
+              ['package', pkg],
+              ['event', event],
+            ],
+          }),
+        })
+      })
+    )
 
     options.signal?.addEventListener("abort", () => {
       controller.abort()

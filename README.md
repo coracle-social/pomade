@@ -36,8 +36,8 @@ The client then shares the user's `secret key` and registers each share with a d
   "kind": REGISTER,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
-    ["share", "<hex encoded SharePackage (100 bytes)>"],
-    ["group", "<hex encoded GroupPackage>"],
+    ["share", "<hex encoded share package>"],
+    ["group", "<hex encoded group package>"],
     ["threshold", "<number of signers required for signing>"],
     ["email_service", "<email service pubkey>"],
     ["email_hash", "<sha256 of user email>"],
@@ -55,8 +55,8 @@ The following public tags are required:
 
 The following private tags are required:
 
-- `share` is a share of the user's private key (see below)
-- `pubkey` is the user's hex-encoded public key
+- `share` is a `share package` containing the signer's secret share and nonces (see below)
+- `group` is a `group package` containing the shared group configuration (see below)
 - `threshold` is the number of signers required to sign an event
 
 `share` is a hex-encoded concatenation of:
@@ -151,7 +151,7 @@ When a client wants to sign an event, it must choose at least `threshold` signer
   "kind": SIGNATURE_REQUEST,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
-    ["package", "<hex encoded sign session package>"],
+    ["session", "<JSON-encoded sign session package>"],
     ["event", "<JSON-encoded event to be signed>"],
   ]),
   "tags": [
@@ -160,50 +160,46 @@ When a client wants to sign an event, it must choose at least `threshold` signer
 }
 ```
 
-`package` is a hex-encoded concatenation of:
+The `session` tag contains a JSON-encoded `sign session package` object:
 
-- `gid`: 32-bytes (group ID hash)
-- `sid`: 32-bytes (session ID hash)
-- `content_len`: 2-bytes (little-endian, 0 if null)
-- `content`: <content_len> bytes (optional metadata)
-- `stamp`: 4-bytes (little-endian, unix timestamp)
-- `type_len`: 2-bytes (little-endian)
-- `type`: <type_len> bytes (utf-8 string, e.g., "nostr-event")
-- `hashes_count`: 2-bytes (little-endian)
-- For each hash:
-  - `sighash`: 32-bytes
-  - `tweaks_count`: 1-byte
-  - For each tweak:
-    - `tweak`: 32-bytes
-- `members_count`: 2-bytes (little-endian)
-- For each member:
-  - `member_idx`: 4-bytes (little-endian)
+```typescript
+{
+  gid: string            // Group ID (32 byte hash of group data)
+  sid: string            // Session ID (32 byte hash of session params)
+  content: string | null // Optional metadata
+  stamp: number          // Unix timestamp
+  type: string           // Session type (e.g., "nostr-event")
+  hashes: string[][]     // Array of sighash vectors: [sighash, ...tweaks]
+  members: number[]      // Array of participating member indices
+}
+```
 
-The signer must then look up the `kind REGISTER` event corresponding to the given `client pubkey` AND the `user pubkey` and respond with a `kind PARTIAL_SIGNATURE` event:
+The signer must then look up the corresponding `kind REGISTER` event and respond with a `kind PARTIAL_SIGNATURE` event:
 
 ```typescript
 {
   "kind": PARTIAL_SIGNATURE,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
-    ["package", "<hex encoded partial signature package>"],
+    ["psig", "<JSON-encoded partial signature package>"],
   ]),
   "tags": [
     ["p", "<client pubkey>"],
-    ["e", "<kind COMMIT_GROUP event id>"],
+    ["e", "<kind SIGNATURE_REQUEST event id>"],
   ],
 }
 ```
 
-`package` is a hex-encoded concatenation of:
+The `psig` tag contains a JSON-encoded `partial signature package` object:
 
-- `idx`: 4-bytes (little-endian)
-- `pubkey`: 33-bytes (compressed)
-- `sid`: 32-bytes (session ID)
-- `psigs_count`: 2-bytes (little-endian)
-- For each psig:
-  - `sighash`: 32-bytes
-  - `partial_sig`: 32-bytes (big-endian scalar)
+```typescript
+{
+  idx: number       // Signer index
+  pubkey: string    // Signer's hex public key (compressed, 33 bytes)
+  sid: string       // Session ID
+  psigs: string[][] // Array of partial signatures: [sighash, partial_signature]
+}
+```
 
 The client then combines the partial signatures into an aggregated signature which can be applied to the event.
 
@@ -272,8 +268,8 @@ Each signer must then encrypt the matching `share` and `group` to the `email_ser
     ["count", "<number of signers>"],
     ["recovery_pubkey", "<recovery pubkey>"],
     ["email_ciphertext", "<nip44 encrypted user email>"],
-    ["share_ciphertext", "<encrypted hex encoded SharePackage (100 bytes)>"],
-    ["group_ciphertext", "<encrypted hex encoded GroupPackage>"],
+    ["share_ciphertext", "<encrypted hex encoded share package>"],
+    ["group_ciphertext", "<encrypted hex encoded group package>"],
   ]),
   "tags": [
     ["p", "<email service pubkey>"],
