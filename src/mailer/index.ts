@@ -3,12 +3,14 @@ import {publish, request} from '@welshman/net'
 import {RELAYS, getPubkey} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
 import {Kinds, makeRPCEvent, prepAndSign, publishRelays} from '../lib/index.js'
+import type {IStorageFactory, IStorage} from '../lib/index.js'
 
 export type MailerOptions = {
   secret: string
   inboxRelays: string[]
   outboxRelays: string[]
   indexerRelays: string[]
+  storage: IStorageFactory
 }
 
 export class Mailer {
@@ -48,8 +50,8 @@ export class Mailer {
     })
   }
 
-  start() {
-    this.publishRelays()
+  async start() {
+    await this.publishRelays()
     this.listenForEvents()
   }
 

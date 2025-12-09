@@ -1,17 +1,20 @@
 import type {MaybeAsync} from '@welshman/lib'
+import {uniq} from '@welshman/lib'
 import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import type {EventTemplate} from '@welshman/util'
 import {prep, sign, getPubkey, RELAYS, getTagValues} from '@welshman/util'
 
 export type IStorage<T> = {
-  list(): MaybeAsync<Iterable<T>>
   get(key: string): MaybeAsync<T>
   set(key: string, item: T): MaybeAsync<undefined>
-  del(key: string): MaybeAsync<undefined>
+  delete(key: string): MaybeAsync<undefined>
+  entries(): MaybeAsync<Iterable<[string, T]>>
 }
 
 export type IStorageFactory = <T>(name: string) => IStorage<T>
+
+export const defaultStorageFactory = <T>(name: string) => new Map<string, T>()
 
 export enum Kinds {
   Register = 28350,
@@ -63,8 +66,12 @@ export async function fetchRelays({
   relays: string[]
   signal?: AbortSignal
 }) {
-  const filters = [{kinds: [RELAYS], authors: [pubkey]}]
-  const [relayList] = await request({signal, relays, filters, autoClose: true})
+  const [relayList] = await request({
+    signal,
+    autoClose: true,
+    relays: uniq(relays),
+    filters: [{kinds: [RELAYS], authors: [pubkey]}],
+  })
 
   return getTagValues("r", relayList?.tags || [])
 }
@@ -84,7 +91,7 @@ export function publishRelays({
 }) {
   return publish({
     signal,
-    relays,
+    relays: uniq(relays),
     event: prepAndSign(secret, {
       kind: RELAYS,
       content: "",

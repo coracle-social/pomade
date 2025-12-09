@@ -64,8 +64,8 @@ export class Signer {
     })
   }
 
-  start() {
-    this.publishRelays()
+  async start() {
+    await this.publishRelays()
     this.listenForEvents()
   }
 

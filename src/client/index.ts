@@ -31,14 +31,12 @@ export class Client {
     userSecret,
     emailService,
     userEmail,
-    emailCollisionPolicy = 'reject',
   }: {
     total: number
     threshold: number
     userSecret: string
     emailService: string
     userEmail: string
-    emailCollisionPolicy?: 'reject' | 'replace'
   }) {
     if (this.options.signerPubkeys.length < total) {
       throw new Error('Not enough signers to meet threshold')
@@ -77,7 +75,6 @@ export class Client {
               ['email_service', emailService],
               ['email_hash', userEmailHash],
               ['email_ciphertext', userEmailCiphertext],
-              ['email_collision_policy', emailCollisionPolicy],
             ],
           })
 
@@ -124,7 +121,7 @@ export class Client {
             },
           })
 
-          if (!ackReceived) {
+          if (!ackReceived && !errorsBySignerPubkey.has(signerPubkey)) {
             errorsBySignerPubkey.set(signerPubkey, 'Failed to receive acknowledgment')
           }
         }
@@ -142,7 +139,6 @@ export class Client {
 
     return new Signer(this, {group, clientSecret, signerPubkeysByIndex})
   }
-
 
   async unregister(revoke: "current" | "others" | "all") {
   }
