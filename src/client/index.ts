@@ -4,10 +4,10 @@ import type {ISigner, SignOptions} from '@welshman/signer'
 import {publish, request, PublishStatus} from '@welshman/net'
 import {prep, makeSecret, getPubkey, getTagValue} from '@welshman/util'
 import type {TrustedEvent, EventTemplate, StampedEvent} from '@welshman/util'
+import {Lib, PackageEncoder} from '@frostr/bifrost'
+
 import {Kinds, makeRPCEvent, fetchRelays} from '../lib/index.js'
 import type {IStorageFactory, IStorage} from '../lib/index.js'
-import {trustedKeyDeal, hexShard} from '../lib/frost.js'
-import type {KeyShard} from '../lib/frost.js'
 
 export type ClientOptions = {
   inboxRelays: string[]
@@ -25,21 +25,21 @@ export class Client {
   }
 
   async register({
+    total,
     threshold,
-    maxSigners,
     userSecret,
     emailService,
     userEmail,
     emailCollisionPolicy = 'reject',
   }: {
+    total: number
     threshold: number
-    maxSigners: number
     userSecret: string
     emailService: string
     userEmail: string
     emailCollisionPolicy?: 'reject' | 'replace'
   }) {
-    if (maxSigners < threshold) {
+    if (this.options.signerPubkeys.length < total) {
       throw new Error('Not enough signers to meet threshold')
     }
 
@@ -48,7 +48,8 @@ export class Client {
     }
 
     const clientSecret = makeSecret()
-    const deal = trustedKeyDeal(BigInt('0x' + userSecret), threshold, maxSigners)
+    const {group, shares} = Lib.generate_dealer_pkg(threshold, total, [userSecret])
+    const hexGroup = Buffer.from(PackageEncoder.group.encode(group)).toString('hex')
     const userPubkey = getPubkey(userSecret)
     const userEmailHash = await sha256(textEncoder.encode(userEmail))
     const userEmailCiphertext = await nip44.encrypt(emailService, clientSecret, userEmail)
@@ -57,7 +58,9 @@ export class Client {
     const signerPubkeys: string[] = []
 
     await Promise.all(
-      deal.shards.map(async (shard, i) => {
+      shares.map(async (share, i) => {
+        const hexShare = Buffer.from(PackageEncoder.share.encode(share)).toString('hex')
+
         while (remainingSignerPubkeys.length > 0) {
           const signerPubkey = remainingSignerPubkeys.shift()!
           const signerRelays = await fetchRelays({pubkey: signerPubkey, relays: this.options.indexerRelays})
@@ -67,10 +70,9 @@ export class Client {
             recipientPubkey: signerPubkey,
             kind: Kinds.Register,
             content: [
-              ['shard', hexShard(shard)],
-              ['pubkey', userPubkey],
-              ['signers_count', String(maxSigners)],
-              ['signers_threshold', String(threshold)],
+              ['shard', hexShare],
+              ['group', hexGroup],
+              ['threshold', String(threshold)],
               ['email_service', emailService],
               ['email_hash', userEmailHash],
               ['email_ciphertext', userEmailCiphertext],
@@ -130,7 +132,7 @@ export class Client {
     )
 
     // Check if we have enough successful registrations
-    if (signerPubkeys.length < deal.shards.length) {
+    if (signerPubkeys.length < total) {
       const errors = Array.from(errorsBySignerPubkey.entries())
         .map(([pubkey, error]) => `${pubkey}: ${error}`)
         .join('\n')

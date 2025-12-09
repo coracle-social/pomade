@@ -27,6 +27,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@frostr/bifrost": "^1.0.7",
     "@welshman/lib": "^0.7.1",
     "@welshman/net": "^0.7.1",
     "@welshman/signer": "^0.7.1",

@@ -7,6 +7,8 @@ Nostr uses secp256k1 keypairs which are used to sign, encrypt, and decrypt messa
 - Email/otp "log in" such that users can recover a signing session with only an email.
 - Key recovery such that users can recover their secret key, with no trusted third parties.
 
+WARNING: this protocol has not been audited, and I don't really know what I'm doing. There could be fatal flaws resulting in key loss, theft, denial of service, or metadata leakage. Use this at your own risk.
+
 ## Components
 
 ### Client
@@ -34,10 +36,9 @@ The client then shards the user's `secret key` and registers each shard with a d
   "kind": REGISTER,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
-    ["shard", "<hex encoded secret key shard>"],
-    ["pubkey", "<hex encoded user public key>"],
-    ["signers_count", "<total number of signers in key deal>"],
-    ["signers_threshold", "<number of signers required for signing>"],
+    ["shard", "<hex encoded SharePackage (100 bytes)>"],
+    ["group", "<hex encoded GroupPackage>"],
+    ["threshold", "<number of signers required for signing>"],
     ["email_service", "<email service pubkey>"],
     ["email_hash", "<sha256 of user email>"],
     ["email_ciphertext", "<user email nip44 encrypted to email_service>"],
@@ -56,18 +57,24 @@ The following private tags are required:
 
 - `shard` is a shard of the user's private key (see below)
 - `pubkey` is the user's hex-encoded public key
-- `signers_count` is the total number of signers in the key deal
-- `signers_threshold` is the number of signers required to sign an event
+- `threshold` is the number of signers required to sign an event
 
 `shard` is a hex-encoded concatenation of:
 
-- encoded-public-shard: given by:
-  - public-shard-id: 2-bytes (little-endian)
-  - number-of-vss-commits: 4-bytes (little-endian)
-  - shard-public-key: 33-bytes (compressed)
-  - <number-of-vss-commits> * vss-commit: 33-bytes (compressed) each
-- shard-secret-key: 32-bytes (big-endian)
-- user-pubkey: 33-bytes (compressed)
+- `idx`: 4-bytes (little-endian)          // Signer index
+- `seckey`: 32-bytes (big-endian)         // Secret key share
+- `binder_sn`: 32-bytes (big-endian)      // Binder secret nonce
+- `hidden_sn`: 32-bytes (big-endian)      // Hidden secret nonce
+
+`group` is a hex-encoded concatenation of:
+
+- `group_pk`: 33-bytes (compressed)       // The user's public key
+- `threshold`: 4-bytes (little-endian)    // Signers required
+- For each member:
+  - `idx`: 4-bytes (little-endian)
+  - `pubkey`: 33-bytes (compressed)       // Member's public key
+  - `binder_pn`: 33-bytes (compressed)    // Binder public nonce
+  - `hidden_pn`: 33-bytes (compressed)    // Hidden public nonce
 
 The registration event MAY contain recovery information in its private tags, including:
 
@@ -137,52 +144,14 @@ When the user has completed the verification process, the email service must sen
 
 ### Signing
 
-When a client wants to sign an event, it must choose at least `signers_threshold` signers and send a `kind COMMIT_REQUEST` event with a private `pubkey` tag indicating the user's pubkey to each signer.
+When a client wants to sign an event, it must choose at least `threshold` signers and send a `kind SIGNATURE_REQUEST` event to each signer:
 
 ```typescript
 {
-  "kind": COMMIT_REQUEST,
+  "kind": SIGNATURE_REQUEST,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
     ["pubkey", "<user pubkey>"],
-  ]),
-  "tags": [
-    ["p", "<signer pubkey>"],
-  ],
-}
-```
-
-The signer must then look up the `kind REGISTER` event corresponding to the given `client pubkey` AND the `user pubkey` in order to generate its local commitments (a pair of public and private nonces). It must then send the public nonces to the client in a `kind COMMIT` event:
-
-```typescript
-{
-  "kind": COMMIT,
-  "pubkey": "<signer pubkey>",
-  "content": nip44_encrypt([
-    ["commit", "<hex encoded commit>"],
-  ]),
-  "tags": [
-    ["p", "<client pubkey>"],
-    ["e", "<kind COMMIT_REQUEST event id>"],
-  ],
-}
-```
-
-In which the `commit` tag contains the hex-encoded concatenation of:
-
-- commit-id: 8-bytes (little-endian)
-- signer-id: 2-bytes (little-endian)
-- binding-nonce-point: 33-bytes (compressed)
-- hiding-nonce-point: 33-bytes (compressed)
-
-Upon receiving commits from all signers, the client then aggregates the commits into a group commit and sends it back to all the signers using a `kind COMMIT_GROUP`, along with the event that is to be signed:
-
-```typescript
-{
-  "kind": COMMIT_GROUP,
-  "pubkey": "<client pubkey>",
-  "content": nip44_encrypt([
-    ["commit", "<hex encoded group commit>"],
     ["event", "<JSON-encoded event to be signed>"],
   ]),
   "tags": [
@@ -191,19 +160,14 @@ Upon receiving commits from all signers, the client then aggregates the commits 
 }
 ```
 
-In which the `commit` tag contains the hex-encoded concatenation of:
-
-- first-nonce: 33-bytes (compressed)
-- second-nonce: 33-bytes (compressed)
-
-Finally, each signer uses all commits together with their secret nonces and the hash of the event to be signed to produce a partial signature and sends that back to the client in a `kind PARTIAL_SIGNATURE` event:
+The signer must then look up the `kind REGISTER` event corresponding to the given `client pubkey` AND the `user pubkey` and respond with a `kind PARTIAL_SIGNATURE` event:
 
 ```typescript
 {
   "kind": PARTIAL_SIGNATURE,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
-    ["sig", "<hex encoded partial signature>"],
+    ["psig_pkg", "<hex encoded partial signature package>"],
   ]),
   "tags": [
     ["p", "<client pubkey>"],
@@ -212,10 +176,15 @@ Finally, each signer uses all commits together with their secret nonces and the 
 }
 ```
 
-In which the `sig` tag contains the hex-encoded concatenation of:
+`psig_pkg` is the hex-encoded concatenation of:
 
-- signer-id: 2-bytes (little-endian)
-- partial-signature-scalar: 32-bytes (big-endian)
+- `idx`: 4-bytes (little-endian)
+- `pubkey`: 33-bytes (compressed)
+- `sid`: 32-bytes (session ID)
+- `psigs_count`: 2-bytes (little-endian)
+- For each psig:
+  - `sighash`: 32-bytes
+  - `partial_sig`: 32-bytes (big-endian scalar)
 
 The client then combines the partial signatures into an aggregated signature which can be applied to the event.
 

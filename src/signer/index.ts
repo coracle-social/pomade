@@ -112,10 +112,6 @@ export class Signer {
       return cb("error", "No recovery email ciphertext was provided.")
     }
 
-    if (!["reject", "replace"].includes(meta.email_collision_policy)) {
-      return cb("error", `Invalid email collision policy: ${meta.email_collision_policy}.`)
-    }
-
     const emailServiceRelays = await fetchRelays({
       pubkey: meta.email_service,
       relays: this.options.indexerRelays,
