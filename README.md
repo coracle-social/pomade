@@ -38,10 +38,10 @@ The client then shards the user's `secret key` and registers each shard with a d
     ["pubkey", "<hex encoded user public key>"],
     ["signers_count", "<total number of signers in key deal>"],
     ["signers_threshold", "<number of signers required for signing>"],
-    ["recovery_service", "<email service pubkey>"],
-    ["recovery_email_hash", "<sha256 of user email>"],
-    ["recovery_email_ciphertext", "<user email nip44 encrypted to recovery_service>"],
-    ["recovery_email_collision", "<replace|reject>"],
+    ["email_service", "<email service pubkey>"],
+    ["email_hash", "<sha256 of user email>"],
+    ["email_ciphertext", "<user email nip44 encrypted to email_service>"],
+    ["email_collision_policy", "<replace|reject>"],
   ]),
   "tags": [
     ["p", "<signer pubkey>"]
@@ -72,10 +72,10 @@ The following private tags are required:
 
 The registration event MAY contain recovery information in its private tags, including:
 
-- `recovery_service` - the pubkey of a email service that implements this protocol.
-- `recovery_email_hash` - the sha256 hash of the user's email.
-- `recovery_email_ciphertext` - the user's email encrypted to `recovery_service` using nip 44.
-- `recovery_email_collision` - how signers should handle multiple pubkeys being associated with a single email.
+- `email_service` - the pubkey of a email service that implements this protocol.
+- `email_hash` - the sha256 hash of the user's email.
+- `email_ciphertext` - the user's email encrypted to `email_service` using nip 44.
+- `email_collision_policy` - how signers should handle multiple pubkeys being associated with a single email.
 
 This prevents the signer from learning the email of the user, while also enabling it to pass the email along to the email service.
 
@@ -96,9 +96,9 @@ Each signer must then explicitly accept or (optionally) reject the shard:
 }
 ```
 
-This event MUST include `status` and `message` in its private tags. If a `recovery_email` is included, signers MUST validate ownership of the email if provided (see below), in the meantime returning `pending` with a helpful `message`. When the email has been validated, the signer must then send another ack for the same event with `status=ok`.
+This event MUST include `status` and `message` in its private tags. If a `email` is included, signers MUST validate ownership of the email if provided (see below), in the meantime returning `pending` with a helpful `message`. When the email has been validated, the signer must then send another ack for the same event with `status=ok`.
 
-Signers MUST reject registration events that associate a second pubkey with an email already registered, since there's no way for users to easily select a pubkey when recovering via email. Clients SHOULD set `recovery_email_collision` to `reject` the first time a user attempts to register. If registration fails, signers MUST return an error in the ack event. The client SHOULD show this error to a user and MAY re-try with `replace` as the collision policy. Signers MUST NOT replace sessions until the user's email has been validated.
+Signers MUST reject registration events that associate a second pubkey with an email already registered, since there's no way for users to easily select a pubkey when recovering via email. Clients SHOULD set `email_collision_policy` to `reject` the first time a user attempts to register. If registration fails, signers MUST return an error in the ack event. The client SHOULD show this error to a user and MAY re-try with `replace` as the collision policy. Signers MUST NOT replace sessions until the user's email has been validated.
 
 The same signer MUST NOT be used multiple times for different shards of the same key.
 
@@ -112,7 +112,7 @@ In order to validate a user's email, a signer must send a `kind VALIDATE_EMAIL` 
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
     ["id", "<sha256(user pubkey, client pubkey)>"],
-    ["recovery_email_ciphertext", "<nip44 encrypted user email>"],
+    ["email_ciphertext", "<nip44 encrypted user email>"],
   ]),
   "tags": [
     ["p", "<email service pubkey>"],
@@ -120,7 +120,7 @@ In order to validate a user's email, a signer must send a `kind VALIDATE_EMAIL` 
 }
 ```
 
-This event must include a request `id` of `sha256(user pubkey, client pubkey)` to allow email services to accurately batch requests in order to avoid duplicate emails being sent to the user without false positives (which can lead to a denial of service if `recovery_email_collision` is set to `replace`).
+This event must include a request `id` of `sha256(user pubkey, client pubkey)` to allow email services to accurately batch requests in order to avoid duplicate emails being sent to the user without false positives (which can lead to a denial of service if `email_collision_policy` is set to `replace`).
 
 When the user has completed the verification process, the email service must send a `kind VALIDATE_EMAIL_ACK` to each signer:
 
@@ -249,7 +249,7 @@ To recover the user's original `secret key` by email alone without access to an 
   "kind": RECOVER_SHARD,
   "pubkey": "<recovery pubkey>",
   "content": nip44_encrypt([
-    ["recovery_email_hash", "<sha256 hash of user email>"],
+    ["email_hash", "<sha256 hash of user email>"],
   ]),
   "tags": [
     ["p", "<signer pubkey>"],
@@ -257,7 +257,7 @@ To recover the user's original `secret key` by email alone without access to an 
 }
 ```
 
-Each signer then finds any shards that were registered with `recovery_email_hash` and encrypts them to the `recovery_service` provided when the shard was registered. It then sends these shards, along with their corresponding `recovery_email_ciphertext` to the `recovery_service` using a `kind RELEASE_SHARD` event:
+Each signer then finds any shards that were registered with `email_hash` and encrypts them to the `email_service` provided when the shard was registered. It then sends these shards, along with their corresponding `email_ciphertext` to the `email_service` using a `kind RELEASE_SHARD` event:
 
 ```typescript
 {
@@ -267,7 +267,7 @@ Each signer then finds any shards that were registered with `recovery_email_hash
     ["signers_count", "<number of signers in the deal>"],
     ["signers_threshold", "<number of signers required for signing>"],
     ["recovery_pubkey", "<recovery pubkey>"],
-    ["recovery_email_ciphertext", "<nip44 encrypted user email>"],
+    ["email_ciphertext", "<nip44 encrypted user email>"],
     ["shard_ciphertext", "<encrypted hex encoded secret key shard>"],
   ]),
   "tags": [
@@ -276,7 +276,7 @@ Each signer then finds any shards that were registered with `recovery_email_hash
 }
 ```
 
-The email service waits until at least `signers_threshold` shards have been received and sends all `shard_ciphertext` values to the decrypted `recovery_email`.
+The email service waits until at least `signers_threshold` shards have been received and sends all `shard_ciphertext` values to the decrypted `email`.
 
 The user can then copy the encrypted shards into their recovery client, which uses the `recovery key` the user generated at the beginning of the process to decrypt all shards and reconstitute the user's secret key.
 
@@ -291,7 +291,7 @@ To log in to a user's existing signing session by email alone, a client must req
   "kind": REQUEST_OTP,
   "pubkey": "<login pubkey>",
   "content": nip44_encrypt([
-    ["recovery_email_hash", "<sha256 hash of user email>"],
+    ["email_hash", "<sha256 hash of user email>"],
   ]),
   "tags": [
     ["p", "<signer pubkey>"],
@@ -299,7 +299,7 @@ To log in to a user's existing signing session by email alone, a client must req
 }
 ```
 
-Each signer then generates a single-use expiring OTP and associates it with the shard that was registered with `recovery_email_hash`. The signer then encrypts the OTP and sends it to the `recovery_service` using a `kind SEND_OTP` event:
+Each signer then generates a single-use expiring OTP and associates it with the shard that was registered with `email_hash`. The signer then encrypts the OTP and sends it to the `email_service` using a `kind SEND_OTP` event:
 
 ```typescript
 {
@@ -309,7 +309,7 @@ Each signer then generates a single-use expiring OTP and associates it with the 
     ["signers_count", "<number of signers in the deal>"],
     ["signers_threshold", "<number of signers required for signing>"],
     ["login_pubkey", "<login pubkey>"],
-    ["recovery_email_ciphertext", "<nip44 encrypted user email>"],
+    ["email_ciphertext", "<nip44 encrypted user email>"],
     ["otp_ciphertext", "<encrypted OTP>"],
   ]),
   "tags": [
@@ -318,7 +318,7 @@ Each signer then generates a single-use expiring OTP and associates it with the 
 }
 ```
 
-The email service waits until at least `signers_threshold` (ideally, `signers_count`) shards have been received and sends the payload to the decrypted `recovery_email`. The payload should be a base58 concatenation of the signers pubkeys and OTP codes in the following format:
+The email service waits until at least `signers_threshold` (ideally, `signers_count`) shards have been received and sends the payload to the decrypted `email`. The payload should be a base58 concatenation of the signers pubkeys and OTP codes in the following format:
 
 `pubkey1:otp1_ciphertext,pubkey2,otp2_ciphertext`
 
@@ -330,7 +330,7 @@ The user can then copy the payload into their client, which generates a fresh `c
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
     ["otp", "<otp code>"],
-    ["recovery_email_hash", "<sha256 of user email>"],
+    ["email_hash", "<sha256 of user email>"],
   ]),
   "tags": [
     ["p", "<signer pubkey>"],

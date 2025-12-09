@@ -25,5 +25,12 @@
   "devDependencies": {
     "rimraf": "~6.0.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@noble/curves": "^2.0.1",
+    "@welshman/lib": "^0.7.1",
+    "@welshman/net": "^0.7.1",
+    "@welshman/signer": "^0.7.1",
+    "@welshman/util": "^0.7.1"
   }
 }
