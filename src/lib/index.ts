@@ -1,7 +1,8 @@
 import type {MaybeAsync} from '@welshman/lib'
 import {nip44} from '@welshman/signer'
+import {publish, request} from '@welshman/net'
 import type {EventTemplate} from '@welshman/util'
-import {prep, sign, getPubkey} from '@welshman/util'
+import {prep, sign, getPubkey, RELAYS, getTagValues} from '@welshman/util'
 
 export type IStorage<T> = {
   list(): MaybeAsync<Iterable<T>>
@@ -50,5 +51,47 @@ export function makeRPCEvent({
     kind,
     tags: [["p", recipientPubkey], ...tags],
     content: nip44.encrypt(recipientPubkey, authorSecret, JSON.stringify(content)),
+  })
+}
+
+export async function fetchRelays({
+  pubkey,
+  relays,
+  signal,
+}: {
+  pubkey: string
+  relays: string[]
+  signal?: AbortSignal
+}) {
+  const filters = [{kinds: [RELAYS], authors: [pubkey]}]
+  const [relayList] = await request({signal, relays, filters, autoClose: true})
+
+  return getTagValues("r", relayList?.tags || [])
+}
+
+export function publishRelays({
+  secret,
+  relays,
+  signal,
+  inboxRelays,
+  outboxRelays,
+}: {
+  secret: string
+  relays: string[]
+  signal?: AbortSignal
+  inboxRelays: string[],
+  outboxRelays: string[],
+}) {
+  return publish({
+    signal,
+    relays,
+    event: prepAndSign(secret, {
+      kind: RELAYS,
+      content: "",
+      tags: [
+        ...outboxRelays.map(url => ["r", url, "write"]),
+        ...inboxRelays.map(url => ["r", url, "read"]),
+      ]
+    })
   })
 }

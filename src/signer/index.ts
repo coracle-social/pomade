@@ -3,7 +3,7 @@ import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import {RELAYS, makeSecret, getPubkey, getTagValues} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
-import {Kinds, makeRPCEvent, prepAndSign} from '../lib/index.js'
+import {Kinds, makeRPCEvent, prepAndSign, publishRelays, fetchRelays} from '../lib/index.js'
 import type {IStorageFactory, IStorage} from '../lib/index.js'
 
 export type SignerOptions = {
@@ -23,17 +23,12 @@ export class Signer {
   }
 
   publishRelays() {
-    return publish({
+    return publishRelays({
+      secret: this.options.secret,
       signal: this.abortController.signal,
       relays: [...this.options.indexerRelays, ...this.options.outboxRelays],
-      event: prepAndSign(this.options.secret, {
-        kind: RELAYS,
-        content: "",
-        tags: [
-          ...this.options.outboxRelays.map(url => ["r", url, "write"]),
-          ...this.options.inboxRelays.map(url => ["r", url, "read"]),
-        ]
-      })
+      outboxRelays: this.options.outboxRelays,
+      inboxRelays: this.options.inboxRelays,
     })
   }
 
@@ -121,22 +116,28 @@ export class Signer {
       return cb("error", `Invalid email collision policy: ${meta.email_collision_policy}.`)
     }
 
-    const [emailServiceRelayList] = await request({
-      autoClose: true,
-      signal: this.abortController.signal,
+    const emailServiceRelays = await fetchRelays({
+      pubkey: meta.email_service,
       relays: this.options.indexerRelays,
-      filters: [{kinds: [RELAYS], authors: [meta.email_service!]}],
+      signal: this.abortController.signal,
     })
 
-    if (!emailServiceRelayList) {
+    if (emailServiceRelays.length === 0) {
       return cb("error", "Failed to fetch email service relay selections.")
     }
 
-    const emailServiceRelays = getTagValues("r", emailServiceRelayList.tags)
-
-    if (emailServiceRelays.length === 0) {
-      return cb("error", "No relay selections found for selected email service.")
-    }
+    await publish({
+      signal: this.abortController.signal,
+      relays: this.options.outboxRelays,
+      event: makeRPCEvent({
+        authorSecret: this.options.secret,
+        recipientPubkey: meta.email_service,
+        kind: Kinds.ValidateEmail,
+        content: [
+          // TODO
+        ],
+      })
+    })
 
     this.pendingRegistrations.set(event.pubkey, event)
 

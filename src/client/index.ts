@@ -1,11 +1,17 @@
-import {sha256, textEncoder} from '@welshman/lib'
+import {sha256, parseJson, spec, textEncoder} from '@welshman/lib'
 import {nip44} from '@welshman/signer'
-import {publish, request} from '@welshman/net'
-import {makeSecret, getPubkey} from '@welshman/util'
-import {Kinds, makeRPCEvent} from '../lib/index.js'
+import {publish, request, PublishStatus} from '@welshman/net'
+import {makeSecret, getPubkey, getTagValue} from '@welshman/util'
+import type {TrustedEvent} from '@welshman/util'
+import {Kinds, makeRPCEvent, fetchRelays} from '../lib/index.js'
+import {trustedKeyDeal, hexShard} from '../lib/frost.js'
+import type {KeyShard} from '../lib/frost.js'
 
 export type CreateClientOptions = {
   inboxRelays: string[]
+  outboxRelays: string[]
+  indexerRelays: string[]
+  signerPubkeys: string[]
 }
 
 export type ClientOptions = CreateClientOptions & {
@@ -13,7 +19,11 @@ export type ClientOptions = CreateClientOptions & {
 }
 
 export class Client {
-  constructor(private options: ClientOptions) {}
+  constructor(private options: ClientOptions) {
+    if (options.inboxRelays.length === 0) {
+      throw new Error('No inbox relays configured for client')
+    }
+  }
 
   static create(options: CreateClientOptions) {
     return new Client({...options, secret: makeSecret()})
@@ -21,173 +31,120 @@ export class Client {
 
   async register({
     threshold,
+    maxSigners,
     userSecret,
-    signerPubkeys,
-    recoveryService,
-    recoveryEmail,
+    emailService,
+    userEmail,
+    emailCollisionPolicy = 'reject',
   }: {
     threshold: number
+    maxSigners: number
     userSecret: string
-    signerPubkeys: string[]
-    recoveryService: string
-    recoveryEmail: string
+    emailService: string
+    userEmail: string
+    emailCollisionPolicy?: 'reject' | 'replace'
   }) {
+    if (maxSigners < threshold) {
+      throw new Error('Not enough signers to meet threshold')
+    }
+
+    if (threshold <= 0) {
+      throw new Error('Threshold must be greater than 0')
+    }
+
+    const deal = trustedKeyDeal(BigInt('0x' + userSecret), threshold, maxSigners)
     const userPubkey = getPubkey(userSecret)
-    const recoveryEmailHash = await sha256(textEncoder.encode(recoveryEmail))
-    const recoveryEmailCiphertext = await nip44.encrypt(recoveryService, this.options.secret, recoveryEmail)
+    const userEmailHash = await sha256(textEncoder.encode(userEmail))
+    const userEmailCiphertext = await nip44.encrypt(emailService, this.options.secret, userEmail)
+    const remainingSignerPubkeys = Array.from(this.options.signerPubkeys)
+    const shardsBySignerPubkey = new Map<string, KeyShard>()
+    const errorsBySignerPubkey = new Map<string, string>()
 
-    // todo: implement logic for sending shards and handling errors.
-    //
-    // here is a stubbed out register event:
-    // const event = makeRPCEvent({
-    //   authorSecret: this.secret,
-    //   recipientPubkey: signerPubkey,
-    //   kind: Kinds.Register,
-    //   content: [
-    //     ["shard", "<hex encoded secret key shard>"],
-    //     ["pubkey", userPubkey],
-    //     ["signers_count", signerPubkeys.length],
-    //     ["signers_threshold", threshold],
-    //     ["recovery_service", recoveryService],
-    //     ["recovery_email_hash", recoveryEmailHash],
-    //     ["recovery_email_ciphertext", recoveryEmailCiphertext],
-    //     ["recovery_email_collision", "reject"],
-    //   ],
-    // })
-    //
-    // Here is code from a different implementation that uses a coordinator. Do not use the coordinator, but do use similar logic:
-    // const [m, n] = options.policy
+    await Promise.all(
+      deal.shards.map(async (shard, i) => {
+        while (remainingSignerPubkeys.length > 0) {
+          const signerPubkey = remainingSignerPubkeys.shift()!
+          const signerRelays = await fetchRelays({pubkey: signerPubkey, relays: this.options.indexerRelays})
 
-    // if (options.signerPubkeys.length < n) {
-    //   throw new Error("Not enough signers to create all shards")
-    // }
+          const registerEvent = makeRPCEvent({
+            authorSecret: this.options.secret,
+            recipientPubkey: signerPubkey,
+            kind: Kinds.Register,
+            content: [
+              ['shard', hexShard(shard)],
+              ['pubkey', userPubkey],
+              ['signers_count', String(maxSigners)],
+              ['signers_threshold', String(threshold)],
+              ['email_service', emailService],
+              ['email_hash', userEmailHash],
+              ['email_ciphertext', userEmailCiphertext],
+              ['email_collision_policy', emailCollisionPolicy],
+            ],
+          })
 
-    // const deal = trustedKeyDeal(BigInt("0x" + options.secret), m, n)
+          const publishResults = await publish({relays: signerRelays, event: registerEvent})
 
-    // // Add the VSS commits to each shard
-    // // for (const shard of deal.shards) {
-    // //   shard.pubShard.vssCommit = deal.commits
-    // // }
+          // Check if at least one relay accepted the event
+          if (!Object.values(publishResults).some(spec({status: PublishStatus.Success}))) {
+            errorsBySignerPubkey.set(signerPubkey, 'Failed to publish registration event')
+            return
+          }
 
-    // // Use the pubkey and adjusted secret from the deal (BIP-340 adjusted if needed)
-    // const signer = Nip01Signer.fromSecret(options.secret)
-    // const ourPubkey = await signer.getPubkey()
-    // const ackRelays = await options.getPubkeyRelays(ourPubkey, RelayMode.Read)
-    // const remainingSignerPubkeys = shuffle(uniq(options.signerPubkeys))
-    // const errorsBySignerPubkey = new Map<string, string>()
-    // const shardsBySignerPubkey = new Map<string, KeyShard>()
+          // Wait for acknowledgment from the signer
+          const controller = new AbortController()
+          const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
 
-    // if (ackRelays.length === 0) {
-    //   throw new Error("No read relays returned for user pubkey")
-    // }
 
-    // nip46Log(`generated promenade shards for user ${ourPubkey}`, deal)
+          let ackReceived = false
 
-    // await Promise.all(
-    //   deal.shards.map(async (shard, i) => {
-    //     while (remainingSignerPubkeys.length > 0) {
-    //       const signerPubkey = remainingSignerPubkeys.shift()!
+          await request({
+            signal,
+            relays: this.options.inboxRelays,
+            filters: [
+              {
+                kinds: [Kinds.RegisterACK],
+                authors: [signerPubkey],
+                '#p': [getPubkey(this.options.secret)],
+                '#e': [registerEvent.id],
+              },
+            ],
+            onEvent: async (event: TrustedEvent) => {
+              const tags: string[][] = parseJson(await nip44.decrypt(signerPubkey, this.options.secret, event.content))
+              const message = getTagValue('message', tags)
+              const status = getTagValue('status', tags)
 
-    //       nip46Log(`generating proof of work for shard ${i}`)
+              if (status === 'ok') {
+                shardsBySignerPubkey.set(signerPubkey, shard)
+                ackReceived = true
+                controller.abort()
+              }
 
-    //       const shardTemplate = makeEvent(PROMENADE_SHARD_SHARE, {
-    //         content: await signer.nip44.encrypt(signerPubkey, hexShard(shard)),
-    //         tags: [
-    //           ["p", signerPubkey],
-    //           ["coordinator", options.coordinatorUrl],
-    //           ...ackRelays.map(url => ["reply", url]),
-    //         ],
-    //       })
+              if (status === 'error') {
+                errorsBySignerPubkey.set(signerPubkey, message || "Unknown error")
+                controller.abort()
+              }
+            },
+          })
 
-    //       const shardTemplateWithWork = await tryCatch(() =>
-    //         options.generatePow(prep(shardTemplate, ourPubkey), 20),
-    //       )
+          if (!ackReceived) {
+            errorsBySignerPubkey.set(signerPubkey, 'Failed to receive acknowledgment')
+          }
+        }
+      }),
+    )
 
-    //       if (!shardTemplateWithWork) {
-    //         errorsBySignerPubkey.set(signerPubkey, "Failed to generate work")
-    //         continue
-    //       }
+    // Check if we have enough successful registrations
+    if (shardsBySignerPubkey.size < deal.shards.length) {
+      const errors = Array.from(errorsBySignerPubkey.entries())
+        .map(([pubkey, error]) => `${pubkey}: ${error}`)
+        .join('\n')
 
-    //       const shardEvent = await signer.sign(shardTemplateWithWork)
-    //       const shardRelays = await options.getPubkeyRelays(signerPubkey, RelayMode.Read)
-    //       const publishResults = await publish({relays: shardRelays, event: shardEvent})
+      throw new Error(`Failed to register all shards:\n${errors}`)
+    }
 
-    //       nip46Log(`published shard ${i} to signer ${signerPubkey}`, shardRelays, publishResults)
-
-    //       if (!Object.values(publishResults).some(spec({status: PublishStatus.Success}))) {
-    //         errorsBySignerPubkey.set(signerPubkey, "Failed to publish shard")
-    //         continue
-    //       }
-
-    //       const controller = new AbortController()
-    //       const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
-
-    //       await request({
-    //         signal,
-    //         relays: ackRelays,
-    //         filters: [
-    //           {
-    //             kinds: [PROMENADE_SHARD_ACK],
-    //             authors: [signerPubkey],
-    //             "#p": [ourPubkey],
-    //             "#e": [shardEvent.id],
-    //           },
-    //         ],
-    //         onEvent: (event: TrustedEvent, url: string) => {
-    //           nip46Log(`received ack for shard ${i} from signer ${signerPubkey} on ${url}`)
-    //           shardsBySignerPubkey.set(signerPubkey, shard)
-    //           options.onProgress?.(shardsBySignerPubkey.size / inc(n))
-    //           controller.abort()
-    //         },
-    //       })
-
-    //       if (shardsBySignerPubkey.has(signerPubkey)) {
-    //         break
-    //       } else {
-    //         errorsBySignerPubkey.set(signerPubkey, "Failed to receive shard ACK")
-    //         nip46Log(`failed to receive ack for shard ${i} from signer ${signerPubkey}`)
-    //       }
-    //     }
-    //   }),
-    // )
-
-    // if (shardsBySignerPubkey.size < deal.shards.length) {
-    //   throw new PromenadeShardError("Failed to publish all shards", errorsBySignerPubkey)
-    // }
-
-    // const connectSecret = randomId()
-    // const signerSecret = makeSecret()
-    // const signerPubkey = getPubkey(signerSecret)
-    // const tags = [
-    //   ["h", signerPubkey],
-    //   ["threshold", String(m)],
-    //   ["handlersecret", signerSecret],
-    //   ["profile", "MAIN", connectSecret, ""],
-    // ]
-
-    // for (const [pubkey, shard] of shardsBySignerPubkey) {
-    //   tags.push(["p", pubkey, hexPubShard(shard.pubShard)])
-    // }
-
-    // nip46Log(`registering coordinator account`, tags)
-
-    // const relays = [options.coordinatorUrl]
-    // const event = await signer.sign(makeEvent(PROMENADE_REGISTER_ACCOUNT, {tags}))
-    // const accountResults = await publish({relays, event})
-
-    // if (!Object.values(accountResults).some(spec({status: PublishStatus.Success}))) {
-    //   throw new Error("Failed to publish accounts to coordinator")
-    // }
-
-    // nip46Log(`successfully created promenade broker`)
-
-    // const clientSecret = makeSecret()
-
-    // return new Nip46Broker({
-    //   relays,
-    //   clientSecret,
-    //   signerPubkey,
-    //   connectSecret,
-    // })
+    return {
+      userPubkey,
+      shardsBySignerPubkey,
+    }
   }
 }

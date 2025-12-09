@@ -2,7 +2,7 @@ import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import {RELAYS, getPubkey} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
-import {Kinds, makeRPCEvent, prepAndSign} from '../lib/index.js'
+import {Kinds, makeRPCEvent, prepAndSign, publishRelays} from '../lib/index.js'
 
 export type MailerOptions = {
   secret: string
@@ -17,17 +17,12 @@ export class Mailer {
   constructor(private options: MailerOptions) {}
 
   publishRelays() {
-    return publish({
+    return publishRelays({
+      secret: this.options.secret,
       signal: this.abortController.signal,
       relays: [...this.options.indexerRelays, ...this.options.outboxRelays],
-      event: prepAndSign(this.options.secret, {
-        kind: RELAYS,
-        content: "",
-        tags: [
-          ...this.options.outboxRelays.map(url => ["r", url, "write"]),
-          ...this.options.inboxRelays.map(url => ["r", url, "read"]),
-        ]
-      })
+      outboxRelays: this.options.outboxRelays,
+      inboxRelays: this.options.inboxRelays,
     })
   }
 
