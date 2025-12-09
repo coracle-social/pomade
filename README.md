@@ -15,11 +15,11 @@ A _client_ is an application that can be trusted to (temporarily) handle key mat
 
 ### Signer
 
-A _signer_ is a headless application that can be trusted to store key shards and collaborate in building threshold signatures. A signer is identified by a nostr public key. Communication is brokered by the signer's NIP 65 `inbox` and `outbox` relays.
+A _signer_ is a headless application that can be trusted to store key shards and collaborate in building threshold signatures. A signer is identified by a nostr public key. Communication is brokered following NIP 65.
 
 ### Email Service
 
-A _email service_ is a headless application that can be trusted to send emails containing encrypted data to users, but not to access key material. Communication is brokered by the email service's NIP 65 `inbox` and `outbox` relays.
+A _email service_ is a headless application that can be trusted to send emails containing encrypted data to users, but not to access key material. Communication is brokered following NIP 65.
 
 ## Protocol Overview
 
@@ -363,3 +363,9 @@ the signature algorithm is implemented roughly as described in the https://eprin
   - for BIP-340 compatibility, when creating partial signatures, signers have to compute the group commitment, and if it's `y` is odd then all the public nonces and their own private nonce is negated;
   - for BIP-340 compatibility, then signing challenge is computed with `taggedhash("BIP0340/challenge", group-commitment-x || user-pubkey-x || event_id)`;
   - because it felt appropriate, other parts of the algorithm that would use hashes also use `taggedhash()` with different tags, the code will speak better than I can.
+
+There are a few denial-of-service attack vectors and privacy leaks in this spec, which are to a certain extent unavoidable with email-based login and recovery. Keep these in mind when directing users to use this or another approach for login.
+
+- Anyone can initiate a recovery or login flow for any email address, spamming the mailer service and the end user's email inbox. This is mitigated by using one-off client keys to sign messages, such that neither a user's pubkey nor email is visible. This attack is only possible if an attacker knows which bunkers a given email is registered with.
+- Malicious email services can block registration, recovery, and login if they choose not to send messages to certain emails.
+- Signers have access to user pubkeys and email services have access to user emails, but neither have access to both, preventing trivial correlation. However, email hashes are not salted, so it is possible to break the hashes given a list of valid emails.

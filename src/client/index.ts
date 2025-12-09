@@ -1,21 +1,20 @@
-import {sha256, parseJson, spec, textEncoder} from '@welshman/lib'
-import {nip44} from '@welshman/signer'
+import {sha256, call, thrower, parseJson, spec, textEncoder} from '@welshman/lib'
+import {nip44, signWithOptions} from '@welshman/signer'
+import type {ISigner, SignOptions} from '@welshman/signer'
 import {publish, request, PublishStatus} from '@welshman/net'
-import {makeSecret, getPubkey, getTagValue} from '@welshman/util'
-import type {TrustedEvent} from '@welshman/util'
+import {prep, makeSecret, getPubkey, getTagValue} from '@welshman/util'
+import type {TrustedEvent, EventTemplate, StampedEvent} from '@welshman/util'
 import {Kinds, makeRPCEvent, fetchRelays} from '../lib/index.js'
+import type {IStorageFactory, IStorage} from '../lib/index.js'
 import {trustedKeyDeal, hexShard} from '../lib/frost.js'
 import type {KeyShard} from '../lib/frost.js'
 
-export type CreateClientOptions = {
+export type ClientOptions = {
   inboxRelays: string[]
   outboxRelays: string[]
   indexerRelays: string[]
   signerPubkeys: string[]
-}
-
-export type ClientOptions = CreateClientOptions & {
-  secret: string
+  storage: IStorageFactory
 }
 
 export class Client {
@@ -23,10 +22,6 @@ export class Client {
     if (options.inboxRelays.length === 0) {
       throw new Error('No inbox relays configured for client')
     }
-  }
-
-  static create(options: CreateClientOptions) {
-    return new Client({...options, secret: makeSecret()})
   }
 
   async register({
@@ -52,13 +47,14 @@ export class Client {
       throw new Error('Threshold must be greater than 0')
     }
 
+    const clientSecret = makeSecret()
     const deal = trustedKeyDeal(BigInt('0x' + userSecret), threshold, maxSigners)
     const userPubkey = getPubkey(userSecret)
     const userEmailHash = await sha256(textEncoder.encode(userEmail))
-    const userEmailCiphertext = await nip44.encrypt(emailService, this.options.secret, userEmail)
+    const userEmailCiphertext = await nip44.encrypt(emailService, clientSecret, userEmail)
     const remainingSignerPubkeys = Array.from(this.options.signerPubkeys)
-    const shardsBySignerPubkey = new Map<string, KeyShard>()
     const errorsBySignerPubkey = new Map<string, string>()
+    const signerPubkeys: string[] = []
 
     await Promise.all(
       deal.shards.map(async (shard, i) => {
@@ -67,7 +63,7 @@ export class Client {
           const signerRelays = await fetchRelays({pubkey: signerPubkey, relays: this.options.indexerRelays})
 
           const registerEvent = makeRPCEvent({
-            authorSecret: this.options.secret,
+            authorSecret: clientSecret,
             recipientPubkey: signerPubkey,
             kind: Kinds.Register,
             content: [
@@ -104,17 +100,17 @@ export class Client {
               {
                 kinds: [Kinds.RegisterACK],
                 authors: [signerPubkey],
-                '#p': [getPubkey(this.options.secret)],
+                '#p': [getPubkey(clientSecret)],
                 '#e': [registerEvent.id],
               },
             ],
             onEvent: async (event: TrustedEvent) => {
-              const tags: string[][] = parseJson(await nip44.decrypt(signerPubkey, this.options.secret, event.content))
+              const tags: string[][] = parseJson(await nip44.decrypt(signerPubkey, clientSecret, event.content))
               const message = getTagValue('message', tags)
               const status = getTagValue('status', tags)
 
               if (status === 'ok') {
-                shardsBySignerPubkey.set(signerPubkey, shard)
+                signerPubkeys.push(signerPubkey)
                 ackReceived = true
                 controller.abort()
               }
@@ -134,7 +130,7 @@ export class Client {
     )
 
     // Check if we have enough successful registrations
-    if (shardsBySignerPubkey.size < deal.shards.length) {
+    if (signerPubkeys.length < deal.shards.length) {
       const errors = Array.from(errorsBySignerPubkey.entries())
         .map(([pubkey, error]) => `${pubkey}: ${error}`)
         .join('\n')
@@ -142,9 +138,61 @@ export class Client {
       throw new Error(`Failed to register all shards:\n${errors}`)
     }
 
-    return {
-      userPubkey,
-      shardsBySignerPubkey,
-    }
+    return new Signer(this, {userPubkey, clientSecret, signerPubkeys})
+  }
+
+
+  async unregister(revoke: "current" | "others" | "all") {
+  }
+
+  async startRecovery(email: string) {
+  }
+
+  async completeRecovery(payload: string) {
+  }
+
+  async startLogin(email: string) {
+  }
+
+  async completeLogin(email: string, payload: string) {
+  }
+}
+
+export type SignerOptions = {
+  userPubkey: string,
+  clientSecret: string,
+  signerPubkeys: string[],
+}
+
+export class Signer implements ISigner {
+  constructor(private client: Client, private state: SignerOptions) {}
+
+  getPubkey = async () => this.state.userPubkey
+
+  sign = (event: StampedEvent, options: SignOptions = {}) => {
+    const controller = new AbortController()
+    const hashedEvent = prep(event, this.state.userPubkey)
+    const promise = call(async () => {
+      // Todo: Implement signing flow
+      // pass controller.signal into all network requests
+      throw new Error("Not implemented")
+    })
+
+    options.signal?.addEventListener("abort", () => {
+      controller.abort()
+    })
+
+    return signWithOptions(promise, options)
+  }
+
+  nip04 = {
+    encrypt: thrower("Multisig signers do not support encryption."),
+    decrypt: thrower("Multisig signers do not support encryption."),
+  }
+
+  nip44 = {
+    encrypt: thrower("Multisig signers do not support encryption."),
+    decrypt: thrower("Multisig signers do not support encryption."),
+
   }
 }
