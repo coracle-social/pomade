@@ -41,7 +41,6 @@ The client then shards the user's `secret key` and registers each shard with a d
     ["email_service", "<email service pubkey>"],
     ["email_hash", "<sha256 of user email>"],
     ["email_ciphertext", "<user email nip44 encrypted to email_service>"],
-    ["email_collision_policy", "<replace|reject>"],
   ]),
   "tags": [
     ["p", "<signer pubkey>"]
@@ -75,7 +74,6 @@ The registration event MAY contain recovery information in its private tags, inc
 - `email_service` - the pubkey of a email service that implements this protocol.
 - `email_hash` - the sha256 hash of the user's email.
 - `email_ciphertext` - the user's email encrypted to `email_service` using nip 44.
-- `email_collision_policy` - how signers should handle multiple pubkeys being associated with a single email.
 
 This prevents the signer from learning the email of the user, while also enabling it to pass the email along to the email service.
 
@@ -96,11 +94,11 @@ Each signer must then explicitly accept or (optionally) reject the shard:
 }
 ```
 
-This event MUST include `status` and `message` in its private tags. If a `email` is included, signers MUST validate ownership of the email if provided (see below), in the meantime returning `pending` with a helpful `message`. When the email has been validated, the signer must then send another ack for the same event with `status=ok`.
+This event MUST include `status` and `message` in its private tags. If a `email` is included, signers MUST validate ownership it (see below), in the meantime returning `pending` with a helpful `message`. When the email has been validated, the signer must then send another ack for the same event with `status=ok`.
 
-Signers MUST reject registration events that associate a second pubkey with an email already registered, since there's no way for users to easily select a pubkey when recovering via email. Clients SHOULD set `email_collision_policy` to `reject` the first time a user attempts to register. If registration fails, signers MUST return an error in the ack event. The client SHOULD show this error to a user and MAY re-try with `replace` as the collision policy. Signers MUST NOT replace sessions until the user's email has been validated.
+If a session exists with the same `email_hash` or `pubkey`, signers SHOULD create a new session rather than replacing the old one or rejecting the new one.
 
-The same signer MUST NOT be used multiple times for different shards of the same key.
+The same signer MUST NOT be used multiple times for multiple shards of the same key.
 
 ### Email Validation
 
@@ -111,7 +109,7 @@ In order to validate a user's email, a signer must send a `kind VALIDATE_EMAIL` 
   "kind": VALIDATE_EMAIL,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
-    ["id", "<sha256(user pubkey, client pubkey)>"],
+    ["client", "<client pubkey>"],
     ["email_ciphertext", "<nip44 encrypted user email>"],
   ]),
   "tags": [
@@ -120,7 +118,7 @@ In order to validate a user's email, a signer must send a `kind VALIDATE_EMAIL` 
 }
 ```
 
-This event must include a request `id` of `sha256(user pubkey, client pubkey)` to allow email services to accurately batch requests in order to avoid duplicate emails being sent to the user without false positives (which can lead to a denial of service if `email_collision_policy` is set to `replace`).
+This event must include a `client` tag containing the client pubkey in order to allow email services to accurately batch requests.
 
 When the user has completed the verification process, the email service must send a `kind VALIDATE_EMAIL_ACK` to each signer:
 
@@ -129,7 +127,7 @@ When the user has completed the verification process, the email service must sen
   "kind": VALIDATE_EMAIL_ACK,
   "pubkey": "<email service pubkey>",
   "content": nip44_encrypt([
-    ["id", "<sha256(user pubkey, client pubkey)>"],
+    ["client", "<client pubkey>"],
   ]),
   "tags": [
     ["p", "<signer pubkey>"],
@@ -242,7 +240,7 @@ The client MUST include a private `revoke` tag which indicates whether the user 
 
 ### Recovery
 
-To recover the user's original `secret key` by email alone without access to an active `client key`, a client must `sha256` hash the user's email and generate a new single-use `recovery key`. It then sends this to each signer using a `kind RECOVER_SHARD` event:
+To recover the user's original `secret key` by email alone without access to an active `client key`, a client must `sha256` hash the user's email and generate a new single-use `recovery key`. It then sends a `kind RECOVER_SHARD` event to each signer:
 
 ```typescript
 {
@@ -257,11 +255,30 @@ To recover the user's original `secret key` by email alone without access to an 
 }
 ```
 
-Each signer then finds any shards that were registered with `email_hash` and encrypts them to the `email_service` provided when the shard was registered. It then sends these shards, along with their corresponding `email_ciphertext` to the `email_service` using a `kind RELEASE_SHARD` event:
+Each signer then finds any sessions that were registered with `email_hash`. If multiple sessions exist, the signer should send a `kind PUBKEY_SELECT` event back to the client in order to allow the user to select which account to recover:
 
 ```typescript
 {
-  "kind": RECOVER_SHARD,
+  "kind": PUBKEY_SELECT,
+  "pubkey": "<signer pubkey>",
+  "content": nip44_encrypt([
+    ["pubkey", "<pubkey 1>"],
+    ["pubkey", "<pubkey 2>"],
+  ]),
+  "tags": [
+    ["p", "<recovery pubkey>"],
+    ["e", "<kind RECOVER_SHARD event id>"],
+  ],
+}
+```
+
+The client should then display these options to the user and re-send a `kind RECOVER_SHARD` with an additional `pubkey` tag specifying the pubkey to recover.
+
+Each signer must then encrypt the matching `shard` to the `email_service` provided when the shard was registered and send them, along with their corresponding `email_ciphertext`, to the `email_service` using a `kind RELEASE_SHARD` event:
+
+```typescript
+{
+  "kind": RELEASE_SHARD,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
     ["signers_count", "<number of signers in the deal>"],
@@ -299,7 +316,26 @@ To log in to a user's existing signing session by email alone, a client must req
 }
 ```
 
-Each signer then generates a single-use expiring OTP and associates it with the shard that was registered with `email_hash`. The signer then encrypts the OTP and sends it to the `email_service` using a `kind SEND_OTP` event:
+Each signer then finds any sessions that were registered with `email_hash`. If multiple sessions exist, the signer should send a `kind PUBKEY_SELECT` event back to the client in order to allow the user to select which account to recover:
+
+```typescript
+{
+  "kind": PUBKEY_SELECT,
+  "pubkey": "<signer pubkey>",
+  "content": nip44_encrypt([
+    ["pubkey", "<pubkey 1>"],
+    ["pubkey", "<pubkey 2>"],
+  ]),
+  "tags": [
+    ["p", "<login pubkey>"],
+    ["e", "<kind REQUEST_OTP event id>"],
+  ],
+}
+```
+
+The client should then display these options to the user and re-send a `kind REQUEST_OTP` with an additional `pubkey` tag specifying the pubkey to recover.
+
+Each signer then generates a single-use expiring OTP and associates it with the selected shard. The signer then encrypts the OTP and sends it to the `email_service` using a `kind SEND_OTP` event:
 
 ```typescript
 {
@@ -355,17 +391,11 @@ The signer must then explicitly accept or (optionally) reject the OTP using a `O
 }
 ```
 
-## Implementation Details
-
-the signature algorithm is implemented roughly as described in the https://eprint.iacr.org/2023/899.pdf, with big inspiration from the code at https://github.com/LLFourn/secp256kfun/tree/8e6fd712717692d475287f4a964be57c8584f54e/schnorr_fun/src/frost. relative to the paper (but following secp256kfun) this implementations has the following substantial changes:
-
-  - for BIP-340 compatibility, the key dealing algorithm negates the secret key before sharding if its public key's `y` is odd;
-  - for BIP-340 compatibility, when creating partial signatures, signers have to compute the group commitment, and if it's `y` is odd then all the public nonces and their own private nonce is negated;
-  - for BIP-340 compatibility, then signing challenge is computed with `taggedhash("BIP0340/challenge", group-commitment-x || user-pubkey-x || event_id)`;
-  - because it felt appropriate, other parts of the algorithm that would use hashes also use `taggedhash()` with different tags, the code will speak better than I can.
+## Threat model
 
 There are a few denial-of-service attack vectors and privacy leaks in this spec, which are to a certain extent unavoidable with email-based login and recovery. Keep these in mind when directing users to use this or another approach for login.
 
 - Anyone can initiate a recovery or login flow for any email address, spamming the mailer service and the end user's email inbox. This is mitigated by using one-off client keys to sign messages, such that neither a user's pubkey nor email is visible. This attack is only possible if an attacker knows which bunkers a given email is registered with.
 - Malicious email services can block registration, recovery, and login if they choose not to send messages to certain emails.
 - Signers have access to user pubkeys and email services have access to user emails, but neither have access to both, preventing trivial correlation. However, email hashes are not salted, so it is possible to break the hashes given a list of valid emails.
+- `kind PUBKEY_SELECT` can leak the association between an email and a pubkey to an attacker that is able to provide a valid email address. This can be mitigated by rate-limiting login/recover events, but is something that users should be informed about in case they want to keep their email/pubkey link private. This attack vector only exists for users who have associated multiple pubkeys with a given email.
