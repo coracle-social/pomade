@@ -17,7 +17,7 @@ A _client_ is an application that can be trusted to (temporarily) handle key mat
 
 ### Signer
 
-A _signer_ is a headless application that can be trusted to store key shards and collaborate in building threshold signatures. A signer is identified by a nostr public key. Communication is brokered following NIP 65.
+A _signer_ is a headless application that can be trusted to store key shares and collaborate in building threshold signatures. A signer is identified by a nostr public key. Communication is brokered following NIP 65.
 
 ### Email Service
 
@@ -29,14 +29,14 @@ A _email service_ is a headless application that can be trusted to send emails c
 
 To create a new signing session, a client must first generate a new `client secret` which it will use to communicate with signers. This key MUST NOT be re-used, and MUST be distinct from the user's pubkey.
 
-The client then shards the user's `secret key` and registers each shard with a different signer by creating a `kind REGISTER` event:
+The client then shares the user's `secret key` and registers each share with a different signer by creating a `kind REGISTER` event:
 
 ```typescript
 {
   "kind": REGISTER,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
-    ["shard", "<hex encoded SharePackage (100 bytes)>"],
+    ["share", "<hex encoded SharePackage (100 bytes)>"],
     ["group", "<hex encoded GroupPackage>"],
     ["threshold", "<number of signers required for signing>"],
     ["email_service", "<email service pubkey>"],
@@ -55,11 +55,11 @@ The following public tags are required:
 
 The following private tags are required:
 
-- `shard` is a shard of the user's private key (see below)
+- `share` is a share of the user's private key (see below)
 - `pubkey` is the user's hex-encoded public key
 - `threshold` is the number of signers required to sign an event
 
-`shard` is a hex-encoded concatenation of:
+`share` is a hex-encoded concatenation of:
 
 - `idx`: 4-bytes (little-endian)          // Signer index
 - `seckey`: 32-bytes (big-endian)         // Secret key share
@@ -84,7 +84,7 @@ The registration event MAY contain recovery information in its private tags, inc
 
 This prevents the signer from learning the email of the user, while also enabling it to pass the email along to the email service.
 
-Each signer must then explicitly accept or (optionally) reject the shard:
+Each signer must then explicitly accept or (optionally) reject the share:
 
 ```typescript
 {
@@ -105,7 +105,7 @@ This event MUST include `status` and `message` in its private tags. If a `email`
 
 If a session exists with the same `email_hash` or `pubkey`, signers SHOULD create a new session rather than replacing the old one or rejecting the new one.
 
-The same signer MUST NOT be used multiple times for multiple shards of the same key.
+The same signer MUST NOT be used multiple times for multiple shares of the same key.
 
 ### Email Validation
 
@@ -151,7 +151,7 @@ When a client wants to sign an event, it must choose at least `threshold` signer
   "kind": SIGNATURE_REQUEST,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
-    ["pubkey", "<user pubkey>"],
+    ["package", "<hex encoded sign session package>"],
     ["event", "<JSON-encoded event to be signed>"],
   ]),
   "tags": [
@@ -160,6 +160,25 @@ When a client wants to sign an event, it must choose at least `threshold` signer
 }
 ```
 
+`package` is a hex-encoded concatenation of:
+
+- `gid`: 32-bytes (group ID hash)
+- `sid`: 32-bytes (session ID hash)
+- `content_len`: 2-bytes (little-endian, 0 if null)
+- `content`: <content_len> bytes (optional metadata)
+- `stamp`: 4-bytes (little-endian, unix timestamp)
+- `type_len`: 2-bytes (little-endian)
+- `type`: <type_len> bytes (utf-8 string, e.g., "nostr-event")
+- `hashes_count`: 2-bytes (little-endian)
+- For each hash:
+  - `sighash`: 32-bytes
+  - `tweaks_count`: 1-byte
+  - For each tweak:
+    - `tweak`: 32-bytes
+- `members_count`: 2-bytes (little-endian)
+- For each member:
+  - `member_idx`: 4-bytes (little-endian)
+
 The signer must then look up the `kind REGISTER` event corresponding to the given `client pubkey` AND the `user pubkey` and respond with a `kind PARTIAL_SIGNATURE` event:
 
 ```typescript
@@ -167,7 +186,7 @@ The signer must then look up the `kind REGISTER` event corresponding to the give
   "kind": PARTIAL_SIGNATURE,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
-    ["psig_pkg", "<hex encoded partial signature package>"],
+    ["package", "<hex encoded partial signature package>"],
   ]),
   "tags": [
     ["p", "<client pubkey>"],
@@ -176,7 +195,7 @@ The signer must then look up the `kind REGISTER` event corresponding to the give
 }
 ```
 
-`psig_pkg` is the hex-encoded concatenation of:
+`package` is a hex-encoded concatenation of:
 
 - `idx`: 4-bytes (little-endian)
 - `pubkey`: 33-bytes (compressed)
@@ -209,11 +228,11 @@ The client MUST include a private `revoke` tag which indicates whether the user 
 
 ### Recovery
 
-To recover the user's original `secret key` by email alone without access to an active `client key`, a client must `sha256` hash the user's email and generate a new single-use `recovery key`. It then sends a `kind RECOVER_SHARD` event to each signer:
+To recover the user's original `secret key` by email alone without access to an active `client key`, a client must `sha256` hash the user's email and generate a new single-use `recovery key`. It then sends a `kind RECOVER_SHARE` event to each signer:
 
 ```typescript
 {
-  "kind": RECOVER_SHARD,
+  "kind": RECOVER_SHARE,
   "pubkey": "<recovery pubkey>",
   "content": nip44_encrypt([
     ["email_hash", "<sha256 hash of user email>"],
@@ -236,25 +255,25 @@ Each signer then finds any sessions that were registered with `email_hash`. If m
   ]),
   "tags": [
     ["p", "<recovery pubkey>"],
-    ["e", "<kind RECOVER_SHARD event id>"],
+    ["e", "<kind RECOVER_SHARE event id>"],
   ],
 }
 ```
 
-The client should then display these options to the user and re-send a `kind RECOVER_SHARD` with an additional `pubkey` tag specifying the pubkey to recover.
+The client should then display these options to the user and re-send a `kind RECOVER_SHARE` with an additional `pubkey` tag specifying the pubkey to recover.
 
-Each signer must then encrypt the matching `shard` to the `email_service` provided when the shard was registered and send them, along with their corresponding `email_ciphertext`, to the `email_service` using a `kind RELEASE_SHARD` event:
+Each signer must then encrypt the matching `share` and `group` to the `email_service` provided when the share was registered and send them, along with their corresponding `email_ciphertext`, to the `email_service` using a `kind RELEASE_SHARE` event:
 
 ```typescript
 {
-  "kind": RELEASE_SHARD,
+  "kind": RELEASE_SHARE,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
-    ["signers_count", "<number of signers in the deal>"],
-    ["signers_threshold", "<number of signers required for signing>"],
+    ["count", "<number of signers>"],
     ["recovery_pubkey", "<recovery pubkey>"],
     ["email_ciphertext", "<nip44 encrypted user email>"],
-    ["shard_ciphertext", "<encrypted hex encoded secret key shard>"],
+    ["share_ciphertext", "<encrypted hex encoded SharePackage (100 bytes)>"],
+    ["group_ciphertext", "<encrypted hex encoded GroupPackage>"],
   ]),
   "tags": [
     ["p", "<email service pubkey>"],
@@ -262,13 +281,13 @@ Each signer must then encrypt the matching `shard` to the `email_service` provid
 }
 ```
 
-The email service waits until at least `signers_threshold` shards have been received and sends all `shard_ciphertext` values to the decrypted `email`.
+The email service waits until `count` shares have been received and sends the group and all shares to the decrypted `email` in the following format:
 
-The user can then copy the encrypted shards into their recovery client, which uses the `recovery key` the user generated at the beginning of the process to decrypt all shards and reconstitute the user's secret key.
+`base58(group_ciphertext + share_ciphertext * n)`
+
+The user can copy this payload into their recovery client, which uses the `recovery key` the user generated at the beginning of the process to decrypt all shares and reconstitute the user's secret key.
 
 ### Login
-
-This is very similar to the recovery process, except that the client never sees the user's secret key, and it requires _all_ registered bunkers to respond in order to restore the signing session.
 
 To log in to a user's existing signing session by email alone, a client must request the user's email and get its `sha256` hash. Then, it must generate a new single-use `login key`. It then sends this to each signer using a `kind REQUEST_OTP` event:
 
@@ -304,18 +323,17 @@ Each signer then finds any sessions that were registered with `email_hash`. If m
 
 The client should then display these options to the user and re-send a `kind REQUEST_OTP` with an additional `pubkey` tag specifying the pubkey to recover.
 
-Each signer then generates a single-use expiring OTP and associates it with the selected shard. The signer then encrypts the OTP and sends it to the `email_service` using a `kind SEND_OTP` event:
+Each signer then generates a single-use expiring OTP and associates it with the selected share. The signer then encrypts the OTP and sends it to the `email_service` using a `kind SEND_OTP` event:
 
 ```typescript
 {
   "kind": SEND_OTP,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
-    ["signers_count", "<number of signers in the deal>"],
-    ["signers_threshold", "<number of signers required for signing>"],
+    ["count", "<number of signers>"],
     ["login_pubkey", "<login pubkey>"],
-    ["email_ciphertext", "<nip44 encrypted user email>"],
     ["otp_ciphertext", "<encrypted OTP>"],
+    ["email_ciphertext", "<nip44 encrypted user email>"],
   ]),
   "tags": [
     ["p", "<email service pubkey>"],
@@ -323,11 +341,11 @@ Each signer then generates a single-use expiring OTP and associates it with the 
 }
 ```
 
-The email service waits until at least `signers_threshold` (ideally, `signers_count`) shards have been received and sends the payload to the decrypted `email`. The payload should be a base58 concatenation of the signers pubkeys and OTP codes in the following format:
+The email service waits until `count` messages have been received and sends signer pubkeys and OTP codes to the user in the following format:
 
-`pubkey1:otp1_ciphertext,pubkey2,otp2_ciphertext`
+`base58(pubkey1:otp1_ciphertext,pubkey2:otp2_ciphertext)`
 
-The user can then copy the payload into their client, which generates a fresh `client secret`, decrypts all OPTs, and sends a `kind OTP_LOGIN` event to each signer:
+The user can then copy the payload into their client, which generates a fresh `client secret`, decrypts all OTPs, and sends a `kind OTP_LOGIN` event to each signer:
 
 ```typescript
 {
@@ -343,7 +361,7 @@ The user can then copy the payload into their client, which generates a fresh `c
 }
 ```
 
-The signer must then explicitly accept or (optionally) reject the OTP using a `OTP_ACK` event. If the signer accepts it, it must create a new session with the given `client pubkey`.
+The signer must then explicitly accept or (optionally) reject the OTP using a `OTP_ACK` event. If the OTP is accepted, the signer MUST include the hex-encoded `group` package in the event, and make a copy of the existing session authorizing the given `client pubkey`.
 
 ```typescript
 {
@@ -352,6 +370,7 @@ The signer must then explicitly accept or (optionally) reject the OTP using a `O
   "content": nip44_encrypt([
     ["status", "<error|pending|ok>"],
     ["message", "<error|pending|ok>"],
+    ["group", "<hex encoded group package>"],
   ]),
   "tags": [
     ["p", "<client pubkey>"],

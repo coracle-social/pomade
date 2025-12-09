@@ -1,10 +1,11 @@
-import {sha256, call, thrower, parseJson, spec, textEncoder} from '@welshman/lib'
+import {sha256, sample, call, thrower, parseJson, spec, textEncoder} from '@welshman/lib'
 import {nip44, signWithOptions} from '@welshman/signer'
 import type {ISigner, SignOptions} from '@welshman/signer'
 import {publish, request, PublishStatus} from '@welshman/net'
 import {prep, makeSecret, getPubkey, getTagValue} from '@welshman/util'
 import type {TrustedEvent, EventTemplate, StampedEvent} from '@welshman/util'
 import {Lib, PackageEncoder} from '@frostr/bifrost'
+import type {GroupPackage} from '@frostr/bifrost'
 
 import {Kinds, makeRPCEvent, fetchRelays} from '../lib/index.js'
 import type {IStorageFactory, IStorage} from '../lib/index.js'
@@ -140,7 +141,7 @@ export class Client {
       throw new Error(`Failed to register all shards:\n${errors}`)
     }
 
-    return new Signer(this, {userPubkey, clientSecret, signerPubkeys})
+    return new Signer(this, {group, clientSecret, signerPubkeys})
   }
 
 
@@ -161,7 +162,7 @@ export class Client {
 }
 
 export type SignerOptions = {
-  userPubkey: string,
+  group: GroupPackage,
   clientSecret: string,
   signerPubkeys: string[],
 }
@@ -169,11 +170,21 @@ export type SignerOptions = {
 export class Signer implements ISigner {
   constructor(private client: Client, private state: SignerOptions) {}
 
-  getPubkey = async () => this.state.userPubkey
+  getPubkey = async () => this.state.group.group_pk
 
   sign = (event: StampedEvent, options: SignOptions = {}) => {
+    const {group, signerPubkeys} = this.state
     const controller = new AbortController()
-    const hashedEvent = prep(event, this.state.userPubkey)
+    const hashedEvent = prep(event, group.group_pk)
+    const members = sample(group.threshold, group.commits).map(c => c.idx)
+    const template = Lib.create_session_template(members, hashedEvent.id)
+
+    if (!template) {
+      throw new Error("Failed to build signing template")
+    }
+
+    const pkg = Lib.create_session_pkg(group, template)
+
     const promise = call(async () => {
       // Todo: Implement signing flow
       // pass controller.signal into all network requests
