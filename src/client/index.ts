@@ -5,9 +5,9 @@ import {publish, request, PublishStatus} from '@welshman/net'
 import {prep, makeSecret, getPubkey, getTagValue} from '@welshman/util'
 import type {TrustedEvent, SignedEvent, EventTemplate, StampedEvent} from '@welshman/util'
 import {Schema, Lib, PackageEncoder} from '@frostr/bifrost'
-import type {GroupPackage} from '@frostr/bifrost'
+import type {GroupPackage, PartialSigPackage} from '@frostr/bifrost'
 
-import {Kinds, rpc} from '../lib/index.js'
+import {RPC, RPCMethod} from '../lib/index.js'
 import type {IStorageFactory, IStorage} from '../lib/index.js'
 
 export type ClientOptions = {
@@ -59,49 +59,37 @@ export class Client {
         while (remainingSignerPubkeys.length > 0) {
           const signerPubkey = remainingSignerPubkeys.shift()!
 
-          let ackReceived = false
+          await RPC.request({
+            secret: clientSecret,
+            indexerRelays: this.options.indexerRelays,
+            pubkey: signerPubkey,
+            method: RPCMethod.RegisterRequest,
+            tags: [
+              ['shard', hexShare],
+              ['group', hexGroup],
+              ['threshold', String(threshold)],
+              ['email_service', emailService],
+              ['email_hash', userEmailHash],
+              ['email_ciphertext', userEmailCiphertext],
+            ],
+            handler: ({method, pubkey, tags}, done) => {
+              const status = getTagValue('status', tags)
 
-          try {
-            await rpc({
-              indexerRelays,
-              responseKind: Kinds.RegisterACK,
-              authorSecret: clientSecret,
-              recipientPubkey: signerPubkey,
-              requestKind: Kinds.Register,
-              requestContent: [
-                ['shard', hexShare],
-                ['group', hexGroup],
-                ['threshold', String(threshold)],
-                ['email_service', emailService],
-                ['email_hash', userEmailHash],
-                ['email_ciphertext', userEmailCiphertext],
-              ],
-              acceptResponse: async (event: TrustedEvent) => {
-                const tags: string[][] = parseJson(await nip44.decrypt(signerPubkey, clientSecret, event.content))
-                const message = getTagValue('message', tags)
-                const status = getTagValue('status', tags)
-
-                if (status === 'ok') {
+              if (pubkey === signerPubkey && method === RPCMethod.RegisterResult) {
+                if (status === "ok") {
                   signerPubkeysByIndex.set(i, signerPubkey)
-                  ackReceived = true
-
-                  return true
+                  done(undefined)
                 }
 
                 if (status === 'error') {
-                  errorsBySignerPubkey.set(signerPubkey, message || "Unknown error")
+                  const message = getTagValue('message', tags) || "Unknown error"
 
-                  return true
+                  errorsBySignerPubkey.set(signerPubkey, message)
+                  done(message)
                 }
-              },
-            })
-          } catch (e) {
-            errorsBySignerPubkey.set(signerPubkey, 'Failed to publish registration event')
-          }
-
-          if (!ackReceived && !errorsBySignerPubkey.has(signerPubkey)) {
-            errorsBySignerPubkey.set(signerPubkey, 'Failed to receive acknowledgment')
-          }
+              }
+            },
+          })
         }
       }),
     )
@@ -146,7 +134,6 @@ export class Signer implements ISigner {
   getPubkey = async () => this.state.group.group_pk
 
   sign = (event: StampedEvent, options: SignOptions = {}) => {
-    const {indexerRelays} = this.client.options
     const {group, clientSecret, signerPubkeysByIndex} = this.state
     const controller = new AbortController()
     const hashedEvent = prep(event, group.group_pk)
@@ -160,23 +147,24 @@ export class Signer implements ISigner {
     const pkg = Lib.create_session_pkg(group, template)
     const promise = Promise.all(
       members.map(async idx => {
-        const signerPubkey = signerPubkeysByIndex.get(idx)!
-
-        const response = await rpc({
-          indexerRelays,
-          requestKind: Kinds.SignatureRequest,
-          responseKind: Kinds.PartialSignature,
-          recipientPubkey: signerPubkey,
-          authorSecret: clientSecret,
-          requestContent: [
+        return RPC.request<PartialSigPackage>({
+          secret: this.state.clientSecret,
+          indexerRelays: this.client.options.indexerRelays,
+          pubkey: signerPubkeysByIndex.get(idx)!,
+          method: RPCMethod.SignRequest,
+          tags: [
             ['package', JSON.stringify(pkg)],
             ['event', JSON.stringify(event)],
           ],
+          handler: (item, done) => {
+            if (item.method === RPCMethod.SignResult) {
+              const json = parseJson(getTagValue('psig', item.tags))
+              const psig = Schema.sign.psig_pkg.parse(json)
+
+              done(psig)
+            }
+          },
         })
-
-        const psigJson = getTagValue('psig', response?.tags || [])
-
-        return Schema.sign.psig_pkg.parse(parseJson(psigJson))
       })
     ).then(partialSignatures => {
       const ctx = Lib.get_session_ctx(group, pkg)

@@ -3,7 +3,7 @@ import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import {RELAYS, makeSecret, getPubkey, getTagValues} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
-import {Kinds, rpcSend, prepAndSign, publishRelays, fetchRelays} from '../lib/index.js'
+import {Kinds, RPC, RPCMethod, prepAndSign, publishRelays, fetchRelays} from '../lib/index.js'
 import type {IStorageFactory, IStorage} from '../lib/index.js'
 import {Lib, PackageEncoder} from '@frostr/bifrost'
 import type {GroupPackage, SharePackage} from '@frostr/bifrost'
@@ -83,18 +83,19 @@ export class Signer {
   }
 
   async handleRegister(event: TrustedEvent) {
+    const rpc = new RPC({
+      other: event.pubkey,
+      secret: this.options.secret
+      indexerRelays: this.options.indexerRelays,
+    })
+
     const cb = (status: string, message: string) =>
-      rpcSend({
+      rpc.send({
         signal: this.abortController.signal,
-        indexerRelays: this.options.indexerRelays,
-        authorSecret: this.options.secret,
-        recipientPubkey: event.pubkey,
-        requestKind: Kinds.RegisterACK,
+        method: RPCMethod.RegisterResult,
         requestContent: [
           ["status", status],
           ["message", message],
-        ],
-        requestTags: [
           ["e", event.id],
         ],
       })

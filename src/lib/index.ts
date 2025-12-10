@@ -1,8 +1,8 @@
-import type {MaybeAsync} from '@welshman/lib'
-import {uniq, maybe, always, spec, parseJson} from '@welshman/lib'
+import type {MaybeAsync, Maybe} from '@welshman/lib'
+import {uniq, removeUndefined, maybe, always, spec, parseJson} from '@welshman/lib'
 import {nip44} from '@welshman/signer'
 import {publish, request, PublishStatus} from '@welshman/net'
-import type {EventTemplate, TrustedEvent} from '@welshman/util'
+import type {EventTemplate, TrustedEvent, SignedEvent} from '@welshman/util'
 import {prep, sign, getPubkey, RELAYS, getTagValues, getTagValue} from '@welshman/util'
 import {EventEmitter} from 'events'
 
@@ -46,7 +46,8 @@ export enum RPCMethod {
   ValidateResult = "validate/result",
 }
 
-export const RPCItem = {
+export type RPCItem = {
+  pubkey: string
   method: RPCMethod,
   event: TrustedEvent,
   tags: string[][],
@@ -58,103 +59,140 @@ export type RPCHandler = (item: RPCItem) => void
 export type RPCMatcher = (item: RPCItem) => boolean
 
 export type RPCOptions = {
-  other: string
   secret: string
   indexerRelays: string[]
 }
 
+export type RPCSendOptions = {
+  pubkey: string
+  method: RPCMethod,
+  tags: string[][],
+}
+
+export type RPCStaticSendOptions = {
+  secret: string
+  indexerRelays: string[]
+  pubkey: string
+  method: RPCMethod,
+  tags: string[][],
+}
+
+export type RPCStaticRequestOptions<T> = RPCStaticSendOptions & {
+  handler: (item: RPCItem, done: (result: T) => void) => void
+}
+
 export class RPC {
-  subscribers: Subscriber<RPCHandler>[] = []
-  controller = maybe<AbortController>()
-  relays: Promise<string[]>
+  subscribers: RPCHandler[] = []
 
-  constructor(private options: RPCOptions) {
-    this.relays = fetchRelays({
-      pubkey: options.other,
-      relays: options.indexerRelays,
-    })
+  constructor(private options: RPCOptions) {}
 
-    this.start()
-  }
-
-  start() {
-    const {signal} = this.controller
-    const {other, secret, indexerRelays} = this.options
-
-    if (this.controller) {
-      throw new Error("RPC already started")
-    }
-
-    this.controller = new AbortController()
-
-    request({
-      signal,
-      relays: await this.relays,
-      filters: [{kinds: [28350], authors: [other]}],
-      onEvent: (event: TrustedEvent) => {
-        const content = await nip44.decrypt(event.pubkey, secret, event.content)
-        const tags: string[][] = parseJson(content)
-
-        if (!Array.isArray(tags)) return
-
-        const method = getTagValue('method', tags)
-        const parent = getTagValue("e", item.tags)
-
-        for (const subscriber of this.subscribers) {
-          subscriber({method, event, tags, parent})
-        }
-      },
-    })
-
+  static unwrap(secret: string, event: TrustedEvent): Maybe<RPCItem> {
     try {
+      const {pubkey, content} = event
+      const tags: string[][] = parseJson(nip44.decrypt(pubkey, secret, content))
+
+      if (!Array.isArray(tags)) return
+
+      const method = getTagValue('method', tags) as RPCMethod
+      const parent = getTagValue("e", tags)
+
+      if (method) {
+        return {pubkey, method, event, tags, parent}
+      }
     } catch (e) {
-      // Ignore decryption errors - event wasn't meant for us
+      // Pass
     }
   }
 
-  stop() {
-    this.controller?.abort()
-    this.controller = undefined
+  static send<T>({
+    secret,
+    indexerRelays,
+    pubkey,
+    method,
+    tags,
+  }: RPCStaticSendOptions): Promise<SignedEvent> {
+    const rpc = new RPC({secret, indexerRelays})
+    const {event, pub} = rpc.send({pubkey, method, tags})
+
+    return pub.then(() => event)
   }
 
-  subscribe(handler: RPCHandler) {
+  static request<T>({
+    secret,
+    indexerRelays,
+    pubkey,
+    method,
+    tags,
+    handler,
+  }: RPCStaticRequestOptions<T>): Promise<T> {
+    const rpc = new RPC({secret, indexerRelays})
+    const close = rpc.open(pubkey)
+    const {event, abort} = rpc.send({pubkey, method, tags})
+
+    return new Promise<T>(resolve => {
+      const unsubscribe = rpc.receive(item => {
+        if (item.pubkey === pubkey && item.parent === event.id) {
+          handler(item, (result: T) => {
+            close()
+            abort()
+            unsubscribe()
+            resolve(result)
+          })
+        }
+      })
+    })
+  }
+
+  open(pubkey: string) {
+    const controller = new AbortController()
+
+    fetchRelays({
+      pubkey,
+      signal: controller.signal,
+      relays: this.options.indexerRelays,
+    }).then(relays => {
+      request({
+        relays,
+        signal: controller.signal,
+        filters: [{kinds: [28350], authors: [pubkey]}],
+        onEvent: async (event: TrustedEvent) => {
+          const item = RPC.unwrap(this.options.secret, event)
+
+          if (item) {
+            for (const subscriber of this.subscribers) {
+              subscriber(item)
+            }
+          }
+        },
+      })
+    })
+
+    return () => controller.abort()
+  }
+
+  receive(handler: RPCHandler) {
     this.subscribers.push(handler)
 
-    return () => subscribers.splice(subscribers.findIndex(s => s === handler), 1)
+    return () => this.subscribers.splice(this.subscribers.findIndex(s => s === handler), 1)
   }
 
-  match(match: RPCMatcher, handler: ReceiverHandler) {
-    return this.subscribe(item => {
-      if (match(item)) {
-        handler(event, tags)
-      }
-    })
-  }
-
-  once(match: RPCMatcher, handler: RPCHandler) {
-    const unsubscribe = this.subscribe(item => {
-      if (match(item)) {
-        handler(item)
-        unsubscribe()
-      }
-    })
-
-    return unsubscribe
-  }
-
-  async send({tags, signal}: {tags: string[][], signal?: AbortSignal}) {
-    const relays = await this.relays
-    const {other, secret} = this.options
+  send({pubkey, method, tags}: RPCSendOptions) {
+    const {secret, indexerRelays} = this.options
+    const controller = new AbortController()
     const timeout = AbortSignal.timeout(30_000)
-    const content = nip44.encrypt(other, secret, JSON.stringify(tags))
-    const event = prepAndSign(secret, {kind: 28350, tags: [["p", other]], content})
-    const results = await publish({signal, relays, event})
+    const signal = AbortSignal.any([controller.signal, timeout])
+    const content = nip44.encrypt(pubkey, secret, JSON.stringify([["method", method], ...tags]))
+    const event = prepAndSign(secret, {kind: 28350, tags: [["p", pubkey]], content})
+    const relays = fetchRelays({pubkey, signal, relays: indexerRelays})
+    const pub = relays.then(relays => publish({signal, relays, event}))
+    const error = pub.then(r => !Object.values(r).some(spec({status: PublishStatus.Success})))
 
-    if (!Object.values(results).some(spec({status: PublishStatus.Success}))) {
-      throw new Error('Failed to publish event')
+    return {
+      pub,
+      error,
+      event,
+      abort: () => controller.abort(),
     }
-
-    return event
   }
 }
 

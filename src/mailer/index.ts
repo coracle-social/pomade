@@ -3,8 +3,8 @@ import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import {RELAYS, getPubkey, getTagValue} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
-import {Kinds, prepAndSign, publishRelays, rpcSend} from '../lib/index.js'
-import type {IStorageFactory, IStorage} from '../lib/index.js'
+import {RPC, RPCMethod, prepAndSign, publishRelays} from '../lib/index.js'
+import type {IStorageFactory, IStorage, RPCItem} from '../lib/index.js'
 
 export enum ValidationStatus {
   Ok = "ok",
@@ -63,18 +63,18 @@ export class Mailer {
       signal: this.abortController.signal,
       relays: this.options.inboxRelays,
       filters: [{
-        kinds: [
-          Kinds.ValidateEmail,
-          Kinds.ReleaseShard,
-          Kinds.SendOTP,
-        ],
+        kinds: [28350],
         '#p': [getPubkey(this.options.secret)],
       }],
       onEvent: (event: TrustedEvent) => {
-        switch (event.kind) {
-          case Kinds.ValidateEmail: return this.handleValidateEmail(event)
-          case Kinds.ReleaseShard: return this.handleReleaseShard(event)
-          case Kinds.SendOTP: return this.handleSendOTP(event)
+        const item = RPC.unwrap(this.options.secret, event)
+
+        if (item) {
+          switch (item.method) {
+            case RPCMethod.ValidateRequest: return this.handleValidateRequest(item)
+            case RPCMethod.RecoverShare: return this.handleRecoverShare(item)
+            case RPCMethod.LoginShare: return this.handleLoginShare(item)
+          }
         }
       },
     })
@@ -91,15 +91,10 @@ export class Mailer {
 
   // Email Validation
 
-  async handleValidateEmail(event: TrustedEvent) {
+  async handleValidateRequest(item: RPCItem) {
     const {secret, provider} = this.options
-
-    const tags: string[][] = parseJson(await nip44.decrypt(event.pubkey, secret, event.content))
-
-    if (!Array.isArray(tags)) throw new Error("Invalid event private tags")
-
-    const clientPubkey = getTagValue('client_pubkey', tags)
-    const emailCiphertext = getTagValue('email_ciphertext', tags)
+    const clientPubkey = getTagValue('client_pubkey', item.tags)
+    const emailCiphertext = getTagValue('email_ciphertext', item.tags)
 
     if (!clientPubkey) throw new Error("client_pubkey was not provided")
     if (!emailCiphertext) throw new Error("email_ciphertext was not provided")
@@ -147,13 +142,13 @@ export class Mailer {
       [ValidationStatus.Pending]: "User email validation pending.",
     })
 
-    await rpcSend({
+    await RPC.send({
       signal: this.abortController.signal,
       authorSecret: this.options.secret,
       indexerRelays: this.options.indexerRelays,
-      recipientPubkey: signerPubkey,
-      requestKind: Kinds.ValidateEmailACK,
-      requestContent: [
+      pubkey: signerPubkey,
+      method: RPCMethod.ValidateResult,
+      tags: [
         ["status", status],
         ["message", message],
         ["client", clientPubkey],
@@ -189,11 +184,11 @@ export class Mailer {
 
   // Key Recovery
 
-  async handleReleaseShard(event: TrustedEvent) {
+  async handleRecoverShare(item: RPCItem) {
   }
 
   // Login
 
-  async handleSendOTP(event: TrustedEvent) {
+  async handleLoginShare(item: RPCItem) {
   }
 }
