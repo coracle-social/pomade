@@ -29,11 +29,11 @@ A _email service_ is a headless application that can be trusted to send emails c
 
 To create a new signing session, a client must first generate a new `client secret` which it will use to communicate with signers. This key MUST NOT be re-used, and MUST be distinct from the user's pubkey.
 
-The client then shares the user's `secret key` and registers each share with a different signer by creating a `kind REGISTER` event:
+The client then shares the user's `secret key` and registers each share with a different signer by creating a `kind REGISTER_REQUEST` event:
 
 ```typescript
 {
-  "kind": REGISTER,
+  "kind": REGISTER_REQUEST,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
     ["share", "<hex encoded share package>"],
@@ -88,7 +88,7 @@ Each signer must then explicitly accept or (optionally) reject the share:
 
 ```typescript
 {
-  "kind": REGISTER_ACK,
+  "kind": REGISTER_RESPONSE,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
     ["status", "<error|pending|ok>"],
@@ -96,7 +96,7 @@ Each signer must then explicitly accept or (optionally) reject the share:
   ]),
   "tags": [
     ["p", "<client pubkey>"],
-    ["e", "<kind REGISTER event id>"],
+    ["e", "<kind REGISTER_REQUEST event id>"],
   ],
 }
 ```
@@ -109,14 +109,14 @@ The same signer MUST NOT be used multiple times for multiple shares of the same 
 
 ### Email Validation
 
-In order to validate a user's email, a signer must send a `kind VALIDATE_EMAIL` event to the given `email service`:
+In order to validate a user's email, a signer must send a `kind VALIDATE_EMAIL_REQUEST` event to the given `email service`:
 
 ```typescript
 {
-  "kind": VALIDATE_EMAIL,
+  "kind": VALIDATE_EMAIL_REQUEST,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
-    ["key", "<sha256(client pubkey)>"],
+    ["client_pubkey", "<client pubkey>"],
     ["email_ciphertext", "<nip44 encrypted user email>"],
   ]),
   "tags": [
@@ -125,16 +125,18 @@ In order to validate a user's email, a signer must send a `kind VALIDATE_EMAIL` 
 }
 ```
 
-This event must include a `client` tag containing the sha256 of the client pubkey in order to allow email services to accurately batch requests.
+This event must include a `client_pubkey` tag in order to allow email services to decrypt `email_ciphertext` and accurately batch requests.
 
-When the user has completed the verification process, the email service must send a `kind VALIDATE_EMAIL_ACK` to each signer:
+When the user has completed the verification process, the email service must send a `kind VALIDATE_EMAIL_RESPONSE` to each signer. The email service MAY send a "pending" response in the meantime, and SHOULD send an "error" response if the email could not be validated for any reason.
 
 ```typescript
 {
-  "kind": VALIDATE_EMAIL_ACK,
+  "kind": VALIDATE_EMAIL_RESPONSE,
   "pubkey": "<email service pubkey>",
   "content": nip44_encrypt([
-    ["client", "<client pubkey>"],
+    ["status", "<error|pending|ok>"],
+    ["message", "<human readable message>"],
+    ["client_pubkey", "<client pubkey>"],
   ]),
   "tags": [
     ["p", "<signer pubkey>"],
@@ -174,7 +176,7 @@ The `session` tag contains a JSON-encoded `sign session package` object:
 }
 ```
 
-The signer must then look up the corresponding `kind REGISTER` event and respond with a `kind PARTIAL_SIGNATURE` event:
+The signer must then look up the corresponding `kind REGISTER_REQUEST` event and respond with a `kind PARTIAL_SIGNATURE` event:
 
 ```typescript
 {
