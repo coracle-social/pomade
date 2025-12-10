@@ -116,7 +116,7 @@ In order to validate a user's email, a signer must send a `kind VALIDATE_EMAIL` 
   "kind": VALIDATE_EMAIL,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
-    ["client", "<client pubkey>"],
+    ["key", "<sha256(client pubkey)>"],
     ["email_ciphertext", "<nip44 encrypted user email>"],
   ]),
   "tags": [
@@ -125,7 +125,7 @@ In order to validate a user's email, a signer must send a `kind VALIDATE_EMAIL` 
 }
 ```
 
-This event must include a `client` tag containing the client pubkey in order to allow email services to accurately batch requests.
+This event must include a `client` tag containing the sha256 of the client pubkey in order to allow email services to accurately batch requests.
 
 When the user has completed the verification process, the email service must send a `kind VALIDATE_EMAIL_ACK` to each signer:
 

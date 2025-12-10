@@ -4,26 +4,20 @@ import type {ISigner, SignOptions} from '@welshman/signer'
 import {publish, request, PublishStatus} from '@welshman/net'
 import {prep, makeSecret, getPubkey, getTagValue} from '@welshman/util'
 import type {TrustedEvent, EventTemplate, StampedEvent} from '@welshman/util'
-import {Lib, PackageEncoder} from '@frostr/bifrost'
+import {Schema, Lib, PackageEncoder} from '@frostr/bifrost'
 import type {GroupPackage} from '@frostr/bifrost'
 
-import {Kinds, makeRPCEvent, fetchRelays} from '../lib/index.js'
+import {Kinds, rpc} from '../lib/index.js'
 import type {IStorageFactory, IStorage} from '../lib/index.js'
 
 export type ClientOptions = {
-  inboxRelays: string[]
-  outboxRelays: string[]
   indexerRelays: string[]
   signerPubkeys: string[]
   storage: IStorageFactory
 }
 
 export class Client {
-  constructor(private options: ClientOptions) {
-    if (options.inboxRelays.length === 0) {
-      throw new Error('No inbox relays configured for client')
-    }
-  }
+  constructor(readonly options: ClientOptions) {}
 
   async register({
     total,
@@ -38,7 +32,9 @@ export class Client {
     emailService: string
     userEmail: string
   }) {
-    if (this.options.signerPubkeys.length < total) {
+    const {indexerRelays, signerPubkeys} = this.options
+
+    if (signerPubkeys.length < total) {
       throw new Error('Not enough signers to meet threshold')
     }
 
@@ -52,7 +48,7 @@ export class Client {
     const userPubkey = getPubkey(userSecret)
     const userEmailHash = await sha256(textEncoder.encode(userEmail))
     const userEmailCiphertext = await nip44.encrypt(emailService, clientSecret, userEmail)
-    const remainingSignerPubkeys = Array.from(this.options.signerPubkeys)
+    const remainingSignerPubkeys = Array.from(signerPubkeys)
     const errorsBySignerPubkey = new Map<string, string>()
     const signerPubkeysByIndex = new Map<number, string>()
 
@@ -62,64 +58,46 @@ export class Client {
 
         while (remainingSignerPubkeys.length > 0) {
           const signerPubkey = remainingSignerPubkeys.shift()!
-          const signerRelays = await fetchRelays({pubkey: signerPubkey, relays: this.options.indexerRelays})
-
-          const registerEvent = makeRPCEvent({
-            authorSecret: clientSecret,
-            recipientPubkey: signerPubkey,
-            kind: Kinds.Register,
-            content: [
-              ['shard', hexShare],
-              ['group', hexGroup],
-              ['threshold', String(threshold)],
-              ['email_service', emailService],
-              ['email_hash', userEmailHash],
-              ['email_ciphertext', userEmailCiphertext],
-            ],
-          })
-
-          const publishResults = await publish({relays: signerRelays, event: registerEvent})
-
-          // Check if at least one relay accepted the event
-          if (!Object.values(publishResults).some(spec({status: PublishStatus.Success}))) {
-            errorsBySignerPubkey.set(signerPubkey, 'Failed to publish registration event')
-            return
-          }
-
-          // Wait for acknowledgment from the signer
-          const controller = new AbortController()
-          const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
 
           let ackReceived = false
 
-          await request({
-            signal,
-            relays: this.options.inboxRelays,
-            filters: [
-              {
-                kinds: [Kinds.RegisterACK],
-                authors: [signerPubkey],
-                '#p': [getPubkey(clientSecret)],
-                '#e': [registerEvent.id],
+          try {
+            await rpc({
+              indexerRelays,
+              responseKind: Kinds.RegisterACK,
+              authorSecret: clientSecret,
+              recipientPubkey: signerPubkey,
+              requestKind: Kinds.Register,
+              requestContent: [
+                ['shard', hexShare],
+                ['group', hexGroup],
+                ['threshold', String(threshold)],
+                ['email_service', emailService],
+                ['email_hash', userEmailHash],
+                ['email_ciphertext', userEmailCiphertext],
+              ],
+              acceptResponse: async (event: TrustedEvent) => {
+                const tags: string[][] = parseJson(await nip44.decrypt(signerPubkey, clientSecret, event.content))
+                const message = getTagValue('message', tags)
+                const status = getTagValue('status', tags)
+
+                if (status === 'ok') {
+                  signerPubkeysByIndex.set(i, signerPubkey)
+                  ackReceived = true
+
+                  return true
+                }
+
+                if (status === 'error') {
+                  errorsBySignerPubkey.set(signerPubkey, message || "Unknown error")
+
+                  return true
+                }
               },
-            ],
-            onEvent: async (event: TrustedEvent) => {
-              const tags: string[][] = parseJson(await nip44.decrypt(signerPubkey, clientSecret, event.content))
-              const message = getTagValue('message', tags)
-              const status = getTagValue('status', tags)
-
-              if (status === 'ok') {
-                signerPubkeysByIndex.set(i, signerPubkey)
-                ackReceived = true
-                controller.abort()
-              }
-
-              if (status === 'error') {
-                errorsBySignerPubkey.set(signerPubkey, message || "Unknown error")
-                controller.abort()
-              }
-            },
-          })
+            })
+          } catch (e) {
+            errorsBySignerPubkey.set(signerPubkey, 'Failed to publish registration event')
+          }
 
           if (!ackReceived && !errorsBySignerPubkey.has(signerPubkey)) {
             errorsBySignerPubkey.set(signerPubkey, 'Failed to receive acknowledgment')
@@ -168,6 +146,7 @@ export class Signer implements ISigner {
   getPubkey = async () => this.state.group.group_pk
 
   sign = (event: StampedEvent, options: SignOptions = {}) => {
+    const {indexerRelays} = this.client.options
     const {group, clientSecret, signerPubkeysByIndex} = this.state
     const controller = new AbortController()
     const hashedEvent = prep(event, group.group_pk)
@@ -183,24 +162,25 @@ export class Signer implements ISigner {
       members.map(async idx => {
         const signerPubkey = signerPubkeysByIndex.get(idx)!
 
-        return publish({
-          relays: await fetchRelays({
-            pubkey: signerPubkey,
-            signal: controller.signal,
-            relays: this.client.indexerRelays,
-          }),
-          event: makeRPCEvent({
-            authorSecret: clientSecret,
-            recipientPubkey: signerPubkey,
-            kind: Kinds.SignatureRequest,
-            content: [
-              ['package', pkg],
-              ['event', event],
-            ],
-          }),
+        const response = await rpc({
+          indexerRelays,
+          requestKind: Kinds.SignatureRequest,
+          responseKind: Kinds.PartialSignature,
+          recipientPubkey: signerPubkey,
+          authorSecret: clientSecret,
+          requestContent: [
+            ['package', JSON.stringify(pkg)],
+            ['event', JSON.stringify(event)],
+          ],
         })
+
+        const psigJson = getTagValue('psig', response?.tags || [])
+
+        return Schema.sign.psig_pkg.parse(parseJson(psigJson))
       })
-    )
+    ).then(partialSignatures => {
+      // TODO: combine signatures and return signed event
+    })
 
     options.signal?.addEventListener("abort", () => {
       controller.abort()

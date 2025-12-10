@@ -2,7 +2,7 @@ import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import {RELAYS, getPubkey} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
-import {Kinds, makeRPCEvent, prepAndSign, publishRelays} from '../lib/index.js'
+import {Kinds, prepAndSign, publishRelays} from '../lib/index.js'
 import type {IStorageFactory, IStorage} from '../lib/index.js'
 
 export type MailerOptions = {

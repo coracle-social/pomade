@@ -1,10 +1,12 @@
-import {fromPairs, parseJson} from '@welshman/lib'
+import {call, tryCatch, fromPairs, parseJson} from '@welshman/lib'
 import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import {RELAYS, makeSecret, getPubkey, getTagValues} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
-import {Kinds, makeRPCEvent, prepAndSign, publishRelays, fetchRelays} from '../lib/index.js'
+import {Kinds, rpcSend, prepAndSign, publishRelays, fetchRelays} from '../lib/index.js'
 import type {IStorageFactory, IStorage} from '../lib/index.js'
+import {Lib, PackageEncoder} from '@frostr/bifrost'
+import type {GroupPackage, SharePackage} from '@frostr/bifrost'
 
 export type SignerOptions = {
   secret: string
@@ -14,12 +16,19 @@ export type SignerOptions = {
   storage: IStorageFactory
 }
 
+export type SignerSession = {
+  event: TrustedEvent
+  share: SharePackage
+  group: GroupPackage
+  status: "pending" | "active"
+}
+
 export class Signer {
   private abortController = new AbortController()
-  private pendingRegistrations: IStorage<TrustedEvent>
+  private sessions: IStorage<SignerSession>
 
   constructor(private options: SignerOptions) {
-    this.pendingRegistrations = options.storage("pending_registrations")
+    this.sessions = options.storage("sessions")
   }
 
   publishRelays() {
@@ -75,69 +84,65 @@ export class Signer {
 
   async handleRegister(event: TrustedEvent) {
     const cb = (status: string, message: string) =>
-      publish({
+      rpcSend({
         signal: this.abortController.signal,
-        relays: this.options.outboxRelays,
-        event: makeRPCEvent({
-          authorSecret: this.options.secret,
-          recipientPubkey: event.pubkey,
-          kind: Kinds.RegisterACK,
-          content: [
-            ["status", status],
-            ["message", message],
-          ],
-          tags: [
-            ["e", event.id],
-          ],
-        })
+        indexerRelays: this.options.indexerRelays,
+        authorSecret: this.options.secret,
+        recipientPubkey: event.pubkey,
+        requestKind: Kinds.RegisterACK,
+        requestContent: [
+          ["status", status],
+          ["message", message],
+        ],
+        requestTags: [
+          ["e", event.id],
+        ],
       })
 
     const tags: string[][] = parseJson(await nip44.decrypt(event.pubkey, this.options.secret, event.content))
 
-    if (!Array.isArray(tags)) {
-      return cb("error", "Failed to parse encrypted tags.")
-    }
+    if (!Array.isArray(tags)) return cb("error", "Failed to parse encrypted tags.")
 
     const meta = fromPairs(tags)
 
-    if (!meta.email_service) {
-      return cb("error", "No email service was specified.")
-    }
+    if (!meta.share)                               return cb("error", "No share was provided.")
+    if (!meta.group)                               return cb("error", "No group was provided.")
+    if (!meta.email_hash)                          return cb("error", "No email hash was provided.")
+    if (!meta.email_ciphertext)                    return cb("error", "No email ciphertext was provided.")
+    if (meta.email_service?.length !== 64)         return cb("error", "Invalid email service pubkey.")
 
-    if (!meta.email_hash) {
-      return cb("error", "No recovery email was provided.")
-    }
+    const share = tryCatch(() => PackageEncoder.deserialize_share_data(Buffer.from(meta.share, 'hex')))
+    const group = tryCatch(() => PackageEncoder.deserialize_group_data(Buffer.from(meta.group, 'hex')))
 
-    if (!meta.email_ciphertext) {
-      return cb("error", "No recovery email ciphertext was provided.")
-    }
+    if (!share)                                    return cb("error", `Failed to deserialize share package.`)
+    if (!group)                                    return cb("error", `Failed to deserialize group package.`)
+    if (!Lib.is_group_member(group, share))        return cb("error", "Share does not belong to the provided group.")
+    if (group.threshold <= 0)                      return cb("error", "Group threshold must be greater than zero.")
+    if (group.threshold > group.commits.length)    return cb("error", "Invalid group threshold.")
 
-    const emailServiceRelays = await fetchRelays({
-      pubkey: meta.email_service,
-      relays: this.options.indexerRelays,
-      signal: this.abortController.signal,
+    const indices = new Set(group.commits.map(c => c.idx))
+    const commit = group.commits.find(c => c.idx === share.idx)
+
+    if (indices.size !== group.commits.length)     return cb("error", "Group contains duplicate member indices.")
+    if (!commit)                                   return cb("error", "Share index not found in group commits.")
+    if (commit.pubkey !== getPubkey(share.seckey)) return cb("error", "Share public key does not match group commit.")
+    if (await this.sessions.has(event.pubkey))     return cb("error", "Client key has already been used.")
+
+    await this.sessions.set(event.pubkey, {event, share, group, status: "pending"})
+
+    // Validate the email asynchronously
+    rpcSend({
+      authorSecret: this.options.secret,
+      indexerRelays: this.options.indexerRelays,
+      recipientPubkey: meta.email_service,
+      requestKind: Kinds.ValidateEmail,
+      requestContent: [
+        ["client", event.pubkey],
+        ["email_ciphertext", meta.email_ciphertext],
+      ],
     })
 
-    if (emailServiceRelays.length === 0) {
-      return cb("error", "Failed to fetch email service relay selections.")
-    }
-
-    await publish({
-      signal: this.abortController.signal,
-      relays: this.options.outboxRelays,
-      event: makeRPCEvent({
-        authorSecret: this.options.secret,
-        recipientPubkey: meta.email_service,
-        kind: Kinds.ValidateEmail,
-        content: [
-          // TODO
-        ],
-      })
-    })
-
-    this.pendingRegistrations.set(event.pubkey, event)
-
-    await cb("pending", "Please check your email to confirm your registration.")
+    return cb("pending", "Please check your email to confirm your registration.")
   }
 
   async handleValidateEmailACK(event: TrustedEvent) {

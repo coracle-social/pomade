@@ -1,12 +1,13 @@
 import type {MaybeAsync} from '@welshman/lib'
-import {uniq} from '@welshman/lib'
+import {uniq, always, spec} from '@welshman/lib'
 import {nip44} from '@welshman/signer'
-import {publish, request} from '@welshman/net'
-import type {EventTemplate} from '@welshman/util'
-import {prep, sign, getPubkey, RELAYS, getTagValues} from '@welshman/util'
+import {publish, request, PublishStatus} from '@welshman/net'
+import type {EventTemplate, TrustedEvent} from '@welshman/util'
+import {prep, sign, getPubkey, RELAYS, getTagValues, getTagValue} from '@welshman/util'
 
 export type IStorage<T> = {
   get(key: string): MaybeAsync<T>
+  has(key: string): MaybeAsync<boolean>
   set(key: string, item: T): MaybeAsync<undefined>
   delete(key: string): MaybeAsync<undefined>
   entries(): MaybeAsync<Iterable<[string, T]>>
@@ -25,7 +26,8 @@ export enum Kinds {
   CommitRequest = 28360,
   Commit = 28362,
   CommitGroup = 28362,
-  PartialSignature = 28363,
+  SignatureRequest = 28363,
+  PartialSignature = 28364,
   RecoverShard = 28370,
   ReleaseShard = 28371,
   RequestOTP = 28372,
@@ -37,24 +39,122 @@ export function prepAndSign(secret: string, event: EventTemplate) {
   return sign(prep(event, getPubkey(secret)), secret)
 }
 
-export function makeRPCEvent({
+export async function rpcSend({
   authorSecret,
+  indexerRelays,
+  requestKind,
   recipientPubkey,
-  kind,
-  content,
-  tags = []
+  requestContent,
+  requestTags = [],
+  signal,
 }: {
-  authorSecret: string
+  authorSecret: string,
+  indexerRelays: string[]
+  requestKind: number
   recipientPubkey: string
-  kind: number
-  content: string[][]
-  tags?: string[][]
+  requestContent: string[][]
+  requestTags?: string[][]
+  signal?: AbortSignal
 }) {
-  return prepAndSign(authorSecret, {
-    kind,
-    tags: [["p", recipientPubkey], ...tags],
-    content: nip44.encrypt(recipientPubkey, authorSecret, JSON.stringify(content)),
+  const timeout = AbortSignal.timeout(30_000)
+  const relays = await fetchRelays({
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    pubkey: recipientPubkey,
+    relays: indexerRelays,
   })
+
+  const event = prepAndSign(authorSecret, {
+    kind: requestKind,
+    tags: [["p", recipientPubkey], ...requestTags],
+    content: nip44.encrypt(recipientPubkey, authorSecret, JSON.stringify(requestContent)),
+  })
+
+  const results = await publish({signal, relays, event})
+
+  if (!Object.values(results).some(spec({status: PublishStatus.Success}))) {
+    throw new Error('Failed to publish event')
+  }
+
+  return event
+}
+
+export async function rpcReceive({
+  indexerRelays,
+  requestEvent,
+  responseKind,
+  acceptResponse = always(true),
+}: {
+  indexerRelays: string[]
+  requestEvent: TrustedEvent,
+  responseKind: number
+  acceptResponse?: (response: TrustedEvent) => MaybeAsync<boolean | undefined>
+}) {
+  const controller = new AbortController()
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
+  const pubkey = getTagValue("p", requestEvent.tags)
+
+  if (!pubkey) throw new Error("No p tag found on rpc request event")
+
+  const relays = await fetchRelays({signal, pubkey, relays: indexerRelays})
+
+  let result: TrustedEvent
+
+  await request({
+    signal,
+    relays,
+    filters: [{
+      authors: [pubkey],
+      kinds: [responseKind],
+      '#p': [requestEvent.pubkey],
+      '#e': [requestEvent.id],
+    }],
+    onEvent: async (response: TrustedEvent) => {
+      if (await acceptResponse(response)) {
+        result = response
+        controller.abort()
+      }
+    },
+  })
+
+  return result
+}
+
+export async function rpc({
+  authorSecret,
+  indexerRelays,
+  requestKind,
+  recipientPubkey,
+  requestContent,
+  requestTags = [],
+  responseKind,
+  acceptResponse = always(true),
+}: {
+  authorSecret: string,
+  indexerRelays: string[]
+  requestKind: number
+  recipientPubkey: string
+  requestContent: string[][]
+  requestTags?: string[][]
+  responseKind?: number
+  acceptResponse?: (response: TrustedEvent) => MaybeAsync<boolean | undefined>
+}) {
+  const requestEvent = await rpcSend({
+    authorSecret,
+    indexerRelays,
+    requestKind,
+    recipientPubkey,
+    requestContent,
+    requestTags,
+  })
+
+  if (responseKind) {
+    return rpcReceive({
+      indexerRelays,
+      requestEvent,
+      responseKind,
+      acceptResponse,
+    })
+  }
 }
 
 export async function fetchRelays({
