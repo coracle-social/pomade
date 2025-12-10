@@ -25,17 +25,20 @@ A _email service_ is a headless application that can be trusted to send emails c
 
 ## Protocol Overview
 
+In order to protect message metadata, this protocol uses a single event kind, `28350`, for all requests. All events contain a private `method` tag that determines the semantics of the remaining tags.
+
 ### Registration
 
 To create a new signing session, a client must first generate a new `client secret` which it will use to communicate with signers. This key MUST NOT be re-used, and MUST be distinct from the user's pubkey.
 
-The client then shares the user's `secret key` and registers each share with a different signer by creating a `kind REGISTER_REQUEST` event:
+The client then shares the user's `secret key` and registers each share with a different signer by creating a `register/request` event:
 
 ```typescript
 {
-  "kind": REGISTER_REQUEST,
+  "kind": 28350,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
+    ["method", "register/request"],
     ["share", "<hex encoded share package>"],
     ["group", "<hex encoded group package>"],
     ["threshold", "<number of signers required for signing>"],
@@ -88,15 +91,16 @@ Each signer must then explicitly accept or (optionally) reject the share:
 
 ```typescript
 {
-  "kind": REGISTER_RESPONSE,
+  "kind": 28350,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
+    ["method", "register/result"],
     ["status", "<error|pending|ok>"],
     ["message", "<human readable message>"],
+    ["e", "<register/request event id>"],
   ]),
   "tags": [
     ["p", "<client pubkey>"],
-    ["e", "<kind REGISTER_REQUEST event id>"],
   ],
 }
 ```
@@ -109,13 +113,14 @@ The same signer MUST NOT be used multiple times for multiple shares of the same 
 
 ### Email Validation
 
-In order to validate a user's email, a signer must send a `kind VALIDATE_EMAIL_REQUEST` event to the given `email service`:
+In order to validate a user's email, a signer must send a `validate/request` event to the given `email service`:
 
 ```typescript
 {
-  "kind": VALIDATE_EMAIL_REQUEST,
+  "kind": 28350,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
+    ["method", "validate/request"],
     ["client_pubkey", "<client pubkey>"],
     ["email_ciphertext", "<nip44 encrypted user email>"],
   ]),
@@ -127,13 +132,14 @@ In order to validate a user's email, a signer must send a `kind VALIDATE_EMAIL_R
 
 This event must include a `client_pubkey` tag in order to allow email services to decrypt `email_ciphertext` and accurately batch requests.
 
-When the user has completed the verification process, the email service must send a `kind VALIDATE_EMAIL_RESPONSE` to each signer. The email service MAY send a "pending" response in the meantime, and SHOULD send an "error" response if the email could not be validated for any reason.
+When the user has completed the verification process, the email service must send a `validate/result` to each signer. The email service MAY send a "pending" response in the meantime, and SHOULD send an "error" response if the email could not be validated for any reason.
 
 ```typescript
 {
-  "kind": VALIDATE_EMAIL_RESPONSE,
+  "kind": 28350,
   "pubkey": "<email service pubkey>",
   "content": nip44_encrypt([
+    ["method", "validate/result"],
     ["status", "<error|pending|ok>"],
     ["message", "<human readable message>"],
     ["client_pubkey", "<client pubkey>"],
@@ -146,13 +152,14 @@ When the user has completed the verification process, the email service must sen
 
 ### Signing
 
-When a client wants to sign an event, it must choose at least `threshold` signers and send a `kind SIGNATURE_REQUEST` event to each signer:
+When a client wants to sign an event, it must choose at least `threshold` signers and send a `sign/request` event to each signer:
 
 ```typescript
 {
-  "kind": SIGNATURE_REQUEST,
+  "kind": 28350,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
+    ["method", "sign/request"],
     ["session", "<JSON-encoded sign session package>"],
     ["event", "<JSON-encoded event to be signed>"],
   ]),
@@ -176,18 +183,19 @@ The `session` tag contains a JSON-encoded `sign session package` object:
 }
 ```
 
-The signer must then look up the corresponding `kind REGISTER_REQUEST` event and respond with a `kind PARTIAL_SIGNATURE` event:
+The signer must then look up the corresponding registration and respond with a `sign/result` event:
 
 ```typescript
 {
-  "kind": PARTIAL_SIGNATURE,
+  "kind": 28350,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
+    ["method", "sign/result"],
     ["psig", "<JSON-encoded partial signature package>"],
+    ["e", "<sign/request event id>"],
   ]),
   "tags": [
     ["p", "<client pubkey>"],
-    ["e", "<kind SIGNATURE_REQUEST event id>"],
   ],
 }
 ```
@@ -207,13 +215,14 @@ The client then combines the partial signatures into an aggregated signature whi
 
 ### Session deletion
 
-When a user wishes to log out of any active signing sessions, their client can send a `kind UNREGISTER` event to all signers:
+When a user wishes to log out of any active signing sessions, their client can send a `unregister/request` event to all signers:
 
 ```typescript
 {
-  "kind": UNREGISTER,
+  "kind": 28350,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
+    ["method", "unregister/request"],
     ["revoke", "<current|others|all>"],
   ]),
   "tags": [
@@ -226,13 +235,14 @@ The client MUST include a private `revoke` tag which indicates whether the user 
 
 ### Recovery
 
-To recover the user's original `secret key` by email alone without access to an active `client key`, a client must `sha256` hash the user's email and generate a new single-use `recovery key`. It then sends a `kind RECOVER_SHARE` event to each signer:
+To recover the user's original `secret key` by email alone without access to an active `client key`, a client must `sha256` hash the user's email and generate a new single-use `recovery key`. It then sends a `recover/request` event to each signer:
 
 ```typescript
 {
-  "kind": RECOVER_SHARE,
+  "kind": 28350,
   "pubkey": "<recovery pubkey>",
   "content": nip44_encrypt([
+    ["method", "recover/request"],
     ["email_hash", "<sha256 hash of user email>"],
   ]),
   "tags": [
@@ -241,32 +251,34 @@ To recover the user's original `secret key` by email alone without access to an 
 }
 ```
 
-Each signer then finds any sessions that were registered with `email_hash`. If multiple sessions exist, the signer should send a `kind PUBKEY_SELECT` event back to the client in order to allow the user to select which account to recover:
+Each signer then finds any sessions that were registered with `email_hash`. If multiple sessions exist, the signer should send a `recover/select` event back to the client in order to allow the user to select which account to recover:
 
 ```typescript
 {
-  "kind": PUBKEY_SELECT,
+  "kind": 28350,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
+    ["method", "recover/select"],
     ["pubkey", "<pubkey 1>"],
     ["pubkey", "<pubkey 2>"],
+    ["e", "<kind recover/request event id>"],
   ]),
   "tags": [
     ["p", "<recovery pubkey>"],
-    ["e", "<kind RECOVER_SHARE event id>"],
   ],
 }
 ```
 
-The client should then display these options to the user and re-send a `kind RECOVER_SHARE` with an additional `pubkey` tag specifying the pubkey to recover.
+The client should then display these options to the user and re-send a `recover/share` with an additional `pubkey` tag specifying the pubkey to recover.
 
-Each signer must then encrypt the matching `share` and `group` to the `email_service` provided when the share was registered and send them, along with their corresponding `email_ciphertext`, to the `email_service` using a `kind RELEASE_SHARE` event:
+Each signer must then encrypt the matching `share` and `group` to the `email_service` provided when the share was registered and send them, along with their corresponding `email_ciphertext`, to the `email_service` using a `recover/share` event:
 
 ```typescript
 {
-  "kind": RELEASE_SHARE,
+  "kind": 28350,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
+    ["method", "recover/share"],
     ["count", "<number of signers>"],
     ["recovery_pubkey", "<recovery pubkey>"],
     ["email_ciphertext", "<nip44 encrypted user email>"],
@@ -287,13 +299,14 @@ The user can copy this payload into their recovery client, which uses the `recov
 
 ### Login
 
-To log in to a user's existing signing session by email alone, a client must request the user's email and get its `sha256` hash. Then, it must generate a new single-use `login key`. It then sends this to each signer using a `kind REQUEST_OTP` event:
+To log in to a user's existing signing session by email alone, a client must request the user's email and get its `sha256` hash. Then, it must generate a new single-use `login key`. It then sends this to each signer using a `login/request` event:
 
 ```typescript
 {
-  "kind": REQUEST_OTP,
+  "kind": 28350,
   "pubkey": "<login pubkey>",
   "content": nip44_encrypt([
+    ["method", "login/request"],
     ["email_hash", "<sha256 hash of user email>"],
   ]),
   "tags": [
@@ -302,32 +315,34 @@ To log in to a user's existing signing session by email alone, a client must req
 }
 ```
 
-Each signer then finds any sessions that were registered with `email_hash`. If multiple sessions exist, the signer should send a `kind PUBKEY_SELECT` event back to the client in order to allow the user to select which account to recover:
+Each signer then finds any sessions that were registered with `email_hash`. If multiple sessions exist, the signer should send a `login/select` event back to the client in order to allow the user to select which account to recover:
 
 ```typescript
 {
-  "kind": PUBKEY_SELECT,
+  "kind": 28350,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
+    ["method", "login/select"],
     ["pubkey", "<pubkey 1>"],
     ["pubkey", "<pubkey 2>"],
+    ["e", "<kind login/request event id>"],
   ]),
   "tags": [
     ["p", "<login pubkey>"],
-    ["e", "<kind REQUEST_OTP event id>"],
   ],
 }
 ```
 
-The client should then display these options to the user and re-send a `kind REQUEST_OTP` with an additional `pubkey` tag specifying the pubkey to recover.
+The client should then display these options to the user and re-send a `login/request` with an additional `pubkey` tag specifying the pubkey to recover.
 
-Each signer then generates a single-use expiring OTP and associates it with the selected share. The signer then encrypts the OTP and sends it to the `email_service` using a `kind SEND_OTP` event:
+Each signer then generates a single-use expiring OTP and associates it with the selected share. The signer then encrypts the OTP and sends it to the `email_service` using a `login/share` event:
 
 ```typescript
 {
-  "kind": SEND_OTP,
+  "kind": 28350,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
+    ["method", "login/share"],
     ["count", "<number of signers>"],
     ["login_pubkey", "<login pubkey>"],
     ["otp_ciphertext", "<encrypted OTP>"],
@@ -343,15 +358,16 @@ The email service waits until `count` messages have been received and sends sign
 
 `base58(pubkey1:otp1_ciphertext,pubkey2:otp2_ciphertext)`
 
-The user can then copy the payload into their client, which generates a fresh `client secret`, decrypts all OTPs, and sends a `kind OTP_LOGIN` event to each signer:
+The user can then copy the payload into their client, which generates a fresh `client secret`, decrypts all OTPs, and sends another `client/login` event to each signer:
 
 ```typescript
 {
-  "kind": OTP_LOGIN,
+  "kind": 28350,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
-    ["otp", "<otp code>"],
+    ["method", "login/confirm"],
     ["email_hash", "<sha256 of user email>"],
+    ["otp", "<otp code>"],
   ]),
   "tags": [
     ["p", "<signer pubkey>"],
@@ -359,20 +375,21 @@ The user can then copy the payload into their client, which generates a fresh `c
 }
 ```
 
-The signer must then explicitly accept or (optionally) reject the OTP using a `OTP_ACK` event. If the OTP is accepted, the signer MUST include the hex-encoded `group` package in the event, and make a copy of the existing session authorizing the given `client pubkey`.
+The signer must then explicitly accept or (optionally) reject the OTP using a `LOGIN_RESULT` event. If the OTP is accepted, the signer MUST include the hex-encoded `group` package in the event, and make a copy of the existing session authorizing the given `client pubkey`.
 
 ```typescript
 {
-  "kind": OTP_ACK,
+  "kind": 28350,
   "pubkey": "<signer pubkey>",
   "content": nip44_encrypt([
+    ["method", "login/result"],
     ["status", "<error|pending|ok>"],
     ["message", "<error|pending|ok>"],
     ["group", "<hex encoded group package>"],
+    ["e", "<kind login/confirm event id>"],
   ]),
   "tags": [
     ["p", "<client pubkey>"],
-    ["e", "<kind OTP_LOGIN event id>"],
   ],
 }
 ```
@@ -384,4 +401,4 @@ There are a few denial-of-service attack vectors and privacy leaks in this spec,
 - Anyone can initiate a recovery or login flow for any email address, spamming the mailer service and the end user's email inbox. This is mitigated by using one-off client keys to sign messages, such that neither a user's pubkey nor email is visible. This attack is only possible if an attacker knows which bunkers a given email is registered with.
 - Malicious email services can block registration, recovery, and login if they choose not to send messages to certain emails.
 - Signers have access to user pubkeys and email services have access to user emails, but neither have access to both, preventing trivial correlation. However, email hashes are not salted, so it is possible to break the hashes given a list of valid emails.
-- `kind PUBKEY_SELECT` can leak the association between an email and a pubkey to an attacker that is able to provide a valid email address. This can be mitigated by rate-limiting login/recover events, but is something that users should be informed about in case they want to keep their email/pubkey link private. This attack vector only exists for users who have associated multiple pubkeys with a given email.
+- `login/select` and `recover/select` can leak the association between an email and a pubkey to an attacker that is able to provide a valid email address. This can be mitigated by rate-limiting login/recover events, but is something that users should be informed about in case they want to keep their email/pubkey link private. This attack vector only exists for users who have associated multiple pubkeys with a given email.
