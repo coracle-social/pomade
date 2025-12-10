@@ -111,8 +111,8 @@ export class Signer {
     if (!meta.email_ciphertext)                    return cb("error", "No email ciphertext was provided.")
     if (meta.email_service?.length !== 64)         return cb("error", "Invalid email service pubkey.")
 
-    const share = tryCatch(() => PackageEncoder.deserialize_share_data(Buffer.from(meta.share, 'hex')))
-    const group = tryCatch(() => PackageEncoder.deserialize_group_data(Buffer.from(meta.group, 'hex')))
+    const share = tryCatch(() => PackageEncoder.share.deserialize(Buffer.from(meta.share, 'hex')))
+    const group = tryCatch(() => PackageEncoder.group.deserialize(Buffer.from(meta.group, 'hex')))
 
     if (!share)                                    return cb("error", `Failed to deserialize share package.`)
     if (!group)                                    return cb("error", `Failed to deserialize group package.`)

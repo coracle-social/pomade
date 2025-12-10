@@ -1,5 +1,5 @@
 import type {MaybeAsync} from '@welshman/lib'
-import {uniq, always, spec} from '@welshman/lib'
+import {uniq, maybe, always, spec} from '@welshman/lib'
 import {nip44} from '@welshman/signer'
 import {publish, request, PublishStatus} from '@welshman/net'
 import type {EventTemplate, TrustedEvent} from '@welshman/util'
@@ -97,7 +97,7 @@ export async function rpcReceive({
 
   const relays = await fetchRelays({signal, pubkey, relays: indexerRelays})
 
-  let result: TrustedEvent
+  let result = maybe<TrustedEvent>()
 
   await request({
     signal,

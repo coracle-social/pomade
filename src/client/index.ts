@@ -3,7 +3,7 @@ import {nip44, signWithOptions} from '@welshman/signer'
 import type {ISigner, SignOptions} from '@welshman/signer'
 import {publish, request, PublishStatus} from '@welshman/net'
 import {prep, makeSecret, getPubkey, getTagValue} from '@welshman/util'
-import type {TrustedEvent, EventTemplate, StampedEvent} from '@welshman/util'
+import type {TrustedEvent, SignedEvent, EventTemplate, StampedEvent} from '@welshman/util'
 import {Schema, Lib, PackageEncoder} from '@frostr/bifrost'
 import type {GroupPackage} from '@frostr/bifrost'
 
@@ -179,7 +179,15 @@ export class Signer implements ISigner {
         return Schema.sign.psig_pkg.parse(parseJson(psigJson))
       })
     ).then(partialSignatures => {
-      // TODO: combine signatures and return signed event
+      const ctx = Lib.get_session_ctx(group, pkg)
+      const signatureEntries = Lib.combine_signature_pkgs(ctx, partialSignatures)
+      const signature = signatureEntries[0]?.[2]
+
+      if (!signature) {
+        throw new Error('Failed to combine signatures')
+      }
+
+      return {...hashedEvent, sig: signature} as SignedEvent
     })
 
     options.signal?.addEventListener("abort", () => {
@@ -197,6 +205,5 @@ export class Signer implements ISigner {
   nip44 = {
     encrypt: thrower("Multisig signers do not support encryption."),
     decrypt: thrower("Multisig signers do not support encryption."),
-
   }
 }
