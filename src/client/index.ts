@@ -7,7 +7,7 @@ import type {TrustedEvent, SignedEvent, EventTemplate, StampedEvent} from '@wels
 import {Schema, Lib, PackageEncoder} from '@frostr/bifrost'
 import type {GroupPackage, PartialSigPackage} from '@frostr/bifrost'
 
-import {RPC, RPCMethod} from '../lib/index.js'
+import {rpc, Method} from '../lib/index.js'
 import type {IStorageFactory, IStorage} from '../lib/index.js'
 
 export type ClientOptions = {
@@ -43,11 +43,12 @@ export class Client {
     }
 
     const clientSecret = makeSecret()
+    const rpc = new RPC(clientSecret)
+    const userPubkey = getPubkey(userSecret)
     const {group, shares} = Lib.generate_dealer_pkg(threshold, total, [userSecret])
     const hexGroup = Buffer.from(PackageEncoder.group.encode(group)).toString('hex')
-    const userPubkey = getPubkey(userSecret)
     const userEmailHash = await sha256(textEncoder.encode(userEmail))
-    const userEmailCiphertext = await nip44.encrypt(emailService, clientSecret, userEmail)
+    const userEmailCiphertext = rpc.encrypt(emailService, userEmail)
     const remainingSignerPubkeys = Array.from(signerPubkeys)
     const errorsBySignerPubkey = new Map<string, string>()
     const signerPubkeysByIndex = new Map<number, string>()
@@ -56,40 +57,36 @@ export class Client {
       shares.map(async (share, i) => {
         const hexShare = Buffer.from(PackageEncoder.share.encode(share)).toString('hex')
 
-        while (remainingSignerPubkeys.length > 0) {
-          const signerPubkey = remainingSignerPubkeys.shift()!
+        while (remainingSignerPubkeys.length > 0 && !signerPubkeysByIndex.has(i)) {
+          const channel = rpc.channel(remainingSignerPubkeys.shift()!)
 
-          await RPC.request({
-            secret: clientSecret,
-            indexerRelays: this.options.indexerRelays,
-            pubkey: signerPubkey,
-            method: RPCMethod.RegisterRequest,
-            tags: [
-              ['shard', hexShare],
-              ['group', hexGroup],
-              ['threshold', String(threshold)],
-              ['email_service', emailService],
-              ['email_hash', userEmailHash],
-              ['email_ciphertext', userEmailCiphertext],
-            ],
-            handler: ({method, pubkey, tags}, done) => {
-              const status = getTagValue('status', tags)
-
-              if (pubkey === signerPubkey && method === RPCMethod.RegisterResult) {
-                if (status === "ok") {
-                  signerPubkeysByIndex.set(i, signerPubkey)
-                  done(undefined)
-                }
-
-                if (status === 'error') {
-                  const message = getTagValue('message', tags) || "Unknown error"
-
-                  errorsBySignerPubkey.set(signerPubkey, message)
-                  done(message)
-                }
+          await new Promise(resolve => {
+            setTimeout(resolve, 30_000)
+            channel.subscribe(({method, peer, payload}) => {
+              if (payload.status === "ok") {
+                signerPubkeysByIndex.set(i, signerPubkey)
+                resolve()
               }
-            },
+
+              if (payload.status === 'error') {
+                errorsBySignerPubkey.set(signerPubkey, payload.message || "Unknown error")
+                resolve()
+              }
+            })
+
+            channel.send(
+              makeRegisterRequest({
+                threshold,
+                share: hexShare,
+                group: hexGroup,
+                email_hash: userEmailHash,
+                email_service: emailService,
+                email_ciphertext: userEmailCiphertext,
+              })
+            )
           })
+
+          channel.close()
         }
       }),
     )
@@ -151,13 +148,13 @@ export class Signer implements ISigner {
           secret: this.state.clientSecret,
           indexerRelays: this.client.options.indexerRelays,
           pubkey: signerPubkeysByIndex.get(idx)!,
-          method: RPCMethod.SignRequest,
+          method: Method.SignRequest,
           tags: [
             ['package', JSON.stringify(pkg)],
             ['event', JSON.stringify(event)],
           ],
           handler: (item, done) => {
-            if (item.method === RPCMethod.SignResult) {
+            if (item.method === Method.SignResult) {
               const json = parseJson(getTagValue('psig', item.tags))
               const psig = Schema.sign.psig_pkg.parse(json)
 

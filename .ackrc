@@ -1,2 +1,3 @@
+--ignore-dir=context
 --ignore-file=match:pnpm-lock.yaml
 --ignore-file=match:tsconfig.build.tsbuildinfo

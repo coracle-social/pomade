@@ -3,7 +3,7 @@ import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import {RELAYS, makeSecret, getPubkey, getTagValues} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
-import {Kinds, RPC, RPCMethod, prepAndSign, publishRelays, fetchRelays} from '../lib/index.js'
+import {Kinds, RPC, Method, prepAndSign, publishRelays, fetchRelays} from '../lib/index.js'
 import type {IStorageFactory, IStorage} from '../lib/index.js'
 import {Lib, PackageEncoder} from '@frostr/bifrost'
 import type {GroupPackage, SharePackage} from '@frostr/bifrost'
@@ -92,7 +92,7 @@ export class Signer {
     const cb = (status: string, message: string) =>
       rpc.send({
         signal: this.abortController.signal,
-        method: RPCMethod.RegisterResult,
+        method: Method.RegisterResult,
         requestContent: [
           ["status", status],
           ["message", message],

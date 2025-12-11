@@ -3,8 +3,8 @@ import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import {RELAYS, getPubkey, getTagValue} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
-import {RPC, RPCMethod, prepAndSign, publishRelays} from '../lib/index.js'
-import type {IStorageFactory, IStorage, RPCItem} from '../lib/index.js'
+import {RPC, Method, prepAndSign, publishRelays} from '../lib/index.js'
+import type {IStorageFactory, IStorage, Message} from '../lib/index.js'
 
 export enum ValidationStatus {
   Ok = "ok",
@@ -71,9 +71,9 @@ export class Mailer {
 
         if (item) {
           switch (item.method) {
-            case RPCMethod.ValidateRequest: return this.handleValidateRequest(item)
-            case RPCMethod.RecoverShare: return this.handleRecoverShare(item)
-            case RPCMethod.LoginShare: return this.handleLoginShare(item)
+            case Method.ValidateRequest: return this.handleValidateRequest(item)
+            case Method.RecoverShare: return this.handleRecoverShare(item)
+            case Method.LoginShare: return this.handleLoginShare(item)
           }
         }
       },
@@ -91,7 +91,7 @@ export class Mailer {
 
   // Email Validation
 
-  async handleValidateRequest(item: RPCItem) {
+  async handleValidateRequest(item: Message) {
     const {secret, provider} = this.options
     const clientPubkey = getTagValue('client_pubkey', item.tags)
     const emailCiphertext = getTagValue('email_ciphertext', item.tags)
@@ -147,7 +147,7 @@ export class Mailer {
       authorSecret: this.options.secret,
       indexerRelays: this.options.indexerRelays,
       pubkey: signerPubkey,
-      method: RPCMethod.ValidateResult,
+      method: Method.ValidateResult,
       tags: [
         ["status", status],
         ["message", message],
@@ -184,11 +184,11 @@ export class Mailer {
 
   // Key Recovery
 
-  async handleRecoverShare(item: RPCItem) {
+  async handleRecoverShare(item: Message) {
   }
 
   // Login
 
-  async handleLoginShare(item: RPCItem) {
+  async handleLoginShare(item: Message) {
   }
 }
