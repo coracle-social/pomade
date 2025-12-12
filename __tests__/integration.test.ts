@@ -9,7 +9,7 @@ describe("cryptography related methods", () => {
   afterEach(afterHook)
 
   describe('register', () => {
-    it("successfully registers multiple signers", async () => {
+    it("successfully registers with multiple signers", async () => {
       const secret = makeSecret()
       const pubkey = getPubkey(secret)
       const client = await Client.register(1, 2, secret)
@@ -19,6 +19,9 @@ describe("cryptography related methods", () => {
       expect(client.group.threshold).toBe(1)
       expect(client.group.group_pk.slice(2)).toBe(pubkey)
     })
+
+    it.skip("successfully unregisters with multiple signers", async () => {
+    })
   })
 
   describe('signing', () => {
@@ -27,6 +30,48 @@ describe("cryptography related methods", () => {
       const event = await client.sign(makeEvent(1))
 
       expect(verifyEvent(event)).toBe(true)
+    })
+  })
+
+  describe('set email', () => {
+    it.skip("successfully sets user email", async () => {
+    })
+
+    it.skip("successfully sets a different user email", async () => {
+    })
+
+    it.skip("rejects invalid email", async () => {
+    })
+
+    it.skip("rejects forged otp", async () => {
+    })
+  })
+
+  describe('login', () => {
+    it.skip("successfully allows user login", async () => {
+    })
+
+    it.skip("rejects invalid email", async () => {
+    })
+
+    it.skip("rejects forged otp", async () => {
+    })
+
+    it.skip("handles pubkey selection", async () => {
+    })
+  })
+
+  describe('recovery', () => {
+    it.skip("successfully allows recovery", async () => {
+    })
+
+    it.skip("rejects invalid email", async () => {
+    })
+
+    it.skip("rejects forged otp", async () => {
+    })
+
+    it.skip("handles pubkey selection", async () => {
     })
   })
 })
