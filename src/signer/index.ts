@@ -3,10 +3,10 @@ import type {GroupPackage, SharePackage} from "@frostr/bifrost"
 import {tryCatch} from "@welshman/lib"
 import {getPubkey} from "@welshman/util"
 import type {TrustedEvent} from "@welshman/util"
-import {RPC, Status, makeRegisterResult, isRegisterRequest} from "../lib/index.js"
-import type {IStorageFactory, IStorage, RegisterRequest} from "../lib/index.js"
+import {RPC, Status, makeRegisterResult, isRegisterRequest, isSignRequest, makeSignResult} from "../lib/index.js"
+import type {IStorageFactory, IStorage, RegisterRequest, SignRequest} from "../lib/index.js"
 
-export type SignerSession = {
+export type SignerRegistration = {
   share: SharePackage
   group: GroupPackage
   event: TrustedEvent
@@ -21,15 +21,16 @@ export type SignerOptions = {
 export class Signer {
   rpc: RPC
   pubkey: string
-  sessions: IStorage<SignerSession>
+  registrations: IStorage<SignerRegistration>
   stop: () => void
 
   constructor(private options: SignerOptions) {
     this.pubkey = getPubkey(options.secret)
-    this.sessions = options.storage("sessions")
+    this.registrations = options.storage("registrations")
     this.rpc = new RPC(options.secret, options.relays)
     this.stop = this.rpc.subscribe((message, event) => {
       if (isRegisterRequest(message)) this.handleRegisterRequest(message, event)
+      if (isSignRequest(message)) this.handleSignRequest(message, event)
     })
   }
 
@@ -55,11 +56,36 @@ export class Signer {
     if (indices.size !== group.commits.length)
       return cb(Status.Error, "Group contains duplicate member indices.")
     if (!commit) return cb(Status.Error, "Share index not found in group commits.")
-    if (await this.sessions.has(event.pubkey))
+    if (await this.registrations.has(event.pubkey))
       return cb(Status.Error, "Client key has already been used.")
 
-    await this.sessions.set(event.pubkey, {event, share, group})
+    await this.registrations.set(event.pubkey, {event, share, group})
 
     return cb(Status.Ok, "Your key has been registered")
+  }
+
+  async handleSignRequest({payload}: SignRequest, event: TrustedEvent) {
+    const channel = this.rpc.channel(event.pubkey)
+    const registration = await this.registrations.get(event.pubkey)
+
+    if (!registration) {
+      return channel.send(
+        makeSignResult({
+          status: Status.Error,
+          message: "No registration found for client",
+        })
+      )
+    }
+
+    const ctx = Lib.get_session_ctx(registration.group, payload.session)
+    const psig = Lib.create_psig_pkg(ctx, registration.share)
+
+    channel.send(
+      makeSignResult({
+        psig,
+        status: Status.Ok,
+        message: "Successfully signed event",
+      })
+    )
   }
 }

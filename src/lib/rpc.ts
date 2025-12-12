@@ -169,8 +169,8 @@ export class RPCChannel {
         handler(message, event, done)
       })
 
-      const done = () => {
-        resolve(undefined)
+      const done = (result?: Maybe<T>) => {
+        resolve(result)
         unsubscribe()
       }
 

@@ -101,7 +101,7 @@ export const SetEmailRequestPayload = z.object({
   email_hash: z.string(),
   email_service: z.string().length(64),
   email_ciphertext: z.string(),
-  otp: z.optional(z.string()),
+  otp: z.string().optional(),
 })
 
 export const SetEmailResultPayload = z.object({
@@ -117,7 +117,7 @@ export const SetEmailChallengePayload = z.object({
 })
 
 export const SignRequestPayload = z.object({
-  pkg: Schema.sign.template,
+  session: Schema.sign.session,
   event: z.object({
     id: z.string(),
     kind: z.number(),
@@ -129,7 +129,9 @@ export const SignRequestPayload = z.object({
 })
 
 export const SignResultPayload = z.object({
-  psig: z.object({}),
+  psig: Schema.sign.psig_pkg.optional(),
+  status: z.enum(Object.values(Status)),
+  message: z.string(),
 })
 
 export const UnregisterRequestPayload = z.object({
@@ -312,13 +314,7 @@ export function makeMessage(method: Method, payload: Record<string, unknown>): M
     throw new Error(`Invalid method: ${method}`)
   }
 
-  const result = schema.safeParse({method, payload})
-
-  if (!result.success) {
-    throw new Error(`Invalid data for ${method}`)
-  }
-
-  return result.data
+  return schema.parse({method, payload})
 }
 
 export const makeLoginRequest = (payload: z.infer<typeof LoginRequestPayload>) =>

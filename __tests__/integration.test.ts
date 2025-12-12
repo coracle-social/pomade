@@ -1,5 +1,5 @@
 import {describe, it, expect, beforeEach, afterEach} from "vitest"
-import {makeSecret, getPubkey, makeEvent} from "@welshman/util"
+import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
 import {LOCAL_RELAY_URL} from "@welshman/net"
 import {Client} from "../src/client"
 import {beforeHook, afterHook, clientSecret} from './util'
@@ -24,10 +24,9 @@ describe("cryptography related methods", () => {
   describe('signing', () => {
     it("successfully signs an event", async () => {
       const client = await Client.register(2, 3, makeSecret())
+      const event = await client.sign(makeEvent(1))
 
-      console.log(await client.sign(makeEvent(1)))
-
-      expect(false).toBe(true)
+      expect(verifyEvent(event)).toBe(true)
     })
   })
 })

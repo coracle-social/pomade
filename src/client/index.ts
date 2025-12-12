@@ -134,16 +134,16 @@ export class Client {
     const members = sample(threshold, commits).map(c => c.idx)
     const template = Lib.create_session_template(members, event.id)
 
-    if (!template) throw new Error("Failed to build signing template")
+    if (!template) throw new Error("Failed to create signing template")
 
-    const pkg = Lib.create_session_pkg(this.group, template)
+    const session = Lib.create_session_pkg(this.group, template)
 
     const psigs = await Promise.all(
-      members.map(async i => {
-        const peer = this.peers[i]!
+      members.map(async idx => {
+        const peer = this.peers[idx - 1]!
         const channel = this.rpc.channel(peer)
 
-        channel.send(makeSignRequest({pkg, event}))
+        channel.send(makeSignRequest({session, event}))
 
         return channel.receive<PartialSigPackage>((message, event, resolve) => {
           if (isSignResult(message)) {
@@ -154,7 +154,7 @@ export class Client {
     )
 
     if (psigs.every(isDefined)) {
-      const ctx = Lib.get_session_ctx(this.group, pkg)
+      const ctx = Lib.get_session_ctx(this.group, session)
       const sig = Lib.combine_signature_pkgs(ctx, psigs)[0]?.[2]
 
       if (!sig) throw new Error("Failed to combine signatures")
