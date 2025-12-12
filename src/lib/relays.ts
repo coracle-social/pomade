@@ -1,8 +1,10 @@
 import type {MaybeAsync, Maybe} from '@welshman/lib'
-import {uniq, removeUndefined, maybe, always, spec, parseJson} from '@welshman/lib'
+import {uniq, removeUndefined, always, spec, parseJson} from '@welshman/lib'
 import {publish, request, PublishStatus} from '@welshman/net'
 import type {EventTemplate, TrustedEvent, SignedEvent} from '@welshman/util'
 import {prep, sign, getPubkey, RELAYS, getTagValues, getTagValue} from '@welshman/util'
+import {prepAndSign} from './misc.js'
+import {context} from './context.js'
 
 export async function fetchRelays({
   pubkey,

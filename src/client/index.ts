@@ -1,11 +1,10 @@
-import {not, sha256, sample, call, thrower, parseJson, spec, textEncoder} from '@welshman/lib'
+import {not, isDefined, sha256, sample, call, thrower, parseJson, spec, textEncoder} from '@welshman/lib'
 import {publish, request, PublishStatus} from '@welshman/net'
-import {prep, makeSecret, getPubkey, getTagValue} from '@welshman/util'
+import {prep, hash, own, makeSecret, getPubkey, getTagValue} from '@welshman/util'
 import type {TrustedEvent, SignedEvent, EventTemplate, StampedEvent} from '@welshman/util'
 import {Schema, Lib, PackageEncoder} from '@frostr/bifrost'
 import type {GroupPackage, PartialSigPackage} from '@frostr/bifrost'
-
-import {RPC, Method} from '../lib/index.js'
+import {RPC, Status, Method, context, makeRegisterRequest, isRegisterResult, makeSetEmailRequest, isSetEmailResult, makeSignRequest, isSignResult} from '../lib/index.js'
 
 export type ClientOptions = {
   group: GroupPackage
@@ -21,6 +20,7 @@ export class Client {
   constructor(options: ClientOptions) {
     this.rpc = new RPC(options.secret)
     this.peers = options.peers
+    this.group = options.group
   }
 
   static async register(total: number, threshold: number, userSecret: string) {
@@ -50,25 +50,19 @@ export class Client {
 
           channel.send(makeRegisterRequest({threshold, share: hexShare, group: hexGroup}))
 
-          await new Promise(resolve => {
-            setTimeout(resolve, 30_000)
-
-            channel.subscribe(message => {
-              if (isRegisterResult(message)) {
-                if (message.payload.status === "ok") {
-                  peers[i] = message.peer
-                  resolve()
-                }
-
-                if (message.payload.status === 'error') {
-                  errorsBySignerPubkey.set(message.peer, message.payload.message)
-                  resolve()
-                }
+          await channel.receive((message, event, done) => {
+            if (isRegisterResult(message)) {
+              if (message.payload.status === Status.Ok) {
+                peers[i] = event.pubkey
+                done()
               }
-            })
-          })
 
-          channel.close()
+              if (message.payload.status === Status.Error) {
+                errorsBySignerPubkey.set(event.pubkey, message.payload.message)
+                done()
+              }
+            }
+          })
         }
       }),
     )
@@ -91,7 +85,7 @@ export class Client {
 
     const errors = await Promise.all(
       this.peers.map(async (peer, i) => {
-        const channel = rpc.channel(peer)
+        const channel = this.rpc.channel(peer)
 
         channel.send(
           makeSetEmailRequest({
@@ -101,20 +95,16 @@ export class Client {
           })
         )
 
-        await new Promise(resolve => {
-          setTimeout(resolve, 30_000)
-
-          channel.subscribe(message => {
-            if (isSetEmailResult(message)) {
-              if (payload.status === "ok") {
-                resolve()
-              }
-
-              if (payload.status === 'error') {
-                resolve(payload.message)
-              }
+        return channel.receive<string>((message, event, resolve) => {
+          if (isSetEmailResult(message)) {
+            if (message.payload.status === "ok") {
+              resolve()
             }
-          })
+
+            if (message.payload.status === 'error') {
+              resolve(message.payload.message)
+            }
+          }
         })
       }),
     )
@@ -126,17 +116,15 @@ export class Client {
     }
   }
 
-  async sign(event: StampedEvent) {
+  async sign(stampedEvent: StampedEvent) {
     const {group_pk, threshold, commits} = this.group
-
-    if (event.pubkey !== group_pk) throw new Error("Event author does not match signer pubkey")
-
-    const members = sample(group.threshold, group.commits).map(c => c.idx)
+    const event = hash(own(stampedEvent, group_pk))
+    const members = sample(threshold, commits).map(c => c.idx)
     const template = Lib.create_session_template(members, event.id)
 
     if (!template) throw new Error("Failed to build signing template")
 
-    const pkg = Lib.create_session_pkg(group, template)
+    const pkg = Lib.create_session_pkg(this.group, template)
 
     const psigs = await Promise.all(
       members.map(async i => {
@@ -145,17 +133,21 @@ export class Client {
 
         channel.send(makeSignRequest({pkg, event}))
 
-        const message = await channel.receive(Method.SignResult)
-
-        return Schema.sign.psig_pkg.parse(message.payload.psig)
+        return channel.receive<PartialSigPackage>((message, event, resolve) => {
+          if (isSignResult(message)) {
+            resolve(Schema.sign.psig_pkg.parse(message.payload.psig))
+          }
+        })
       })
     )
 
-    const ctx = Lib.get_session_ctx(group, pkg)
-    const sig = Lib.combine_signature_pkgs(ctx, psigs)[0]?.[2]
+    if (psigs.every(isDefined)) {
+      const ctx = Lib.get_session_ctx(this.group, pkg)
+      const sig = Lib.combine_signature_pkgs(ctx, psigs)[0]?.[2]
 
-    if (!sig) throw new Error('Failed to combine signatures')
+      if (!sig) throw new Error('Failed to combine signatures')
 
-    return {...event, sig} as SignedEvent
+      return {...event, sig} as SignedEvent
+    }
   }
 }

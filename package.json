@@ -22,8 +22,17 @@
     "clean": "rimraf ./dist",
     "compile": "tsc -b tsconfig.build.json",
     "prepublishOnly": "pnpm run build"
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
   },
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.49.0",
+    "@typescript-eslint/parser": "^8.49.0",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "prettier": "^3.7.4",
     "rimraf": "~6.0.0",
     "typescript": "^5.9.3"
   },

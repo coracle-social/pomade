@@ -1,17 +1,11 @@
 import type {MaybeAsync, Maybe} from '@welshman/lib'
-import {uniq, removeUndefined, call, maybe, always, spec, parseJson} from '@welshman/lib'
+import {uniq, removeUndefined, tryCatch, call, always, spec, parseJson} from '@welshman/lib'
 import {publish, request, PublishStatus} from '@welshman/net'
-import type {EventTemplate, TrustedEvent, SignedEvent} from '@welshman/util'
+import type {EventTemplate, HashedEvent, TrustedEvent, SignedEvent} from '@welshman/util'
 import {prep, sign, getPubkey, RELAYS, getTagValues, getTagValue} from '@welshman/util'
-import {Method, Message} from './msg.js'
-
-export type IncomingMessage = Message & {
-  method: Method,
-  data: Record<string, string>,
-  topic?: string,
-  peer: string
-  event: TrustedEvent,
-}
+import {nip44} from './misc.js'
+import {fetchRelays} from './relays.js'
+import {Method, Message, parseMessage} from './msg.js'
 
 // Base RPC class
 
@@ -20,6 +14,8 @@ export function rpc(secret: string) {
 }
 
 export class RPC {
+  static Kind = 28350
+
   pubkey: string
   channels = new Map<string, RPCChannel>()
 
@@ -28,7 +24,7 @@ export class RPC {
   }
 
   sign(event: HashedEvent) {
-    return sign(this.secret, event)
+    return sign(event, this.secret)
   }
 
   encrypt(peer: string, payload: string) {
@@ -39,24 +35,15 @@ export class RPC {
     return nip44.decrypt(peer, this.secret, payload)
   }
 
-  read(event: TrustedEvent): Maybe<IncomingMessage> {
-    try {
-      const {pubkey: peer, content} = event
-      const message = parseMessage(this.decrypt(peer, content))
-
-      if (message) {
-        return {...message, event, peer}
-      }
-    } catch (e) {
-      // Pass
-    }
+  read(event: TrustedEvent): Maybe<Message> {
+    return tryCatch(() => parseMessage(this.decrypt(event.pubkey, event.content)))
   }
 
   channel(peer: string) {
     let channel = this.channels.get(peer)
 
     if (!channel) {
-      const channel = new RPCChannel(this, peer)
+      channel = new RPCChannel(this, peer)
 
       this.channels.set(peer, channel)
     }
@@ -65,7 +52,7 @@ export class RPC {
   }
 
   close() {
-    for (const channel of this.channels) {
+    for (const channel of this.channels.values()) {
       channel.close()
     }
 
@@ -75,26 +62,28 @@ export class RPC {
 
 // RPC channel
 
-export type MessageHandler = (item: IncomingMessage) => void
+export type MessageHandler = (message: Message, event: TrustedEvent) => void
+
+export type MessageHandlerWithCallback<T> = (message: Message, event: TrustedEvent, resolve: (result?: T) => void) => void
 
 export class RPCChannel {
   relays: Promise<string[]>
   subscribers: MessageHandler[] = []
   controller = new AbortController()
 
-  constructor(private rpc, readonly peer) {
+  constructor(private rpc: RPC, readonly peer: string) {
     this.relays = fetchRelays({pubkey: peer, signal: this.controller.signal})
     this.relays.then(relays => {
       request({
         relays,
         signal: this.controller.signal,
-        filters: [{kinds: [28350], authors: [peer], '#p': [rpc.pubkey]}],
+        filters: [{kinds: [RPC.Kind], authors: [peer], '#p': [rpc.pubkey]}],
         onEvent: (event: TrustedEvent) => {
-          const item = rpc.unwrap(event)
+          const message = rpc.read(event)
 
-          if (item) {
+          if (message) {
             for (const subscriber of this.subscribers) {
-              subscriber(item)
+              subscriber(message, event)
             }
           }
         },
@@ -104,7 +93,7 @@ export class RPCChannel {
 
   close() {
     this.controller.abort()
-    this.subscribers.forEach(call)
+    this.subscribers = []
   }
 
   subscribe(handler: MessageHandler) {
@@ -117,33 +106,37 @@ export class RPCChannel {
     return () => this.subscribers.splice(this.subscribers.findIndex(s => s === handler), 1)
   }
 
-  receive(method: Method, topic?: string) {
-    return new Promise(resolve => {
-      this.subscribe(message => {
-        if (message.method !== method) return
-        if (topic && message.topic !== topic) return
-
-        resolve(message)
+  receive<T>(handler: MessageHandlerWithCallback<T>) {
+    return new Promise<Maybe<T>>(resolve => {
+      const unsubscribe = this.subscribe((message, event) => {
+        handler(message, event, done)
       })
+
+      const done = () => {
+        resolve(undefined)
+        unsubscribe()
+      }
+
+      setTimeout(done, 30_000)
     })
   }
 
-  prep(payload: Payload) {
-    return this.rpc.sign(
-      prep({
-        kind: 28350,
-        tags: [["p", this.peer]],
-        content: this.encrypt(JSON.stringify(payload)),
-      })
-    )
+  prep(message: Message) {
+    const template = {
+      kind: RPC.Kind,
+      tags: [["p", this.peer]],
+      content: this.encrypt(JSON.stringify(message)),
+    }
+
+    return this.rpc.sign(prep(template, this.rpc.pubkey))
   }
 
   encrypt(payload: string) {
-    this.rpc.encrypt(this.peer, payload)
+    return this.rpc.encrypt(this.peer, payload)
   }
 
   decrypt(payload: string) {
-    this.rpc.decrypt(this.peer, payload)
+    return this.rpc.decrypt(this.peer, payload)
   }
 
   async publish(event: SignedEvent, callerSignal: AbortSignal) {
@@ -157,13 +150,13 @@ export class RPCChannel {
     return publish({relays, event, signal})
   }
 
-  send<T>(method: Method, tags: string[][]): RPCSend {
+  send<T>(message: Message) {
     const controller = new AbortController()
     const abort = () => this.controller.abort()
-    const event = this.prep({method, data, topic})
+    const event = this.prep(message)
     const res = this.publish(event, controller.signal)
     const ok = res.then(r => Object.values(r).some(spec({status: PublishStatus.Success})))
 
     return {abort, event, res, ok}
-  },
+  }
 }

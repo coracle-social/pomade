@@ -1,32 +1,25 @@
 import {sha256, switcher, tryCatch, parseJson, fromPairs, textEncoder} from '@welshman/lib'
-import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import {RELAYS, getPubkey, getTagValue} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
-import {RPC, Method, prepAndSign, publishRelays, nip44} from '../lib/index.js'
-import type {IStorageFactory, IStorage, Message} from '../lib/index.js'
-
-export enum ValidationStatus {
-  Ok = "ok",
-  Error = "error",
-  Pending = "pending",
-}
+import {RPC, Method, prepAndSign, publishRelays, nip44, makeValidateResult, Status, isValidateRequest} from '../lib/index.js'
+import type {IStorageFactory, IStorage, Message, ValidateRequest} from '../lib/index.js'
 
 export type ValidationState = {
   email: string
-  clientPubkey: string
-  signerPubkeys: string[]
-  status: ValidationStatus
+  status: Status
+  peers: string[]
+  client: string
 }
 
-const getValidationKey = (email: string, clientPubkey: string) => `${email}:${clientPubkey}`
+const getValidationKey = (email: string, client: string) => `${email}:${client}`
 
 export type RecoveryState = {}
 
 export type LoginState = {}
 
 export type EmailProvider = {
-  sendValidationEmail: (email: string, clientPubkey: string) => Promise<void>
+  sendValidationEmail: (email: string, client: string) => Promise<void>
   sendRecoveryEmail: () => Promise<void>
   sendLoginEmail: () => Promise<void>
 }
@@ -35,16 +28,19 @@ export type MailerOptions = {
   secret: string
   inboxRelays: string[]
   outboxRelays: string[]
-  indexerRelays: string[]
   storage: IStorageFactory
   provider: EmailProvider
 }
 
 export class Mailer {
-  private abortController = new AbortController()
-  private validations: IStorage<ValidationState>
+  rpc: RPC
+  pubkey: string
+  abortController = new AbortController()
+  validations: IStorage<ValidationState>
 
   constructor(private options: MailerOptions) {
+    this.rpc = new RPC(options.secret)
+    this.pubkey = getPubkey(options.secret)
     this.validations = options.storage('validations')
   }
 
@@ -52,7 +48,6 @@ export class Mailer {
     return publishRelays({
       secret: this.options.secret,
       signal: this.abortController.signal,
-      relays: [...this.options.indexerRelays, ...this.options.outboxRelays],
       outboxRelays: this.options.outboxRelays,
       inboxRelays: this.options.inboxRelays,
     })
@@ -60,28 +55,21 @@ export class Mailer {
 
   listenForEvents() {
     return request({
-      signal: this.abortController.signal,
       relays: this.options.inboxRelays,
-      filters: [{
-        kinds: [28350],
-        '#p': [getPubkey(this.options.secret)],
-      }],
+      signal: this.abortController.signal,
+      filters: [{kinds: [RPC.Kind], '#p': [this.pubkey]}],
       onEvent: (event: TrustedEvent) => {
-        const item = RPC.unwrap(this.options.secret, event)
+        const message = this.rpc.read(event)
 
-        if (item) {
-          switch (item.method) {
-            case Method.ValidateRequest: return this.handleValidateRequest(item)
-            case Method.RecoverShare: return this.handleRecoverShare(item)
-            case Method.LoginShare: return this.handleLoginShare(item)
-          }
+        if (message) {
+          if (isValidateRequest(message)) this.handleValidateRequest(message, event)
         }
       },
     })
   }
 
-  async start() {
-    await this.publishRelays()
+  start() {
+    this.publishRelays()
     this.listenForEvents()
   }
 
@@ -89,106 +77,80 @@ export class Mailer {
     this.abortController.abort()
   }
 
-  // Email Validation
+  async handleValidateRequest(message: ValidateRequest, event: TrustedEvent) {
+    const client = message.payload.client
+    const email = tryCatch(() => this.rpc.decrypt(client, message.payload.email_ciphertext))
 
-  async handleValidateRequest(item: Message) {
-    const {secret, provider} = this.options
-    const clientPubkey = getTagValue('client_pubkey', item.tags)
-    const emailCiphertext = getTagValue('email_ciphertext', item.tags)
+    const cb = (status: Status, message: string) =>
+      this.rpc.channel(event.pubkey).send(makeValidateResult({client, status, message}))
 
-    if (!clientPubkey) throw new Error("client_pubkey was not provided")
-    if (!emailCiphertext) throw new Error("email_ciphertext was not provided")
+    if (!email)                return cb(Status.Error, "Failed to decrypt email address")
+    if (!email?.includes('@')) return cb(Status.Error, "Invalid email address provided")
 
-    const email = await tryCatch(() => nip44.decrypt(clientPubkey, secret, emailCiphertext))
-
-    if (!email) throw new Error("Failed to decrypt email address")
-    if (!email?.includes('@')) throw new Error("Invalid email address provided")
-
-    const key = getValidationKey(email, clientPubkey)
+    const key = getValidationKey(email, client)
     const validation = await this.validations.get(key)
 
     if (!validation) {
       await this.validations.set(key, {
         email,
-        clientPubkey,
-        signerPubkeys: [event.pubkey],
-        status: ValidationStatus.Pending,
+        client,
+        peers: [event.pubkey],
+        status: Status.Pending,
       })
 
-      await provider.sendValidationEmail(email, clientPubkey)
+      await this.options.provider.sendValidationEmail(email, client)
     } else {
-      if (validation.status === ValidationStatus.Ok) {
-        await this.sendValidateEmailACK(event.pubkey, clientPubkey, ValidationStatus.Ok)
+      if (validation.status === Status.Ok) {
+        await cb(Status.Ok, "Successfully validated user email")
       }
 
-      if (validation.status === ValidationStatus.Error) {
-        await this.sendValidateEmailACK(event.pubkey, clientPubkey, ValidationStatus.Error)
+      if (validation.status === Status.Error) {
+        await cb(Status.Error, "Failed to validate user email")
       }
 
-      if (validation.status === ValidationStatus.Pending) {
-        validation.signerPubkeys.push(event.pubkey)
+      if (validation.status === Status.Pending) {
+        validation.peers.push(event.pubkey)
         await this.validations.set(key, validation)
-        await this.sendValidateEmailACK(event.pubkey, clientPubkey, ValidationStatus.Pending)
+        await cb(Status.Pending, "User email validation pending")
       }
     }
   }
 
-  async sendValidateEmailACK(signerPubkey: string, clientPubkey: string, status: ValidationStatus) {
-    const {secret, indexerRelays} = this.options
-
-    const message = switcher(status, {
-      [ValidationStatus.Ok]: "Successfully validated user email.",
-      [ValidationStatus.Error]: "Failed to validate user email.",
-      [ValidationStatus.Pending]: "User email validation pending.",
-    })
-
-    await RPC.send({
-      signal: this.abortController.signal,
-      authorSecret: this.options.secret,
-      indexerRelays: this.options.indexerRelays,
-      pubkey: signerPubkey,
-      method: Method.ValidateResult,
-      tags: [
-        ["status", status],
-        ["message", message],
-        ["client", clientPubkey],
-      ],
-    })
-  }
-
-  async completeEmailValidation(email: string, clientPubkey: string) {
-    const key = getValidationKey(email, clientPubkey)
+  async completeEmailValidation(email: string, client: string) {
+    const key = getValidationKey(email, client)
     const validation = await this.validations.get(key)
 
     if (validation) {
-      await this.validations.set(key, {...validation, status: ValidationStatus.Ok})
+      await this.validations.set(key, {...validation, status: Status.Ok})
 
-      for (const signerPubkey of validation.signerPubkeys) {
-        await this.sendValidateEmailACK(signerPubkey, clientPubkey, ValidationStatus.Ok)
+      for (const peer of validation.peers) {
+        this.rpc.channel(peer).send(
+          makeValidateResult({
+            client,
+            status: Status.Ok,
+            message: "Successfully validated user email",
+          })
+        )
       }
     }
   }
 
-  async failEmailValidation(email: string, clientPubkey: string) {
-    const key = getValidationKey(email, clientPubkey)
+  async failEmailValidation(email: string, client: string) {
+    const key = getValidationKey(email, client)
     const validation = await this.validations.get(key)
 
     if (validation) {
-      await this.validations.set(key, {...validation, status: ValidationStatus.Error})
+      await this.validations.set(key, {...validation, status: Status.Error})
 
-      for (const signerPubkey of validation.signerPubkeys) {
-        await this.sendValidateEmailACK(signerPubkey, clientPubkey, ValidationStatus.Error)
+      for (const peer of validation.peers) {
+        this.rpc.channel(peer).send(
+          makeValidateResult({
+            client,
+            status: Status.Ok,
+            message: "Successfully validated user email",
+          })
+        )
       }
     }
-  }
-
-  // Key Recovery
-
-  async handleRecoverShare(item: Message) {
-  }
-
-  // Login
-
-  async handleLoginShare(item: Message) {
   }
 }

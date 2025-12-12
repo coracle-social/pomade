@@ -1,5 +1,5 @@
 import * as nt44 from "nostr-tools/nip44"
-import {cached} from '@welshman/lib'
+import {cached, hexToBytes} from '@welshman/lib'
 import type {EventTemplate} from '@welshman/util'
 import {prep, sign, getPubkey} from '@welshman/util'
 

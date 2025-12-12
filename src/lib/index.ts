@@ -1,5 +1,6 @@
 export * from './context.js'
 export * from './misc.js'
+export * from './msg.js'
 export * from './rpc.js'
 export * from './relays.js'
 export * from './storage.js'

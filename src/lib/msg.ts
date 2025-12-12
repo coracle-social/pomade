@@ -1,6 +1,7 @@
 import * as z from 'zod'
 import {parseJson, switcher} from '@welshman/lib'
 import type {Maybe} from '@welshman/lib'
+import {Schema} from '@frostr/bifrost'
 
 export enum Method {
   LoginChallenge = "login/challenge",
@@ -56,8 +57,8 @@ export const LoginSelectPayload = z.object({
 })
 
 export const LoginChallengePayload = z.object({
-  batch: z.string(),
   peers: z.number(),
+  client: z.string(),
   otp_ciphertext: z.string(),
   email_ciphertext: z.string(),
 })
@@ -79,8 +80,8 @@ export const RecoverSelectPayload = z.object({
 })
 
 export const RecoverChallengePayload = z.object({
-  batch: z.string(),
   peers: z.number(),
+  client: z.string(),
   otp_ciphertext: z.string(),
   email_ciphertext: z.string(),
 })
@@ -109,17 +110,17 @@ export const SetEmailResultPayload = z.object({
 })
 
 export const SetEmailChallengePayload = z.object({
-  batch: z.string(),
   peers: z.number(),
+  client: z.string(),
   otp_ciphertext: z.string(),
   email_ciphertext: z.string(),
 })
 
 export const SignRequestPayload = z.object({
-  pkg: z.object({
-  }),
+  pkg: Schema.sign.template,
   event: z.object({
     id: z.string(),
+    kind: z.number(),
     pubkey: z.string(),
     content: z.string(),
     created_at: z.int(),
@@ -137,12 +138,12 @@ export const UnregisterRequestPayload = z.object({
 })
 
 export const ValidateRequestPayload = z.object({
-  batch: z.string(),
+  client: z.string(),
   email_ciphertext: z.string(),
 })
 
 export const ValidateResultPayload = z.object({
-  batch: z.string(),
+  client: z.string(),
   status: z.enum(Object.values(Status)),
   message: z.string(),
 })
@@ -204,9 +205,9 @@ export const SetEmailRequestSchema = z.object({
   payload: SetEmailRequestPayload
 })
 
-export const SetEmailResultPSchema = z.object({
-  method: z.literal(Method.SetEmailResultP),
-  payload: SetEmailResultPPayload
+export const SetEmailResultSchema = z.object({
+  method: z.literal(Method.SetEmailResult),
+  payload: SetEmailResultPayload
 })
 
 export const SetEmailChallengeSchema = z.object({
@@ -264,76 +265,116 @@ export function getMessageSchema(method: Method) {
 
 // Types
 
-export type LoginRequestMessage = z.infer<typeof LoginRequestSchema>
-export type LoginResultMessage = z.infer<typeof LoginResultSchema>
-export type LoginSelectMessage = z.infer<typeof LoginSelectSchema>
-export type LoginChallengeMessage = z.infer<typeof LoginChallengeSchema>
-export type RecoverRequestMessage = z.infer<typeof RecoverRequestSchema>
-export type RecoverResultMessage = z.infer<typeof RecoverResultSchema>
-export type RecoverSelectMessage = z.infer<typeof RecoverSelectSchema>
-export type RecoverChallengeMessage = z.infer<typeof RecoverChallengeSchema>
-export type RegisterRequestMessage = z.infer<typeof RegisterRequestSchema>
-export type RegisterResultMessage = z.infer<typeof RegisterResultSchema>
-export type SetEmailRequestMessage = z.infer<typeof SetEmailRequestSchema>
-export type SetEmailResultMessage = z.infer<typeof SetEmailResultSchema>
-export type SetEmailChallengeMessage = z.infer<typeof SetEmailChallengeSchema>
-export type SignRequestMessage = z.infer<typeof SignRequestSchema>
-export type SignResultMessage = z.infer<typeof SignResultSchema>
-export type UnregisterRequestMessage = z.infer<typeof UnregisterRequestSchema>
-export type ValidateRequestMessage = z.infer<typeof ValidateRequestSchema>
-export type ValidateResultMessage = z.infer<typeof ValidateResultSchema>
+export type LoginRequest = z.infer<typeof LoginRequestSchema>
+export type LoginResult = z.infer<typeof LoginResultSchema>
+export type LoginSelect = z.infer<typeof LoginSelectSchema>
+export type LoginChallenge = z.infer<typeof LoginChallengeSchema>
+export type RecoverRequest = z.infer<typeof RecoverRequestSchema>
+export type RecoverResult = z.infer<typeof RecoverResultSchema>
+export type RecoverSelect = z.infer<typeof RecoverSelectSchema>
+export type RecoverChallenge = z.infer<typeof RecoverChallengeSchema>
+export type RegisterRequest = z.infer<typeof RegisterRequestSchema>
+export type RegisterResult = z.infer<typeof RegisterResultSchema>
+export type SetEmailRequest = z.infer<typeof SetEmailRequestSchema>
+export type SetEmailResult = z.infer<typeof SetEmailResultSchema>
+export type SetEmailChallenge = z.infer<typeof SetEmailChallengeSchema>
+export type SignRequest = z.infer<typeof SignRequestSchema>
+export type SignResult = z.infer<typeof SignResultSchema>
+export type UnregisterRequest = z.infer<typeof UnregisterRequestSchema>
+export type ValidateRequest = z.infer<typeof ValidateRequestSchema>
+export type ValidateResult = z.infer<typeof ValidateResultSchema>
 
 export type Message =
-  | LoginRequestMessage
-  | LoginResultMessage
-  | LoginSelectMessage
-  | LoginChallengeMessage
-  | RecoverRequestMessage
-  | RecoverResultMessage
-  | RecoverSelectMessage
-  | RecoverChallengeMessage
-  | RegisterRequestMessage
-  | RegisterResultMessage
-  | SetEmailRequestMessage
-  | SetEmailResultMessage
-  | SetEmailChallengeMessage
-  | SignRequestMessage
-  | SignResultMessage
-  | UnregisterRequestMessage
-  | ValidateRequestMessage
-  | ValidateResultMessage
+  | LoginRequest
+  | LoginResult
+  | LoginSelect
+  | LoginChallenge
+  | RecoverRequest
+  | RecoverResult
+  | RecoverSelect
+  | RecoverChallenge
+  | RegisterRequest
+  | RegisterResult
+  | SetEmailRequest
+  | SetEmailResult
+  | SetEmailChallenge
+  | SignRequest
+  | SignResult
+  | UnregisterRequest
+  | ValidateRequest
+  | ValidateResult
 
 // Construction
 
-export function makeMessage(method: Method.LoginRequest, payload: LoginRequestPayload): LoginRequestMessage
-export function makeMessage(method: Method.LoginResult, payload: LoginResultPayload): LoginResultMessage
-export function makeMessage(method: Method.LoginSelect, payload: LoginSelectPayload): LoginSelectMessage
-export function makeMessage(method: Method.LoginChallenge, payload: LoginChallengePayload): LoginChallengeMessage
-export function makeMessage(method: Method.RecoverRequest, payload: RecoverRequestPayload): RecoverRequestMessage
-export function makeMessage(method: Method.RecoverResult, payload: RecoverResultPayload): RecoverResultMessage
-export function makeMessage(method: Method.RecoverSelect, payload: RecoverSelectPayload): RecoverSelectMessage
-export function makeMessage(method: Method.RecoverChallenge, payload: RecoverChallengePayload): RecoverChallengeMessage
-export function makeMessage(method: Method.RegisterRequest, payload: RegisterRequestPayload): RegisterRequestMessage
-export function makeMessage(method: Method.RegisterResult, payload: RegisterResultPayload): RegisterResultMessage
-export function makeMessage(method: Method.SetEmailRequestMessage, payload: SetEmailRequestPayload): SetEmailRequestMessage
-export function makeMessage(method: Method.SetEmailResultMessage, payload: SetEmailResultPayload): SetEmailResultMessage
-export function makeMessage(method: Method.SetEmailChallengeMessage, payload: SetEmailChallengePayload): SetEmailChallengeMessage
-export function makeMessage(method: Method.SignRequest, payload: SignRequestPayload): SignRequestMessage
-export function makeMessage(method: Method.SignResult, payload: SignResultPayload): SignResultMessage
-export function makeMessage(method: Method.UnregisterRequest, payload: UnregisterRequestPayload): UnregisterRequestMessage
-export function makeMessage(method: Method.ValidateRequest, payload: ValidateRequestPayload): ValidateRequestMessage
-export function makeMessage(method: Method.ValidateResult, payload: ValidateResultPayload): ValidateResultMessage
-export function makeMessage(method: Method, payload: Record<string, unknown>): Maybe<Message> {
+export function makeMessage(method: Method, payload: Record<string, unknown>): Message {
   const schema = getMessageSchema(method)
 
-  if (schema) {
-    const result = schema.parse({method, payload})
-
-    if (result.success) {
-      return result.data
-    }
+  if (!schema) {
+    throw new Error(`Invalid method: ${method}`)
   }
+
+  const result = schema.safeParse({method, payload})
+
+  if (!result.success) {
+    throw new Error(`Invalid data for ${method}`)
+  }
+
+  return result.data
 }
+
+export const makeLoginRequest = (payload: z.infer<typeof LoginRequestPayload>) =>
+  makeMessage(Method.LoginRequest, payload) as LoginRequest
+
+export const makeLoginResult = (payload: z.infer<typeof LoginResultPayload>) =>
+  makeMessage(Method.LoginResult, payload) as LoginResult
+
+export const makeLoginSelect = (payload: z.infer<typeof LoginSelectPayload>) =>
+  makeMessage(Method.LoginSelect, payload) as LoginSelect
+
+export const makeLoginChallenge = (payload: z.infer<typeof LoginChallengePayload>) =>
+  makeMessage(Method.LoginChallenge, payload) as LoginChallenge
+
+export const makeRecoverRequest = (payload: z.infer<typeof RecoverRequestPayload>) =>
+  makeMessage(Method.RecoverRequest, payload) as RecoverRequest
+
+export const makeRecoverResult = (payload: z.infer<typeof RecoverResultPayload>) =>
+  makeMessage(Method.RecoverResult, payload) as RecoverResult
+
+export const makeRecoverSelect = (payload: z.infer<typeof RecoverSelectPayload>) =>
+  makeMessage(Method.RecoverSelect, payload) as RecoverSelect
+
+export const makeRecoverChallenge = (payload: z.infer<typeof RecoverChallengePayload>) =>
+  makeMessage(Method.RecoverChallenge, payload) as RecoverChallenge
+
+export const makeRegisterRequest = (payload: z.infer<typeof RegisterRequestPayload>) =>
+  makeMessage(Method.RegisterRequest, payload) as RegisterRequest
+
+export const makeRegisterResult = (payload: z.infer<typeof RegisterResultPayload>) =>
+  makeMessage(Method.RegisterResult, payload) as RegisterResult
+
+export const makeSetEmailRequest = (payload: z.infer<typeof SetEmailRequestPayload>) =>
+  makeMessage(Method.SetEmailRequest, payload) as SetEmailRequest
+
+export const makeSetEmailResult = (payload: z.infer<typeof SetEmailResultPayload>) =>
+  makeMessage(Method.SetEmailResult, payload) as SetEmailResult
+
+export const makeSetEmailChallenge = (payload: z.infer<typeof SetEmailChallengePayload>) =>
+  makeMessage(Method.SetEmailChallenge, payload) as SetEmailChallenge
+
+export const makeSignRequest = (payload: z.infer<typeof SignRequestPayload>) =>
+  makeMessage(Method.SignRequest, payload) as SignRequest
+
+export const makeSignResult = (payload: z.infer<typeof SignResultPayload>) =>
+  makeMessage(Method.SignResult, payload) as SignResult
+
+export const makeUnregisterRequest = (payload: z.infer<typeof UnregisterRequestPayload>) =>
+  makeMessage(Method.UnregisterRequest, payload) as UnregisterRequest
+
+export const makeValidateRequest = (payload: z.infer<typeof ValidateRequestPayload>) =>
+  makeMessage(Method.ValidateRequest, payload) as ValidateRequest
+
+export const makeValidateResult = (payload: z.infer<typeof ValidateResultPayload>) =>
+  makeMessage(Method.ValidateResult, payload) as ValidateResult
 
 // Parse
 
@@ -358,9 +399,9 @@ export const isRecoverSelect = (m: Message): m is RecoverSelect => m.method === 
 export const isRecoverChallenge = (m: Message): m is RecoverChallenge => m.method === Method.RecoverChallenge
 export const isRegisterRequest = (m: Message): m is RegisterRequest => m.method === Method.RegisterRequest
 export const isRegisterResult = (m: Message): m is RegisterResult => m.method === Method.RegisterResult
-export const isSetEmailRequest, (m: Message): m is SetEmailRequest => m.method === Method.SetEmailRequest
-export const isSetEmailResult, (m: Message): m is SetEmailResult => m.method === Method.SetEmailResult
-export const isSetEmailChallenge, (m: Message): m is SetEmailChallenge => m.method === Method.SetEmailChallenge
+export const isSetEmailRequest = (m: Message): m is SetEmailRequest => m.method === Method.SetEmailRequest
+export const isSetEmailResult = (m: Message): m is SetEmailResult => m.method === Method.SetEmailResult
+export const isSetEmailChallenge = (m: Message): m is SetEmailChallenge => m.method === Method.SetEmailChallenge
 export const isSignRequest = (m: Message): m is SignRequest => m.method === Method.SignRequest
 export const isSignResult = (m: Message): m is SignResult => m.method === Method.SignResult
 export const isUnregisterRequest = (m: Message): m is UnregisterRequest => m.method === Method.UnregisterRequest
