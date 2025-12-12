@@ -1,8 +1,7 @@
 import {tryCatch} from "@welshman/lib"
-import {request} from "@welshman/net"
 import {getPubkey} from "@welshman/util"
 import type {TrustedEvent} from "@welshman/util"
-import {RPC, publishRelays, makeValidateResult, Status, isValidateRequest} from "../lib/index.js"
+import {RPC, makeValidateResult, Status, isValidateRequest} from "../lib/index.js"
 import type {IStorageFactory, IStorage, ValidateRequest} from "../lib/index.js"
 
 export type ValidationState = {
@@ -22,8 +21,7 @@ export type EmailProvider = {
 
 export type MailerOptions = {
   secret: string
-  inboxRelays: string[]
-  outboxRelays: string[]
+  relays: string[]
   storage: IStorageFactory
   provider: EmailProvider
 }
@@ -31,46 +29,16 @@ export type MailerOptions = {
 export class Mailer {
   rpc: RPC
   pubkey: string
-  abortController = new AbortController()
   validations: IStorage<ValidationState>
+  stop: () => void
 
   constructor(private options: MailerOptions) {
-    this.rpc = new RPC(options.secret)
     this.pubkey = getPubkey(options.secret)
     this.validations = options.storage("validations")
-  }
-
-  publishRelays() {
-    return publishRelays({
-      secret: this.options.secret,
-      signal: this.abortController.signal,
-      outboxRelays: this.options.outboxRelays,
-      inboxRelays: this.options.inboxRelays,
+    this.rpc = new RPC(options.secret, options.relays)
+    this.stop = this.rpc.subscribe((message, event) => {
+      if (isValidateRequest(message)) this.handleValidateRequest(message, event)
     })
-  }
-
-  listenForEvents() {
-    return request({
-      relays: this.options.inboxRelays,
-      signal: this.abortController.signal,
-      filters: [{kinds: [RPC.Kind], "#p": [this.pubkey]}],
-      onEvent: (event: TrustedEvent) => {
-        const message = this.rpc.read(event)
-
-        if (message) {
-          if (isValidateRequest(message)) this.handleValidateRequest(message, event)
-        }
-      },
-    })
-  }
-
-  start() {
-    this.publishRelays()
-    this.listenForEvents()
-  }
-
-  stop() {
-    this.abortController.abort()
   }
 
   async handleValidateRequest(message: ValidateRequest, event: TrustedEvent) {

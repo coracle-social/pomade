@@ -46,14 +46,14 @@ export class Client {
     const {group, shares} = Lib.generate_dealer_pkg(threshold, total, [userSecret])
     const hexGroup = Buffer.from(PackageEncoder.group.encode(group)).toString("hex")
     const remainingSignerPubkeys = Array.from(context.signerPubkeys)
-    const errorsBySignerPubkey = new Map<string, string>()
-    const peers = new Array(0).fill("")
+    const errorsByPeer = new Map<string, string>()
+    const peersByIndex = new Map<number, string>()
 
     await Promise.all(
       shares.map(async (share, i) => {
         const hexShare = Buffer.from(PackageEncoder.share.encode(share)).toString("hex")
 
-        while (remainingSignerPubkeys.length > 0 && !peers[i]) {
+        while (remainingSignerPubkeys.length > 0 && !peersByIndex.has(i)) {
           const channel = rpc.channel(remainingSignerPubkeys.shift()!)
 
           channel.send(makeRegisterRequest({threshold, share: hexShare, group: hexGroup}))
@@ -61,12 +61,12 @@ export class Client {
           await channel.receive((message, event, done) => {
             if (isRegisterResult(message)) {
               if (message.payload.status === Status.Ok) {
-                peers[i] = event.pubkey
+                peersByIndex.set(i, event.pubkey)
                 done()
               }
 
               if (message.payload.status === Status.Error) {
-                errorsBySignerPubkey.set(event.pubkey, message.payload.message)
+                errorsByPeer.set(event.pubkey, message.payload.message)
                 done()
               }
             }
@@ -76,8 +76,8 @@ export class Client {
     )
 
     // Check if we have enough successful registrations
-    if (peers.some(not)) {
-      const errors = Array.from(errorsBySignerPubkey.entries())
+    if (peersByIndex.size < total) {
+      const errors = Array.from(errorsByPeer.entries())
         .map(([pubkey, error]) => `${pubkey}: ${error}`)
         .join("\n")
 

@@ -23,8 +23,8 @@ export enum Method {
   ValidateRequest = "validate/request",
   ValidateResult = "validate/result",
 
-  // ConversationKeyRequest
-  // ConversationKeyResult
+  // EcdhRequest
+  // EcdhResult
 }
 
 export enum RevokeScope {
@@ -116,7 +116,7 @@ export const SetEmailChallengePayload = z.object({
   email_ciphertext: z.string(),
 })
 
-export const SignRequestPayload = z.object({
+export const SignRequestPayload: z.ZodType<any> = z.object({
   pkg: Schema.sign.template,
   event: z.object({
     id: z.string(),

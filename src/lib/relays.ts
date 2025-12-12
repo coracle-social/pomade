@@ -4,12 +4,12 @@ import {RELAYS, getTagValues} from "@welshman/util"
 import {prepAndSign} from "./misc.js"
 import {context} from "./context.js"
 
-export async function fetchRelays({pubkey, signal}: {pubkey: string; signal?: AbortSignal}) {
+export async function fetchRelays(pubkey: string, signal: AbortSignal) {
   const [relayList] = await request({
-    signal,
     autoClose: true,
     relays: context.indexerRelays,
     filters: [{kinds: [RELAYS], authors: [pubkey]}],
+    signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
   })
 
   return getTagValues("r", relayList?.tags || [])
@@ -18,24 +18,19 @@ export async function fetchRelays({pubkey, signal}: {pubkey: string; signal?: Ab
 export function publishRelays({
   secret,
   signal,
-  inboxRelays,
-  outboxRelays,
+  relays,
 }: {
   secret: string
   signal?: AbortSignal
-  inboxRelays: string[]
-  outboxRelays: string[]
+  relays: string[]
 }) {
   return publish({
     signal,
-    relays: uniq([...outboxRelays, ...context.indexerRelays]),
+    relays: uniq([...relays, ...context.indexerRelays]),
     event: prepAndSign(secret, {
       kind: RELAYS,
       content: "",
-      tags: [
-        ...outboxRelays.map(url => ["r", url, "write"]),
-        ...inboxRelays.map(url => ["r", url, "read"]),
-      ],
+      tags: relays.map(url => ["r", url]),
     }),
   })
 }

@@ -1,10 +1,9 @@
 import {Lib, PackageEncoder} from "@frostr/bifrost"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
 import {tryCatch} from "@welshman/lib"
-import {request} from "@welshman/net"
 import {getPubkey} from "@welshman/util"
 import type {TrustedEvent} from "@welshman/util"
-import {RPC, publishRelays, Status, makeRegisterResult, isRegisterRequest} from "../lib/index.js"
+import {RPC, Status, makeRegisterResult, isRegisterRequest} from "../lib/index.js"
 import type {IStorageFactory, IStorage, RegisterRequest} from "../lib/index.js"
 
 export type SignerSession = {
@@ -15,8 +14,7 @@ export type SignerSession = {
 
 export type SignerOptions = {
   secret: string
-  inboxRelays: string[]
-  outboxRelays: string[]
+  relays: string[]
   storage: IStorageFactory
 }
 
@@ -24,45 +22,15 @@ export class Signer {
   rpc: RPC
   pubkey: string
   sessions: IStorage<SignerSession>
-  abortController = new AbortController()
+  stop: () => void
 
   constructor(private options: SignerOptions) {
-    this.rpc = new RPC(options.secret)
     this.pubkey = getPubkey(options.secret)
     this.sessions = options.storage("sessions")
-  }
-
-  publishRelays() {
-    return publishRelays({
-      secret: this.options.secret,
-      signal: this.abortController.signal,
-      outboxRelays: this.options.outboxRelays,
-      inboxRelays: this.options.inboxRelays,
+    this.rpc = new RPC(options.secret, options.relays)
+    this.stop = this.rpc.subscribe((message, event) => {
+      if (isRegisterRequest(message)) this.handleRegisterRequest(message, event)
     })
-  }
-
-  listenForEvents() {
-    return request({
-      relays: this.options.inboxRelays,
-      signal: this.abortController.signal,
-      filters: [{kinds: [RPC.Kind], "#p": [this.pubkey]}],
-      onEvent: (event: TrustedEvent) => {
-        const message = this.rpc.read(event)
-
-        if (message) {
-          if (isRegisterRequest(message)) this.handleRegisterRequest(message, event)
-        }
-      },
-    })
-  }
-
-  start() {
-    this.publishRelays()
-    this.listenForEvents()
-  }
-
-  stop() {
-    this.abortController.abort()
   }
 
   async handleRegisterRequest({payload}: RegisterRequest, event: TrustedEvent) {
@@ -78,8 +46,10 @@ export class Signer {
 
     if (!share) return cb(Status.Error, `Failed to deserialize share package.`)
     if (!group) return cb(Status.Error, `Failed to deserialize group package.`)
-    if (!Lib.is_group_member(group, share))
-      return cb(Status.Error, "Share does not belong to the provided group.")
+
+    const isMember = Lib.is_group_member(group, share)
+
+    if (!isMember) return cb(Status.Error, "Share does not belong to the provided group.")
     if (group.threshold <= 0) return cb(Status.Error, "Group threshold must be greater than zero.")
     if (group.threshold > group.commits.length) return cb(Status.Error, "Invalid group threshold.")
 

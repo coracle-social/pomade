@@ -1,11 +1,11 @@
 import type {Maybe} from "@welshman/lib"
-import {tryCatch, spec} from "@welshman/lib"
+import {tryCatch, uniq, without, spec} from "@welshman/lib"
 import {publish, request, PublishStatus} from "@welshman/net"
-import type {HashedEvent, TrustedEvent, SignedEvent} from "@welshman/util"
+import type {HashedEvent, TrustedEvent} from "@welshman/util"
 import {prep, sign, getPubkey} from "@welshman/util"
 import {nip44} from "./misc.js"
-import {fetchRelays} from "./relays.js"
 import {Message, parseMessage} from "./msg.js"
+import {fetchRelays, publishRelays} from "./relays.js"
 
 // Base RPC class
 
@@ -17,10 +17,66 @@ export class RPC {
   static Kind = 28350
 
   pubkey: string
+  subscribers: MessageHandler[] = []
+  controller = new AbortController()
   channels = new Map<string, RPCChannel>()
 
-  constructor(private secret: string) {
+  constructor(
+    private secret: string,
+    readonly relays: string[] = [],
+  ) {
     this.pubkey = getPubkey(secret)
+    this.publishRelays()
+    this.listenForEvents()
+  }
+
+  publishRelays() {
+    if (this.relays) {
+      publishRelays({
+        secret: this.secret,
+        relays: this.relays,
+        signal: this.controller.signal,
+      })
+    }
+  }
+
+  listenForEvents() {
+    if (this.relays) {
+      request({
+        relays: this.relays,
+        signal: this.controller.signal,
+        filters: [{kinds: [RPC.Kind], "#p": [this.pubkey]}],
+        onEvent: (event: TrustedEvent) => this.notify(event),
+      })
+    }
+  }
+
+  read(event: TrustedEvent): Maybe<Message> {
+    return tryCatch(() => parseMessage(this.decrypt(event.pubkey, event.content)))
+  }
+
+  notify(event: TrustedEvent) {
+    const message = this.read(event)
+
+    if (message) {
+      for (const subscriber of this.subscribers) {
+        subscriber(message, event)
+      }
+    }
+  }
+
+  subscribe(handler: MessageHandler) {
+    if (this.controller.signal.aborted) {
+      throw new Error("Attempted to subscribe to an rpc interface that has been closed")
+    }
+
+    this.subscribers.push(handler)
+
+    return () =>
+      this.subscribers.splice(
+        this.subscribers.findIndex(s => s === handler),
+        1,
+      )
   }
 
   sign(event: HashedEvent) {
@@ -35,10 +91,6 @@ export class RPC {
     return nip44.decrypt(peer, this.secret, payload)
   }
 
-  read(event: TrustedEvent): Maybe<Message> {
-    return tryCatch(() => parseMessage(this.decrypt(event.pubkey, event.content)))
-  }
-
   channel(peer: string) {
     let channel = this.channels.get(peer)
 
@@ -51,12 +103,14 @@ export class RPC {
     return channel
   }
 
-  close() {
+  stop() {
     for (const channel of this.channels.values()) {
-      channel.close()
+      channel.stop()
     }
 
     this.channels.clear()
+    this.controller.abort()
+    this.subscribers = []
   }
 }
 
@@ -69,38 +123,34 @@ export type MessageHandlerWithCallback<T> = (
   event: TrustedEvent,
   resolve: (result?: T) => void,
 ) => void
+    import {Repository} from '@welshman/net'
 
 export class RPCChannel {
   relays: Promise<string[]>
-  subscribers: MessageHandler[] = []
   controller = new AbortController()
 
   constructor(
     private rpc: RPC,
     readonly peer: string,
   ) {
-    this.relays = fetchRelays({pubkey: peer, signal: this.controller.signal})
+    const {signal} = this.controller
+
+
+    this.relays = fetchRelays(peer, signal)
     this.relays.then(relays => {
-      request({
-        relays,
-        signal: this.controller.signal,
-        filters: [{kinds: [RPC.Kind], authors: [peer], "#p": [rpc.pubkey]}],
-        onEvent: (event: TrustedEvent) => {
-          const message = rpc.read(event)
+      if (!signal.aborted) {
+        const uniqueRelays = without(this.rpc.relays, relays)
 
-          if (message) {
-            for (const subscriber of this.subscribers) {
-              subscriber(message, event)
-            }
-          }
-        },
-      })
+        if (uniqueRelays.length > 0) {
+          request({
+            signal,
+            relays: uniqueRelays,
+            filters: [{kinds: [RPC.Kind], authors: [this.peer], "#p": [this.rpc.pubkey]}],
+            onEvent: (event: TrustedEvent) => this.rpc.notify(event),
+          })
+        }
+      }
     })
-  }
-
-  close() {
-    this.controller.abort()
-    this.subscribers = []
   }
 
   subscribe(handler: MessageHandler) {
@@ -108,13 +158,11 @@ export class RPCChannel {
       throw new Error("Attempted to subscribe to a channel that has been closed")
     }
 
-    this.subscribers.push(handler)
-
-    return () =>
-      this.subscribers.splice(
-        this.subscribers.findIndex(s => s === handler),
-        1,
-      )
+    return this.rpc.subscribe((message, event) => {
+      if (event.pubkey === this.peer) {
+        handler(message, event)
+      }
+    })
   }
 
   receive<T>(handler: MessageHandlerWithCallback<T>) {
@@ -150,24 +198,25 @@ export class RPCChannel {
     return this.rpc.decrypt(this.peer, payload)
   }
 
-  async publish(event: SignedEvent, callerSignal: AbortSignal) {
-    const relays = await this.relays
-    const signal = AbortSignal.any([
-      callerSignal,
-      this.controller.signal,
-      AbortSignal.timeout(30_000),
-    ])
-
-    return publish({relays, event, signal})
-  }
-
   send(message: Message) {
     const controller = new AbortController()
-    const abort = () => this.controller.abort()
+    const abort = () => controller.abort()
     const event = this.prep(message)
-    const res = this.publish(event, controller.signal)
+
+    const res = this.relays.then(relays => {
+      return publish({
+        event,
+        relays: uniq([...relays, ...this.rpc.relays]),
+        signal: AbortSignal.any([this.controller.signal, controller.signal]),
+      })
+    })
+
     const ok = res.then(r => Object.values(r).some(spec({status: PublishStatus.Success})))
 
     return {abort, event, res, ok}
+  }
+
+  stop() {
+    this.controller.abort()
   }
 }
