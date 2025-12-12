@@ -30,6 +30,7 @@ describe("register", () => {
 
     const client = await Client.register(1, 2, makeSecret())
 
-    console.log(client)
+    expect(client.group.startsWith('bfgroup')).toBe(true)
+    expect(client.peers.length).toBe(2)
   })
 })

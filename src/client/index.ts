@@ -1,4 +1,4 @@
-import {not, isDefined, sha256, sample, textEncoder} from "@welshman/lib"
+import {not, sortBy, first, last, isDefined, sha256, sample, textEncoder} from "@welshman/lib"
 import {hash, own, makeSecret} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Schema, Lib, PackageEncoder} from "@frostr/bifrost"
@@ -32,9 +32,9 @@ export class Client {
     this.group = options.group
   }
 
-  static async register(total: number, threshold: number, userSecret: string) {
-    if (context.signerPubkeys.length < total) {
-      throw new Error("Not enough signers to meet threshold")
+  static async register(threshold: number, n: number, userSecret: string) {
+    if (context.signerPubkeys.length < n) {
+      throw new Error("Not enough signers available")
     }
 
     if (threshold <= 0) {
@@ -43,20 +43,20 @@ export class Client {
 
     const secret = makeSecret()
     const rpc = new RPC(secret)
-    const {group, shares} = Lib.generate_dealer_pkg(threshold, total, [userSecret])
-    const hexGroup = Buffer.from(PackageEncoder.group.encode(group)).toString("hex")
+    const deal = Lib.generate_dealer_pkg(threshold, n, [userSecret])
+    const group = PackageEncoder.group.encode(deal.group)
     const remainingSignerPubkeys = Array.from(context.signerPubkeys)
     const errorsByPeer = new Map<string, string>()
     const peersByIndex = new Map<number, string>()
 
     await Promise.all(
-      shares.map(async (share, i) => {
-        const hexShare = Buffer.from(PackageEncoder.share.encode(share)).toString("hex")
+      deal.shares.map(async (rawShare, i) => {
+        const share = PackageEncoder.share.encode(rawShare)
 
         while (remainingSignerPubkeys.length > 0 && !peersByIndex.has(i)) {
           const channel = rpc.channel(remainingSignerPubkeys.shift()!)
 
-          channel.send(makeRegisterRequest({threshold, share: hexShare, group: hexGroup}))
+          channel.send(makeRegisterRequest({threshold, share, group}))
 
           await channel.receive((message, event, done) => {
             if (isRegisterResult(message)) {
@@ -76,7 +76,7 @@ export class Client {
     )
 
     // Check if we have enough successful registrations
-    if (peersByIndex.size < total) {
+    if (peersByIndex.size < n) {
       const errors = Array.from(errorsByPeer.entries())
         .map(([pubkey, error]) => `${pubkey}: ${error}`)
         .join("\n")
@@ -84,7 +84,7 @@ export class Client {
       throw new Error(`Failed to register all shards:\n${errors}`)
     }
 
-    return new Client({group, secret, peers})
+    return new Client({group, secret, peers: sortBy(first, peersByIndex).map(last)})
   }
 
   async setEmail(email: string, emailService: string, otp?: string) {

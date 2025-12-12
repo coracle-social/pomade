@@ -35,12 +35,8 @@ export class Signer {
 
   async handleRegisterRequest({payload}: RegisterRequest, event: TrustedEvent) {
     const channel = this.rpc.channel(event.pubkey)
-    const share = tryCatch(() =>
-      PackageEncoder.share.deserialize(Buffer.from(payload.share, "hex")),
-    )
-    const group = tryCatch(() =>
-      PackageEncoder.group.deserialize(Buffer.from(payload.group, "hex")),
-    )
+    const share = tryCatch(() => PackageEncoder.share.decode(payload.share))
+    const group = tryCatch(() => PackageEncoder.group.decode(payload.group))
     const cb = (status: Status, message: string) =>
       channel.send(makeRegisterResult({status, message}))
 
@@ -59,8 +55,6 @@ export class Signer {
     if (indices.size !== group.commits.length)
       return cb(Status.Error, "Group contains duplicate member indices.")
     if (!commit) return cb(Status.Error, "Share index not found in group commits.")
-    if (commit.pubkey !== getPubkey(share.seckey))
-      return cb(Status.Error, "Share public key does not match group commit.")
     if (await this.sessions.has(event.pubkey))
       return cb(Status.Error, "Client key has already been used.")
 
