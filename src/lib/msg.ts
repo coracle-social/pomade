@@ -116,7 +116,7 @@ export const SetEmailChallengePayload = z.object({
   email_ciphertext: z.string(),
 })
 
-export const SignRequestPayload: z.ZodType<any> = z.object({
+export const SignRequestPayload = z.object({
   pkg: Schema.sign.template,
   event: z.object({
     id: z.string(),

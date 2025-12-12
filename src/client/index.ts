@@ -1,4 +1,4 @@
-import {not, sortBy, first, last, isDefined, sha256, sample, textEncoder} from "@welshman/lib"
+import {sortBy, first, last, isDefined, sha256, sample, textEncoder} from "@welshman/lib"
 import {hash, own, makeSecret} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Schema, Lib, PackageEncoder} from "@frostr/bifrost"
@@ -84,7 +84,11 @@ export class Client {
       throw new Error(`Failed to register all shards:\n${errors}`)
     }
 
-    return new Client({group, secret, peers: sortBy(first, peersByIndex).map(last)})
+    return new Client({
+      secret,
+      group: deal.group,
+      peers: sortBy(first, peersByIndex).map(last) as string[],
+    })
   }
 
   async setEmail(email: string, emailService: string, otp?: string) {
@@ -126,7 +130,7 @@ export class Client {
 
   async sign(stampedEvent: StampedEvent) {
     const {group_pk, threshold, commits} = this.group
-    const event = hash(own(stampedEvent, group_pk))
+    const event = hash(own(stampedEvent, group_pk.slice(2)))
     const members = sample(threshold, commits).map(c => c.idx)
     const template = Lib.create_session_template(members, event.id)
 

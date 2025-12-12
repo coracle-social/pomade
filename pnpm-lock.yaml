@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  zod: ^4.1.13
+
 importers:
 
   .:
@@ -1209,9 +1212,6 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
   zod@4.1.13:
     resolution: {integrity: sha512-AvvthqfqrAhNH9dnfmrfKzX5upOdjUVJYFqNSlkmGf64gRaTzlPwz99IHYnVs28qYAybvAlBV+H7pn0saFY4Ig==}
 
@@ -1234,7 +1234,7 @@ snapshots:
       '@noble/ciphers': 1.3.0
       '@noble/curves': 1.9.7
       nostr-tools: 2.19.3(typescript@5.9.3)
-      zod: 3.25.76
+      zod: 4.1.13
     transitivePeerDependencies:
       - typescript
 
@@ -1369,7 +1369,7 @@ snapshots:
       '@cmdcode/nostr-p2p': 2.0.11(typescript@5.9.3)
       '@noble/ciphers': 1.3.0
       '@noble/curves': 1.9.7
-      zod: 3.25.76
+      zod: 4.1.13
     transitivePeerDependencies:
       - typescript
 
@@ -2269,7 +2269,5 @@ snapshots:
   ws@8.18.3: {}
 
   yocto-queue@0.1.0: {}
-
-  zod@3.25.76: {}
 
   zod@4.1.13: {}

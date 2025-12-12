@@ -123,7 +123,6 @@ export type MessageHandlerWithCallback<T> = (
   event: TrustedEvent,
   resolve: (result?: T) => void,
 ) => void
-    import {Repository} from '@welshman/net'
 
 export class RPCChannel {
   relays: Promise<string[]>
@@ -134,7 +133,6 @@ export class RPCChannel {
     readonly peer: string,
   ) {
     const {signal} = this.controller
-
 
     this.relays = fetchRelays(peer, signal)
     this.relays.then(relays => {
