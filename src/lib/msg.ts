@@ -1,7 +1,7 @@
-import * as z from 'zod'
-import {parseJson, switcher} from '@welshman/lib'
-import type {Maybe} from '@welshman/lib'
-import {Schema} from '@frostr/bifrost'
+import * as z from "zod"
+import {parseJson, switcher} from "@welshman/lib"
+import type {Maybe} from "@welshman/lib"
+import {Schema} from "@frostr/bifrost"
 
 export enum Method {
   LoginChallenge = "login/challenge",
@@ -129,8 +129,7 @@ export const SignRequestPayload = z.object({
 })
 
 export const SignResultPayload = z.object({
-  psig: z.object({
-  }),
+  psig: z.object({}),
 })
 
 export const UnregisterRequestPayload = z.object({
@@ -202,12 +201,12 @@ export const RegisterResultSchema = z.object({
 
 export const SetEmailRequestSchema = z.object({
   method: z.literal(Method.SetEmailRequest),
-  payload: SetEmailRequestPayload
+  payload: SetEmailRequestPayload,
 })
 
 export const SetEmailResultSchema = z.object({
   method: z.literal(Method.SetEmailResult),
-  payload: SetEmailResultPayload
+  payload: SetEmailResultPayload,
 })
 
 export const SetEmailChallengeSchema = z.object({
@@ -392,18 +391,29 @@ export function parseMessage(s: string): Maybe<Message> {
 export const isLoginRequest = (m: Message): m is LoginRequest => m.method === Method.LoginRequest
 export const isLoginResult = (m: Message): m is LoginResult => m.method === Method.LoginResult
 export const isLoginSelect = (m: Message): m is LoginSelect => m.method === Method.LoginSelect
-export const isLoginChallenge = (m: Message): m is LoginChallenge => m.method === Method.LoginChallenge
-export const isRecoverRequest = (m: Message): m is RecoverRequest => m.method === Method.RecoverRequest
+export const isLoginChallenge = (m: Message): m is LoginChallenge =>
+  m.method === Method.LoginChallenge
+export const isRecoverRequest = (m: Message): m is RecoverRequest =>
+  m.method === Method.RecoverRequest
 export const isRecoverResult = (m: Message): m is RecoverResult => m.method === Method.RecoverResult
 export const isRecoverSelect = (m: Message): m is RecoverSelect => m.method === Method.RecoverSelect
-export const isRecoverChallenge = (m: Message): m is RecoverChallenge => m.method === Method.RecoverChallenge
-export const isRegisterRequest = (m: Message): m is RegisterRequest => m.method === Method.RegisterRequest
-export const isRegisterResult = (m: Message): m is RegisterResult => m.method === Method.RegisterResult
-export const isSetEmailRequest = (m: Message): m is SetEmailRequest => m.method === Method.SetEmailRequest
-export const isSetEmailResult = (m: Message): m is SetEmailResult => m.method === Method.SetEmailResult
-export const isSetEmailChallenge = (m: Message): m is SetEmailChallenge => m.method === Method.SetEmailChallenge
+export const isRecoverChallenge = (m: Message): m is RecoverChallenge =>
+  m.method === Method.RecoverChallenge
+export const isRegisterRequest = (m: Message): m is RegisterRequest =>
+  m.method === Method.RegisterRequest
+export const isRegisterResult = (m: Message): m is RegisterResult =>
+  m.method === Method.RegisterResult
+export const isSetEmailRequest = (m: Message): m is SetEmailRequest =>
+  m.method === Method.SetEmailRequest
+export const isSetEmailResult = (m: Message): m is SetEmailResult =>
+  m.method === Method.SetEmailResult
+export const isSetEmailChallenge = (m: Message): m is SetEmailChallenge =>
+  m.method === Method.SetEmailChallenge
 export const isSignRequest = (m: Message): m is SignRequest => m.method === Method.SignRequest
 export const isSignResult = (m: Message): m is SignResult => m.method === Method.SignResult
-export const isUnregisterRequest = (m: Message): m is UnregisterRequest => m.method === Method.UnregisterRequest
-export const isValidateRequest = (m: Message): m is ValidateRequest => m.method === Method.ValidateRequest
-export const isValidateResult = (m: Message): m is ValidateResult => m.method === Method.ValidateResult
+export const isUnregisterRequest = (m: Message): m is UnregisterRequest =>
+  m.method === Method.UnregisterRequest
+export const isValidateRequest = (m: Message): m is ValidateRequest =>
+  m.method === Method.ValidateRequest
+export const isValidateResult = (m: Message): m is ValidateResult =>
+  m.method === Method.ValidateResult

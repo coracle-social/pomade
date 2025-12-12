@@ -1,4 +1,4 @@
-import type {MaybeAsync} from '@welshman/lib'
+import type {MaybeAsync} from "@welshman/lib"
 
 export type IStorage<T> = {
   get(key: string): MaybeAsync<T>

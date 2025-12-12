@@ -64,20 +64,20 @@ The following private tags are required:
 
 `share` is a hex-encoded concatenation of:
 
-- `idx`: 4-bytes (little-endian)          // Signer index
-- `seckey`: 32-bytes (big-endian)         // Secret key share
-- `binder_sn`: 32-bytes (big-endian)      // Binder secret nonce
-- `hidden_sn`: 32-bytes (big-endian)      // Hidden secret nonce
+- `idx`: 4-bytes (little-endian) // Signer index
+- `seckey`: 32-bytes (big-endian) // Secret key share
+- `binder_sn`: 32-bytes (big-endian) // Binder secret nonce
+- `hidden_sn`: 32-bytes (big-endian) // Hidden secret nonce
 
 `group` is a hex-encoded concatenation of:
 
-- `group_pk`: 33-bytes (compressed)       // The user's public key
-- `threshold`: 4-bytes (little-endian)    // Signers required
+- `group_pk`: 33-bytes (compressed) // The user's public key
+- `threshold`: 4-bytes (little-endian) // Signers required
 - For each member:
   - `idx`: 4-bytes (little-endian)
-  - `pubkey`: 33-bytes (compressed)       // Member's public key
-  - `binder_pn`: 33-bytes (compressed)    // Binder public nonce
-  - `hidden_pn`: 33-bytes (compressed)    // Hidden public nonce
+  - `pubkey`: 33-bytes (compressed) // Member's public key
+  - `binder_pn`: 33-bytes (compressed) // Binder public nonce
+  - `hidden_pn`: 33-bytes (compressed) // Hidden public nonce
 
 The registration event MAY contain recovery information in its private tags, including:
 

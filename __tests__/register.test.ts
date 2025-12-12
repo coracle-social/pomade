@@ -1,6 +1,6 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from "vitest"
-import {makeSecret, getPubkey} from '@welshman/util'
-import {LOCAL_RELAY_URL} from '@welshman/net'
+import {makeSecret, getPubkey} from "@welshman/util"
+import {LOCAL_RELAY_URL} from "@welshman/net"
 import {defaultStorageFactory} from "../src/lib"
 import {Client} from "../src/client"
 import {Signer} from "../src/signer"
@@ -45,7 +45,7 @@ describe("register", () => {
       threshold: 1,
       userSecret,
       emailService: getPubkey(mailerSecret),
-      userEmail: 'test@example.com',
+      userEmail: "test@example.com",
     })
   })
 })

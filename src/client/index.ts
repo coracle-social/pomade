@@ -1,10 +1,19 @@
-import {not, isDefined, sha256, sample, call, thrower, parseJson, spec, textEncoder} from '@welshman/lib'
-import {publish, request, PublishStatus} from '@welshman/net'
-import {prep, hash, own, makeSecret, getPubkey, getTagValue} from '@welshman/util'
-import type {TrustedEvent, SignedEvent, EventTemplate, StampedEvent} from '@welshman/util'
-import {Schema, Lib, PackageEncoder} from '@frostr/bifrost'
-import type {GroupPackage, PartialSigPackage} from '@frostr/bifrost'
-import {RPC, Status, Method, context, makeRegisterRequest, isRegisterResult, makeSetEmailRequest, isSetEmailResult, makeSignRequest, isSignResult} from '../lib/index.js'
+import {not, isDefined, sha256, sample, textEncoder} from "@welshman/lib"
+import {hash, own, makeSecret} from "@welshman/util"
+import type {SignedEvent, StampedEvent} from "@welshman/util"
+import {Schema, Lib, PackageEncoder} from "@frostr/bifrost"
+import type {GroupPackage, PartialSigPackage} from "@frostr/bifrost"
+import {
+  RPC,
+  Status,
+  context,
+  makeRegisterRequest,
+  isRegisterResult,
+  makeSetEmailRequest,
+  isSetEmailResult,
+  makeSignRequest,
+  isSignResult,
+} from "../lib/index.js"
 
 export type ClientOptions = {
   group: GroupPackage
@@ -25,25 +34,24 @@ export class Client {
 
   static async register(total: number, threshold: number, userSecret: string) {
     if (context.signerPubkeys.length < total) {
-      throw new Error('Not enough signers to meet threshold')
+      throw new Error("Not enough signers to meet threshold")
     }
 
     if (threshold <= 0) {
-      throw new Error('Threshold must be greater than 0')
+      throw new Error("Threshold must be greater than 0")
     }
 
     const secret = makeSecret()
     const rpc = new RPC(secret)
-    const userPubkey = getPubkey(userSecret)
     const {group, shares} = Lib.generate_dealer_pkg(threshold, total, [userSecret])
-    const hexGroup = Buffer.from(PackageEncoder.group.encode(group)).toString('hex')
+    const hexGroup = Buffer.from(PackageEncoder.group.encode(group)).toString("hex")
     const remainingSignerPubkeys = Array.from(context.signerPubkeys)
     const errorsBySignerPubkey = new Map<string, string>()
     const peers = new Array(0).fill("")
 
     await Promise.all(
       shares.map(async (share, i) => {
-        const hexShare = Buffer.from(PackageEncoder.share.encode(share)).toString('hex')
+        const hexShare = Buffer.from(PackageEncoder.share.encode(share)).toString("hex")
 
         while (remainingSignerPubkeys.length > 0 && !peers[i]) {
           const channel = rpc.channel(remainingSignerPubkeys.shift()!)
@@ -71,7 +79,7 @@ export class Client {
     if (peers.some(not)) {
       const errors = Array.from(errorsBySignerPubkey.entries())
         .map(([pubkey, error]) => `${pubkey}: ${error}`)
-        .join('\n')
+        .join("\n")
 
       throw new Error(`Failed to register all shards:\n${errors}`)
     }
@@ -92,7 +100,7 @@ export class Client {
             email_hash: emailHash,
             email_service: emailService,
             email_ciphertext: emailCiphertext,
-          })
+          }),
         )
 
         return channel.receive<string>((message, event, resolve) => {
@@ -101,7 +109,7 @@ export class Client {
               resolve()
             }
 
-            if (message.payload.status === 'error') {
+            if (message.payload.status === "error") {
               resolve(message.payload.message)
             }
           }
@@ -138,14 +146,14 @@ export class Client {
             resolve(Schema.sign.psig_pkg.parse(message.payload.psig))
           }
         })
-      })
+      }),
     )
 
     if (psigs.every(isDefined)) {
       const ctx = Lib.get_session_ctx(this.group, pkg)
       const sig = Lib.combine_signature_pkgs(ctx, psigs)[0]?.[2]
 
-      if (!sig) throw new Error('Failed to combine signatures')
+      if (!sig) throw new Error("Failed to combine signatures")
 
       return {...event, sig} as SignedEvent
     }

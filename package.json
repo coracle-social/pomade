@@ -21,7 +21,7 @@
     "build": "pnpm run clean && pnpm run compile --force",
     "clean": "rimraf ./dist",
     "compile": "tsc -b tsconfig.build.json",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\""

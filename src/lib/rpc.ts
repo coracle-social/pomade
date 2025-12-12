@@ -1,11 +1,11 @@
-import type {MaybeAsync, Maybe} from '@welshman/lib'
-import {uniq, removeUndefined, tryCatch, call, always, spec, parseJson} from '@welshman/lib'
-import {publish, request, PublishStatus} from '@welshman/net'
-import type {EventTemplate, HashedEvent, TrustedEvent, SignedEvent} from '@welshman/util'
-import {prep, sign, getPubkey, RELAYS, getTagValues, getTagValue} from '@welshman/util'
-import {nip44} from './misc.js'
-import {fetchRelays} from './relays.js'
-import {Method, Message, parseMessage} from './msg.js'
+import type {Maybe} from "@welshman/lib"
+import {tryCatch, spec} from "@welshman/lib"
+import {publish, request, PublishStatus} from "@welshman/net"
+import type {HashedEvent, TrustedEvent, SignedEvent} from "@welshman/util"
+import {prep, sign, getPubkey} from "@welshman/util"
+import {nip44} from "./misc.js"
+import {fetchRelays} from "./relays.js"
+import {Message, parseMessage} from "./msg.js"
 
 // Base RPC class
 
@@ -64,20 +64,27 @@ export class RPC {
 
 export type MessageHandler = (message: Message, event: TrustedEvent) => void
 
-export type MessageHandlerWithCallback<T> = (message: Message, event: TrustedEvent, resolve: (result?: T) => void) => void
+export type MessageHandlerWithCallback<T> = (
+  message: Message,
+  event: TrustedEvent,
+  resolve: (result?: T) => void,
+) => void
 
 export class RPCChannel {
   relays: Promise<string[]>
   subscribers: MessageHandler[] = []
   controller = new AbortController()
 
-  constructor(private rpc: RPC, readonly peer: string) {
+  constructor(
+    private rpc: RPC,
+    readonly peer: string,
+  ) {
     this.relays = fetchRelays({pubkey: peer, signal: this.controller.signal})
     this.relays.then(relays => {
       request({
         relays,
         signal: this.controller.signal,
-        filters: [{kinds: [RPC.Kind], authors: [peer], '#p': [rpc.pubkey]}],
+        filters: [{kinds: [RPC.Kind], authors: [peer], "#p": [rpc.pubkey]}],
         onEvent: (event: TrustedEvent) => {
           const message = rpc.read(event)
 
@@ -103,7 +110,11 @@ export class RPCChannel {
 
     this.subscribers.push(handler)
 
-    return () => this.subscribers.splice(this.subscribers.findIndex(s => s === handler), 1)
+    return () =>
+      this.subscribers.splice(
+        this.subscribers.findIndex(s => s === handler),
+        1,
+      )
   }
 
   receive<T>(handler: MessageHandlerWithCallback<T>) {
@@ -150,7 +161,7 @@ export class RPCChannel {
     return publish({relays, event, signal})
   }
 
-  send<T>(message: Message) {
+  send(message: Message) {
     const controller = new AbortController()
     const abort = () => this.controller.abort()
     const event = this.prep(message)

@@ -1,9 +1,9 @@
-import {sha256, switcher, tryCatch, parseJson, fromPairs, textEncoder} from '@welshman/lib'
-import {publish, request} from '@welshman/net'
-import {RELAYS, getPubkey, getTagValue} from '@welshman/util'
-import type {TrustedEvent} from '@welshman/util'
-import {RPC, Method, prepAndSign, publishRelays, nip44, makeValidateResult, Status, isValidateRequest} from '../lib/index.js'
-import type {IStorageFactory, IStorage, Message, ValidateRequest} from '../lib/index.js'
+import {tryCatch} from "@welshman/lib"
+import {request} from "@welshman/net"
+import {getPubkey} from "@welshman/util"
+import type {TrustedEvent} from "@welshman/util"
+import {RPC, publishRelays, makeValidateResult, Status, isValidateRequest} from "../lib/index.js"
+import type {IStorageFactory, IStorage, ValidateRequest} from "../lib/index.js"
 
 export type ValidationState = {
   email: string
@@ -13,10 +13,6 @@ export type ValidationState = {
 }
 
 const getValidationKey = (email: string, client: string) => `${email}:${client}`
-
-export type RecoveryState = {}
-
-export type LoginState = {}
 
 export type EmailProvider = {
   sendValidationEmail: (email: string, client: string) => Promise<void>
@@ -41,7 +37,7 @@ export class Mailer {
   constructor(private options: MailerOptions) {
     this.rpc = new RPC(options.secret)
     this.pubkey = getPubkey(options.secret)
-    this.validations = options.storage('validations')
+    this.validations = options.storage("validations")
   }
 
   publishRelays() {
@@ -57,7 +53,7 @@ export class Mailer {
     return request({
       relays: this.options.inboxRelays,
       signal: this.abortController.signal,
-      filters: [{kinds: [RPC.Kind], '#p': [this.pubkey]}],
+      filters: [{kinds: [RPC.Kind], "#p": [this.pubkey]}],
       onEvent: (event: TrustedEvent) => {
         const message = this.rpc.read(event)
 
@@ -84,8 +80,8 @@ export class Mailer {
     const cb = (status: Status, message: string) =>
       this.rpc.channel(event.pubkey).send(makeValidateResult({client, status, message}))
 
-    if (!email)                return cb(Status.Error, "Failed to decrypt email address")
-    if (!email?.includes('@')) return cb(Status.Error, "Invalid email address provided")
+    if (!email) return cb(Status.Error, "Failed to decrypt email address")
+    if (!email?.includes("@")) return cb(Status.Error, "Invalid email address provided")
 
     const key = getValidationKey(email, client)
     const validation = await this.validations.get(key)
@@ -129,7 +125,7 @@ export class Mailer {
             client,
             status: Status.Ok,
             message: "Successfully validated user email",
-          })
+          }),
         )
       }
     }
@@ -148,7 +144,7 @@ export class Mailer {
             client,
             status: Status.Ok,
             message: "Successfully validated user email",
-          })
+          }),
         )
       }
     }
