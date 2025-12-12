@@ -1,12 +1,11 @@
+import {Lib, PackageEncoder} from '@frostr/bifrost'
+import type {GroupPackage, SharePackage} from '@frostr/bifrost'
 import {call, tryCatch, fromPairs, parseJson} from '@welshman/lib'
-import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import {RELAYS, makeSecret, getPubkey, getTagValues} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
-import {Kinds, RPC, Method, prepAndSign, publishRelays, fetchRelays} from '../lib/index.js'
+import {Kinds, RPC, Method, prepAndSign, publishRelays, fetchRelays, nip44} from '../lib/index.js'
 import type {IStorageFactory, IStorage} from '../lib/index.js'
-import {Lib, PackageEncoder} from '@frostr/bifrost'
-import type {GroupPackage, SharePackage} from '@frostr/bifrost'
 
 export type SignerOptions = {
   secret: string

@@ -3,7 +3,7 @@ import {nip44} from '@welshman/signer'
 import {publish, request} from '@welshman/net'
 import {RELAYS, getPubkey, getTagValue} from '@welshman/util'
 import type {TrustedEvent} from '@welshman/util'
-import {RPC, Method, prepAndSign, publishRelays} from '../lib/index.js'
+import {RPC, Method, prepAndSign, publishRelays, nip44} from '../lib/index.js'
 import type {IStorageFactory, IStorage, Message} from '../lib/index.js'
 
 export enum ValidationStatus {

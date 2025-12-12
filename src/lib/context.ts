@@ -4,4 +4,6 @@ export const context = {
     'wss://relay.nostr.band/',
     'wss://purplepag.es/',
   ],
+  signerPubkeys: [
+  ],
 }

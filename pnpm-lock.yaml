@@ -17,12 +17,12 @@ importers:
       '@welshman/net':
         specifier: ^0.7.1
         version: 0.7.1(typescript@5.9.3)(ws@8.18.3)
-      '@welshman/signer':
-        specifier: ^0.7.1
-        version: 0.7.1(nostr-signer-capacitor-plugin@0.0.5(@capacitor/core@7.4.4))(typescript@5.9.3)(ws@8.18.3)
       '@welshman/util':
         specifier: ^0.7.1
         version: 0.7.1(typescript@5.9.3)
+      nostr-tools:
+        specifier: ^2.19.3
+        version: 2.19.3(typescript@5.9.3)
       vitest:
         specifier: ^4.0.15
         version: 4.0.15(@types/node@24.10.1)
@@ -38,9 +38,6 @@ importers:
         version: 5.9.3
 
 packages:
-
-  '@capacitor/core@7.4.4':
-    resolution: {integrity: sha512-xzjxpr+d2zwTpCaN0k+C6wKSZzWFAb9OVEUtmO72ihjr/NEDoLvsGl4WLfjWPcCO2zOy0b2X52tfRWjECFUjtw==}
 
   '@cmdcode/buff@2.2.5':
     resolution: {integrity: sha512-+nc3QDoJ+MU/fp+YkX6WuEjJrXLF6ME+eVX1sj5a+MfBKO9LWb4R9Y2zH6APBrySd7nFr48ozscAui7SKvLmXg==}
@@ -225,15 +222,6 @@ packages:
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
 
-  '@jsr/fiatjaf__promenade-trusted-dealer@0.4.1':
-    resolution: {integrity: sha512-K9WjpDkQGyLl5gUZBLr3Gb+b5b1r8miZmDOo4+ZlzGQgoXD2TaqT+dkBjL/yLj/pYwBcd1Bschv0xuNpguL2ZQ==, tarball: https://npm.jsr.io/~/11/@jsr/fiatjaf__promenade-trusted-dealer/0.4.1.tgz}
-
-  '@jsr/henrygd__semaphore@0.0.2':
-    resolution: {integrity: sha512-nrwZ8HaqU1Agb2ij8omIxaOCAsKkDHWcwS9hTRumPhZuptwh6/0BJExBd8+eClTYM7jBnZxK+cP4WJRTcHBvCA==, tarball: https://npm.jsr.io/~/11/@jsr/henrygd__semaphore/0.0.2.tgz}
-
-  '@jsr/nostr__tools@2.16.2':
-    resolution: {integrity: sha512-QK1XwHvAnqEwbimD+ywbLQ3T2iI+/qE/zrRgOhmtjoEGlCWgtbPTNJ6Y/MEunXr6H/MnuHV+s400i/Yk4suvGQ==, tarball: https://npm.jsr.io/~/11/@jsr/nostr__tools/2.16.2.tgz}
-
   '@noble/ciphers@0.5.3':
     resolution: {integrity: sha512-B0+6IIHiqEs3BPMT0hcRmHvEj2QHOLu+uwt+tqDDeVd0oyVzh7BPrDcPjRnV1PV/5LaknXJJQvOuRGR0zQJz+w==}
 
@@ -262,10 +250,6 @@ packages:
   '@noble/hashes@1.8.0':
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
     engines: {node: ^14.21.3 || >=16}
-
-  '@noble/hashes@2.0.1':
-    resolution: {integrity: sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==}
-    engines: {node: '>= 20.19.0'}
 
   '@rollup/rollup-android-arm-eabi@4.53.3':
     resolution: {integrity: sha512-mRSi+4cBjrRLoaal2PnqH82Wqyb+d3HsPUN/W+WslCXsZsyHa9ZeQQX/pQsZaVIWDkPcpV6jJ+3KLbTbgnwv8w==}
@@ -446,11 +430,6 @@ packages:
   '@welshman/net@0.7.1':
     resolution: {integrity: sha512-S3dFH73Cy4phLy5I2KKEeefkRmNBYWB2qONK8txUVDhx1u7ezpALzZEMSPVqVIZk/vCQU3KJ0CyagvbuGF+F9Q==}
 
-  '@welshman/signer@0.7.1':
-    resolution: {integrity: sha512-/WNEgXZemQ36A07lmrEy78Yn7kEngBjySmXW+xYmHc3OLhQ9XEq3FBCTR+vxsmp1w/t+7IEScPTKn/wvAQ/cSw==}
-    peerDependencies:
-      nostr-signer-capacitor-plugin: ~0.0.4
-
   '@welshman/util@0.7.1':
     resolution: {integrity: sha512-UGryq1jfwRHFS7mjGa4fmuqN851iwKeR+616LmUpTJQHAfhGU7ifer2+JLdDLYBU/neI5iKHdRDO5hg92U6k8Q==}
 
@@ -579,13 +558,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  nostr-signer-capacitor-plugin@0.0.5:
-    resolution: {integrity: sha512-/EvqWz71HZ5cWmzvfXWTm48AWZtbeZDbOg3vLwXyXPjnIp1DR7Wurww/Mo41ORNu1DNPlqH20l7kIXKO6vR5og==}
-    peerDependencies:
-      '@capacitor/core': ^7.0.0
-
-  nostr-tools@2.19.2:
-    resolution: {integrity: sha512-XRMRSZp1mFgFP43krtySOs4vEbTNULmdsUnSec8Ow1S6QKFuCj56kYcAk8cXgJER4Gh5Z7Wfo0hENWINsPZrMQ==}
+  nostr-tools@2.19.3:
+    resolution: {integrity: sha512-IJ1fcTYAfVVUbS8S/FtDopdPHCDh/34aHXnyppUzXDYGWlJMv2y1phomvOADZrMAQ6Z28iOIBEyGY256w1492Q==}
     peerDependencies:
       typescript: '>=5.0.0'
     peerDependenciesMeta:
@@ -688,9 +662,6 @@ packages:
   tinyrainbow@3.0.3:
     resolution: {integrity: sha512-PSkbLUoxOFRzJYjjxHJt9xro7D+iilgMX/C9lawzVuYiIdcihh9DXmVibBe8lmcFrRi/VzlPjBxbN7rH24q8/Q==}
     engines: {node: '>=14.0.0'}
-
-  tslib@2.8.1:
-    resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
@@ -812,10 +783,6 @@ packages:
 
 snapshots:
 
-  '@capacitor/core@7.4.4':
-    dependencies:
-      tslib: 2.8.1
-
   '@cmdcode/buff@2.2.5':
     dependencies:
       '@noble/hashes': 1.8.0
@@ -832,7 +799,7 @@ snapshots:
       '@cmdcode/buff': 2.2.5
       '@noble/ciphers': 1.3.0
       '@noble/curves': 1.9.7
-      nostr-tools: 2.19.2(typescript@5.9.3)
+      nostr-tools: 2.19.3(typescript@5.9.3)
       zod: 3.25.76
     transitivePeerDependencies:
       - typescript
@@ -943,24 +910,6 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
-  '@jsr/fiatjaf__promenade-trusted-dealer@0.4.1':
-    dependencies:
-      '@jsr/henrygd__semaphore': 0.0.2
-      '@jsr/nostr__tools': 2.16.2
-      '@noble/curves': 1.9.7
-
-  '@jsr/henrygd__semaphore@0.0.2': {}
-
-  '@jsr/nostr__tools@2.16.2':
-    dependencies:
-      '@noble/ciphers': 0.5.3
-      '@noble/curves': 1.2.0
-      '@noble/hashes': 1.3.1
-      '@scure/base': 1.1.1
-      '@scure/bip32': 1.3.1
-      '@scure/bip39': 1.2.1
-      nostr-wasm: 0.1.0
-
   '@noble/ciphers@0.5.3': {}
 
   '@noble/ciphers@1.3.0': {}
@@ -982,8 +931,6 @@ snapshots:
   '@noble/hashes@1.3.2': {}
 
   '@noble/hashes@1.8.0': {}
-
-  '@noble/hashes@2.0.1': {}
 
   '@rollup/rollup-android-arm-eabi@4.53.3':
     optional: true
@@ -1142,27 +1089,13 @@ snapshots:
       - typescript
       - ws
 
-  '@welshman/signer@0.7.1(nostr-signer-capacitor-plugin@0.0.5(@capacitor/core@7.4.4))(typescript@5.9.3)(ws@8.18.3)':
-    dependencies:
-      '@jsr/fiatjaf__promenade-trusted-dealer': 0.4.1
-      '@noble/curves': 1.9.7
-      '@noble/hashes': 2.0.1
-      '@welshman/lib': 0.7.1
-      '@welshman/net': 0.7.1(typescript@5.9.3)(ws@8.18.3)
-      '@welshman/util': 0.7.1(typescript@5.9.3)
-      nostr-signer-capacitor-plugin: 0.0.5(@capacitor/core@7.4.4)
-      nostr-tools: 2.19.2(typescript@5.9.3)
-    transitivePeerDependencies:
-      - typescript
-      - ws
-
   '@welshman/util@0.7.1(typescript@5.9.3)':
     dependencies:
       '@noble/curves': 1.9.7
       '@types/ws': 8.18.1
       '@welshman/lib': 0.7.1
       js-base64: 3.7.8
-      nostr-tools: 2.19.2(typescript@5.9.3)
+      nostr-tools: 2.19.3(typescript@5.9.3)
       nostr-wasm: 0.1.0
     transitivePeerDependencies:
       - typescript
@@ -1287,11 +1220,7 @@ snapshots:
 
   nanoid@3.3.11: {}
 
-  nostr-signer-capacitor-plugin@0.0.5(@capacitor/core@7.4.4):
-    dependencies:
-      '@capacitor/core': 7.4.4
-
-  nostr-tools@2.19.2(typescript@5.9.3):
+  nostr-tools@2.19.3(typescript@5.9.3):
     dependencies:
       '@noble/ciphers': 0.5.3
       '@noble/curves': 1.2.0
@@ -1407,8 +1336,6 @@ snapshots:
       picomatch: 4.0.3
 
   tinyrainbow@3.0.3: {}
-
-  tslib@2.8.1: {}
 
   typescript@5.9.3: {}
 

@@ -1,6 +1,5 @@
 import type {MaybeAsync, Maybe} from '@welshman/lib'
 import {uniq, removeUndefined, maybe, always, spec, parseJson} from '@welshman/lib'
-import {nip44} from '@welshman/signer'
 import {publish, request, PublishStatus} from '@welshman/net'
 import type {EventTemplate, TrustedEvent, SignedEvent} from '@welshman/util'
 import {prep, sign, getPubkey, RELAYS, getTagValues, getTagValue} from '@welshman/util'

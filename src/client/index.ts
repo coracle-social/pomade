@@ -1,40 +1,30 @@
-import {sha256, sample, call, thrower, parseJson, spec, textEncoder} from '@welshman/lib'
-import {nip44, signWithOptions} from '@welshman/signer'
-import type {ISigner, SignOptions} from '@welshman/signer'
+import {not, sha256, sample, call, thrower, parseJson, spec, textEncoder} from '@welshman/lib'
 import {publish, request, PublishStatus} from '@welshman/net'
 import {prep, makeSecret, getPubkey, getTagValue} from '@welshman/util'
 import type {TrustedEvent, SignedEvent, EventTemplate, StampedEvent} from '@welshman/util'
 import {Schema, Lib, PackageEncoder} from '@frostr/bifrost'
 import type {GroupPackage, PartialSigPackage} from '@frostr/bifrost'
 
-import {rpc, Method} from '../lib/index.js'
-import type {IStorageFactory, IStorage} from '../lib/index.js'
+import {RPC, Method} from '../lib/index.js'
 
 export type ClientOptions = {
-  indexerRelays: string[]
-  signerPubkeys: string[]
-  storage: IStorageFactory
+  group: GroupPackage
+  secret: string
+  peers: string[]
 }
 
 export class Client {
-  constructor(readonly options: ClientOptions) {}
+  rpc: RPC
+  peers: string[]
+  group: GroupPackage
 
-  async register({
-    total,
-    threshold,
-    userSecret,
-    emailService,
-    userEmail,
-  }: {
-    total: number
-    threshold: number
-    userSecret: string
-    emailService: string
-    userEmail: string
-  }) {
-    const {indexerRelays, signerPubkeys} = this.options
+  constructor(options: ClientOptions) {
+    this.rpc = new RPC(options.secret)
+    this.peers = options.peers
+  }
 
-    if (signerPubkeys.length < total) {
+  static async register(total: number, threshold: number, userSecret: string) {
+    if (context.signerPubkeys.length < total) {
       throw new Error('Not enough signers to meet threshold')
     }
 
@@ -42,48 +32,40 @@ export class Client {
       throw new Error('Threshold must be greater than 0')
     }
 
-    const clientSecret = makeSecret()
-    const rpc = new RPC(clientSecret)
+    const secret = makeSecret()
+    const rpc = new RPC(secret)
     const userPubkey = getPubkey(userSecret)
     const {group, shares} = Lib.generate_dealer_pkg(threshold, total, [userSecret])
     const hexGroup = Buffer.from(PackageEncoder.group.encode(group)).toString('hex')
-    const userEmailHash = await sha256(textEncoder.encode(userEmail))
-    const userEmailCiphertext = rpc.encrypt(emailService, userEmail)
-    const remainingSignerPubkeys = Array.from(signerPubkeys)
+    const remainingSignerPubkeys = Array.from(context.signerPubkeys)
     const errorsBySignerPubkey = new Map<string, string>()
-    const signerPubkeysByIndex = new Map<number, string>()
+    const peers = new Array(0).fill("")
 
     await Promise.all(
       shares.map(async (share, i) => {
         const hexShare = Buffer.from(PackageEncoder.share.encode(share)).toString('hex')
 
-        while (remainingSignerPubkeys.length > 0 && !signerPubkeysByIndex.has(i)) {
+        while (remainingSignerPubkeys.length > 0 && !peers[i]) {
           const channel = rpc.channel(remainingSignerPubkeys.shift()!)
+
+          channel.send(makeRegisterRequest({threshold, share: hexShare, group: hexGroup}))
 
           await new Promise(resolve => {
             setTimeout(resolve, 30_000)
-            channel.subscribe(({method, peer, payload}) => {
-              if (payload.status === "ok") {
-                signerPubkeysByIndex.set(i, signerPubkey)
-                resolve()
-              }
 
-              if (payload.status === 'error') {
-                errorsBySignerPubkey.set(signerPubkey, payload.message || "Unknown error")
-                resolve()
+            channel.subscribe(message => {
+              if (isRegisterResult(message)) {
+                if (message.payload.status === "ok") {
+                  peers[i] = message.peer
+                  resolve()
+                }
+
+                if (message.payload.status === 'error') {
+                  errorsBySignerPubkey.set(message.peer, message.payload.message)
+                  resolve()
+                }
               }
             })
-
-            channel.send(
-              makeRegisterRequest({
-                threshold,
-                share: hexShare,
-                group: hexGroup,
-                email_hash: userEmailHash,
-                email_service: emailService,
-                email_ciphertext: userEmailCiphertext,
-              })
-            )
           })
 
           channel.close()
@@ -92,7 +74,7 @@ export class Client {
     )
 
     // Check if we have enough successful registrations
-    if (signerPubkeysByIndex.size < total) {
+    if (peers.some(not)) {
       const errors = Array.from(errorsBySignerPubkey.entries())
         .map(([pubkey, error]) => `${pubkey}: ${error}`)
         .join('\n')
@@ -100,95 +82,80 @@ export class Client {
       throw new Error(`Failed to register all shards:\n${errors}`)
     }
 
-    return new Signer(this, {group, clientSecret, signerPubkeysByIndex})
+    return new Client({group, secret, peers})
   }
 
-  async unregister(revoke: "current" | "others" | "all") {
-  }
+  async setEmail(email: string, emailService: string, otp?: string) {
+    const emailHash = await sha256(textEncoder.encode(email))
+    const emailCiphertext = this.rpc.encrypt(emailService, email)
 
-  async startRecovery(email: string) {
-  }
+    const errors = await Promise.all(
+      this.peers.map(async (peer, i) => {
+        const channel = rpc.channel(peer)
 
-  async completeRecovery(payload: string) {
-  }
+        channel.send(
+          makeSetEmailRequest({
+            email_hash: emailHash,
+            email_service: emailService,
+            email_ciphertext: emailCiphertext,
+          })
+        )
 
-  async startLogin(email: string) {
-  }
+        await new Promise(resolve => {
+          setTimeout(resolve, 30_000)
 
-  async completeLogin(email: string, payload: string) {
-  }
-}
+          channel.subscribe(message => {
+            if (isSetEmailResult(message)) {
+              if (payload.status === "ok") {
+                resolve()
+              }
 
-export type SignerOptions = {
-  group: GroupPackage,
-  clientSecret: string,
-  signerPubkeysByIndex: Map<number, string>,
-}
+              if (payload.status === 'error') {
+                resolve(payload.message)
+              }
+            }
+          })
+        })
+      }),
+    )
 
-export class Signer implements ISigner {
-  constructor(private client: Client, private state: SignerOptions) {}
-
-  getPubkey = async () => this.state.group.group_pk
-
-  sign = (event: StampedEvent, options: SignOptions = {}) => {
-    const {group, clientSecret, signerPubkeysByIndex} = this.state
-    const controller = new AbortController()
-    const hashedEvent = prep(event, group.group_pk)
-    const members = sample(group.threshold, group.commits).map(c => c.idx)
-    const template = Lib.create_session_template(members, hashedEvent.id)
-
-    if (!template) {
-      throw new Error("Failed to build signing template")
+    for (const error of errors) {
+      if (error) {
+        throw new Error(error)
+      }
     }
+  }
+
+  async sign(event: StampedEvent) {
+    const {group_pk, threshold, commits} = this.group
+
+    if (event.pubkey !== group_pk) throw new Error("Event author does not match signer pubkey")
+
+    const members = sample(group.threshold, group.commits).map(c => c.idx)
+    const template = Lib.create_session_template(members, event.id)
+
+    if (!template) throw new Error("Failed to build signing template")
 
     const pkg = Lib.create_session_pkg(group, template)
-    const promise = Promise.all(
-      members.map(async idx => {
-        return RPC.request<PartialSigPackage>({
-          secret: this.state.clientSecret,
-          indexerRelays: this.client.options.indexerRelays,
-          pubkey: signerPubkeysByIndex.get(idx)!,
-          method: Method.SignRequest,
-          tags: [
-            ['package', JSON.stringify(pkg)],
-            ['event', JSON.stringify(event)],
-          ],
-          handler: (item, done) => {
-            if (item.method === Method.SignResult) {
-              const json = parseJson(getTagValue('psig', item.tags))
-              const psig = Schema.sign.psig_pkg.parse(json)
 
-              done(psig)
-            }
-          },
-        })
+    const psigs = await Promise.all(
+      members.map(async i => {
+        const peer = this.peers[i]!
+        const channel = this.rpc.channel(peer)
+
+        channel.send(makeSignRequest({pkg, event}))
+
+        const message = await channel.receive(Method.SignResult)
+
+        return Schema.sign.psig_pkg.parse(message.payload.psig)
       })
-    ).then(partialSignatures => {
-      const ctx = Lib.get_session_ctx(group, pkg)
-      const signatureEntries = Lib.combine_signature_pkgs(ctx, partialSignatures)
-      const signature = signatureEntries[0]?.[2]
+    )
 
-      if (!signature) {
-        throw new Error('Failed to combine signatures')
-      }
+    const ctx = Lib.get_session_ctx(group, pkg)
+    const sig = Lib.combine_signature_pkgs(ctx, psigs)[0]?.[2]
 
-      return {...hashedEvent, sig: signature} as SignedEvent
-    })
+    if (!sig) throw new Error('Failed to combine signatures')
 
-    options.signal?.addEventListener("abort", () => {
-      controller.abort()
-    })
-
-    return signWithOptions(promise, options)
-  }
-
-  nip04 = {
-    encrypt: thrower("Multisig signers do not support encryption."),
-    decrypt: thrower("Multisig signers do not support encryption."),
-  }
-
-  nip44 = {
-    encrypt: thrower("Multisig signers do not support encryption."),
-    decrypt: thrower("Multisig signers do not support encryption."),
+    return {...event, sig} as SignedEvent
   }
 }
