@@ -1,7 +1,7 @@
-import {tryCatch} from "@welshman/lib"
+import {tryCatch, first, last, sortBy} from "@welshman/lib"
 import {getPubkey} from "@welshman/util"
 import type {TrustedEvent} from "@welshman/util"
-import {RPC, makeSetEmailConfirmed, Status, isSetEmailChallenge} from "../lib/index.js"
+import {RPC, Status, isSetEmailChallenge} from "../lib/index.js"
 import type {IStorageFactory, IStorage, SetEmailChallenge} from "../lib/index.js"
 
 export type ValidationState = {
@@ -16,7 +16,7 @@ export type ValidationState = {
 const getValidationKey = (email: string, client: string) => `${email}:${client}`
 
 export type EmailProvider = {
-  sendValidationEmail: (email: string, client: string) => Promise<void>
+  sendValidationEmail: (email: string, otp: string) => Promise<void>
   sendRecoveryEmail: () => Promise<void>
   sendLoginEmail: () => Promise<void>
 }
@@ -43,12 +43,11 @@ export class Mailer {
     })
   }
 
-  async handleSetEmailChallenge(message: SetEmailChallenge, event: TrustedEvent) {
-    const {index, total, client, otp, email_ciphertext} = message.payload
+  async handleSetEmailChallenge({payload}: SetEmailChallenge, event: TrustedEvent) {
+    const {index, total, client, otp, email_ciphertext} = payload
     const email = tryCatch(() => this.rpc.decrypt(client, email_ciphertext))
 
-    if (!email) return cb(Status.Error, "Failed to decrypt email address")
-    if (!email?.includes("@")) return cb(Status.Error, "Invalid email address provided")
+    if (!email?.includes("@")) return
 
     const key = getValidationKey(email, client)
     const validation = await this.validations.get(key) || {
@@ -64,8 +63,8 @@ export class Mailer {
     if (validation.peers.length === validation.total) {
       const combinedOTP = sortBy(first, validation.peers).map(last).join('')
 
-      await this.validations.delete(key)
       await this.options.provider.sendValidationEmail(email, combinedOTP)
+      await this.validations.delete(key)
     } else {
       await this.validations.set(key, validation)
     }

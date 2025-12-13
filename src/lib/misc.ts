@@ -1,5 +1,5 @@
 import * as nt44 from "nostr-tools/nip44"
-import {cached, dec, hexToBytes} from "@welshman/lib"
+import {cached, inc, dec, hexToBytes} from "@welshman/lib"
 import type {EventTemplate} from "@welshman/util"
 import {prep, sign, getPubkey} from "@welshman/util"
 
@@ -21,7 +21,12 @@ export const nip44 = {
 }
 
 export function generateOTP(peers: number): string {
-  const min = Math.pow(10, Math.ceil(6 / peers))
+  const min = Math.pow(10, dec(Math.round(6 / peers)))
 
-  return Math.floor(min + Math.random() * dec(10 * min)).toString()
+  return Math.floor(min + Math.random() * 9 * min).toString()
+}
+
+export function splitOTP(otp: string, peers: number, index: number): string {
+  const chunkSize = Math.round(otp.length / peers)
+  return otp.slice(chunkSize * index, chunkSize * inc(index))
 }

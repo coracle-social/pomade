@@ -1,8 +1,9 @@
 import {describe, it, expect, beforeEach, afterEach} from "vitest"
+import {sleep} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
 import {LOCAL_RELAY_URL} from "@welshman/net"
 import {Client} from "../src/client"
-import {beforeHook, afterHook, clientSecret} from "./util"
+import {beforeHook, afterHook, clientSecret, makeMailer} from "./util"
 
 describe("cryptography related methods", () => {
   beforeEach(beforeHook)
@@ -33,7 +34,29 @@ describe("cryptography related methods", () => {
   })
 
   describe("set email", () => {
-    it("successfully sets user email", async () => {})
+    it("successfully sets user email", async () => {
+      let email, otp
+
+      const mailer = makeMailer(makeSecret(), {
+        sendValidationEmail: (_email, _otp) => {
+          email = _email
+          otp = _otp
+        },
+      })
+
+      const client = await Client.register(1, 2, makeSecret())
+      const confirmed1 = await client.setEmail("test@example.com", mailer.pubkey)
+
+      await sleep(10)
+
+      expect(confirmed1).toBe(false)
+      expect(email).toBe("test@example.com")
+      expect(otp.length).toBe(6)
+
+      const confirmed2 = await client.setEmail("test@example.com", mailer.pubkey, otp)
+
+      expect(confirmed2).toBe(true)
+    })
 
     it.skip("successfully sets a different user email", async () => {})
 

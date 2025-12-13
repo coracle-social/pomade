@@ -1,8 +1,9 @@
-import {range} from "@welshman/lib"
+import {range, noop} from "@welshman/lib"
 import {getPubkey, makeSecret} from "@welshman/util"
 import {LOCAL_RELAY_URL} from "@welshman/net"
 import {defaultStorageFactory, context} from "../src/lib"
 import {Signer} from "../src/signer"
+import {Mailer} from "../src/mailer"
 
 export const signerSecrets = Array.from(range(0, 3)).map(() => makeSecret())
 export const signerPubkeys = signerSecrets.map(secret => getPubkey(secret))
@@ -12,15 +13,30 @@ context.indexerRelays = [LOCAL_RELAY_URL]
 
 let signers: Signer[]
 
+export function makeSigner(secret: string) {
+  return new Signer({
+    secret,
+    relays: [LOCAL_RELAY_URL],
+    storage: defaultStorageFactory,
+  })
+}
+
+export function makeMailer(secret: string, provider: Partial<EmailProvider> = {}) {
+  return new Mailer({
+    secret,
+    relays: [LOCAL_RELAY_URL],
+    storage: defaultStorageFactory,
+    provider: {
+      sendValidationEmail: noop,
+      sendRecoveryEmail: noop,
+      sendLoginEmail: noop,
+      ...provider,
+    },
+  })
+}
+
 export function beforeHook() {
-  signers = signerSecrets.map(
-    secret =>
-      new Signer({
-        secret,
-        relays: [LOCAL_RELAY_URL],
-        storage: defaultStorageFactory,
-      }),
-  )
+  signers = signerSecrets.map(makeSigner)
 }
 
 export function afterHook() {

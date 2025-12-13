@@ -1,4 +1,4 @@
-import {sortBy, first, last, isDefined, sha256, sample, textEncoder} from "@welshman/lib"
+import {sortBy, identity, first, last, isDefined, sha256, sample, textEncoder} from "@welshman/lib"
 import {hash, own, makeSecret} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Schema, Lib, PackageEncoder} from "@frostr/bifrost"
@@ -13,6 +13,7 @@ import {
   isSetEmailResult,
   makeSignRequest,
   isSignResult,
+  splitOTP,
 } from "../lib/index.js"
 
 export type ClientOptions = {
@@ -91,26 +92,43 @@ export class Client {
     })
   }
 
-  async setEmail(email: string, emailService: string, otp?: string) {
+  async setEmail(email: string, emailService: string, combinedOTP?: string) {
     const emailHash = await sha256(textEncoder.encode(email))
     const emailCiphertext = this.rpc.encrypt(emailService, email)
 
-    await Promise.all(
+    const results = await Promise.all(
       this.peers.map(async (peer, i) => {
         const channel = this.rpc.channel(peer)
 
-        channel.send(
-          makeSetEmailRequest({
-            email_hash: emailHash,
-            email_service: emailService,
-            email_ciphertext: emailCiphertext,
-          }),
-        )
+        if (combinedOTP) {
+          const otp = splitOTP(combinedOTP, this.peers.length, i)
 
-        return channel.receive<string>((message, event, resolve) => {
+          channel.send(
+            makeSetEmailRequest({
+              otp,
+              email_hash: emailHash,
+              email_service: emailService,
+              email_ciphertext: emailCiphertext,
+            }),
+          )
+        } else {
+          channel.send(
+            makeSetEmailRequest({
+              email_hash: emailHash,
+              email_service: emailService,
+              email_ciphertext: emailCiphertext,
+            }),
+          )
+        }
+
+        return channel.receive((message, event, resolve) => {
           if (isSetEmailResult(message)) {
             if (message.payload.status === Status.Ok) {
-              resolve()
+              resolve(true)
+            }
+
+            if (message.payload.status === Status.Pending) {
+              resolve(false)
             }
 
             if (message.payload.status === Status.Error) {
@@ -120,6 +138,8 @@ export class Client {
         })
       }),
     )
+
+    return results.every(identity)
   }
 
   async sign(stampedEvent: StampedEvent) {

@@ -103,8 +103,9 @@ export class Signer {
 
     // Case 1: No OTP provided - initiate email verification
     if (!payload.otp) {
-      const peers = registration.group.commits.length
-      const otp = generateOTP(peers)
+      const index = registration.share.idx
+      const total = registration.group.commits.length
+      const otp = generateOTP(total)
       const challenge: EmailChallenge = {
         otp,
         attempts: 0,
@@ -115,10 +116,11 @@ export class Signer {
 
       await this.challenges.set(event.pubkey, challenge)
 
-      this.rpc.channel(payload.email_service).send(
+      await this.rpc.channel(payload.email_service).send(
         makeSetEmailChallenge({
           otp,
-          peers,
+          index,
+          total,
           client: event.pubkey,
           email_ciphertext: payload.email_ciphertext,
         }),
