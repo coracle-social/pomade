@@ -1,14 +1,16 @@
 import {tryCatch} from "@welshman/lib"
 import {getPubkey} from "@welshman/util"
 import type {TrustedEvent} from "@welshman/util"
-import {RPC, makeValidateResult, Status, isValidateRequest} from "../lib/index.js"
-import type {IStorageFactory, IStorage, ValidateRequest} from "../lib/index.js"
+import {RPC, makeSetEmailConfirmed, Status, isSetEmailChallenge} from "../lib/index.js"
+import type {IStorageFactory, IStorage, SetEmailChallenge} from "../lib/index.js"
 
 export type ValidationState = {
   email: string
-  status: Status
-  peers: string[]
+  index: number
+  total: number
   client: string
+  peers: [number, string][]
+  status: Status
 }
 
 const getValidationKey = (email: string, client: string) => `${email}:${client}`
@@ -37,84 +39,35 @@ export class Mailer {
     this.validations = options.storage("validations")
     this.rpc = new RPC(options.secret, options.relays)
     this.stop = this.rpc.subscribe((message, event) => {
-      if (isValidateRequest(message)) this.handleValidateRequest(message, event)
+      if (isSetEmailChallenge(message)) this.handleSetEmailChallenge(message, event)
     })
   }
 
-  async handleValidateRequest(message: ValidateRequest, event: TrustedEvent) {
-    const client = message.payload.client
-    const email = tryCatch(() => this.rpc.decrypt(client, message.payload.email_ciphertext))
-
-    const cb = (status: Status, message: string) =>
-      this.rpc.channel(event.pubkey).send(makeValidateResult({client, status, message}))
+  async handleSetEmailChallenge(message: SetEmailChallenge, event: TrustedEvent) {
+    const {index, total, client, otp, email_ciphertext} = message.payload
+    const email = tryCatch(() => this.rpc.decrypt(client, email_ciphertext))
 
     if (!email) return cb(Status.Error, "Failed to decrypt email address")
     if (!email?.includes("@")) return cb(Status.Error, "Invalid email address provided")
 
     const key = getValidationKey(email, client)
-    const validation = await this.validations.get(key)
+    const validation = await this.validations.get(key) || {
+      email,
+      total,
+      client,
+      status: Status.Pending,
+      peers: [],
+    }
 
-    if (!validation) {
-      await this.validations.set(key, {
-        email,
-        client,
-        peers: [event.pubkey],
-        status: Status.Pending,
-      })
+    validation.peers.push([index, otp])
 
-      await this.options.provider.sendValidationEmail(email, client)
+    if (validation.peers.length === validation.total) {
+      const combinedOTP = sortBy(first, validation.peers).map(last).join('')
+
+      await this.validations.delete(key)
+      await this.options.provider.sendValidationEmail(email, combinedOTP)
     } else {
-      if (validation.status === Status.Ok) {
-        await cb(Status.Ok, "Successfully validated user email")
-      }
-
-      if (validation.status === Status.Error) {
-        await cb(Status.Error, "Failed to validate user email")
-      }
-
-      if (validation.status === Status.Pending) {
-        validation.peers.push(event.pubkey)
-        await this.validations.set(key, validation)
-        await cb(Status.Pending, "User email validation pending")
-      }
-    }
-  }
-
-  async completeEmailValidation(email: string, client: string) {
-    const key = getValidationKey(email, client)
-    const validation = await this.validations.get(key)
-
-    if (validation) {
-      await this.validations.set(key, {...validation, status: Status.Ok})
-
-      for (const peer of validation.peers) {
-        this.rpc.channel(peer).send(
-          makeValidateResult({
-            client,
-            status: Status.Ok,
-            message: "Successfully validated user email",
-          }),
-        )
-      }
-    }
-  }
-
-  async failEmailValidation(email: string, client: string) {
-    const key = getValidationKey(email, client)
-    const validation = await this.validations.get(key)
-
-    if (validation) {
-      await this.validations.set(key, {...validation, status: Status.Error})
-
-      for (const peer of validation.peers) {
-        this.rpc.channel(peer).send(
-          makeValidateResult({
-            client,
-            status: Status.Ok,
-            message: "Successfully validated user email",
-          }),
-        )
-      }
+      await this.validations.set(key, validation)
     }
   }
 }

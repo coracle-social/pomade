@@ -95,7 +95,7 @@ export class Client {
     const emailHash = await sha256(textEncoder.encode(email))
     const emailCiphertext = this.rpc.encrypt(emailService, email)
 
-    const errors = await Promise.all(
+    await Promise.all(
       this.peers.map(async (peer, i) => {
         const channel = this.rpc.channel(peer)
 
@@ -109,23 +109,17 @@ export class Client {
 
         return channel.receive<string>((message, event, resolve) => {
           if (isSetEmailResult(message)) {
-            if (message.payload.status === "ok") {
+            if (message.payload.status === Status.Ok) {
               resolve()
             }
 
-            if (message.payload.status === "error") {
-              resolve(message.payload.message)
+            if (message.payload.status === Status.Error) {
+              throw new Error(message.payload.message)
             }
           }
         })
       }),
     )
-
-    for (const error of errors) {
-      if (error) {
-        throw new Error(error)
-      }
-    }
   }
 
   async sign(stampedEvent: StampedEvent) {

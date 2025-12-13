@@ -20,11 +20,8 @@ export enum Method {
   SignRequest = "sign/request",
   SignResult = "sign/result",
   UnregisterRequest = "unregister/request",
-  ValidateRequest = "validate/request",
-  ValidateResult = "validate/result",
-
-  // EcdhRequest
-  // EcdhResult
+  EcdhRequest = "ecdh/request",
+  EcdhResult = "ecdh/result",
 }
 
 export enum RevokeScope {
@@ -43,7 +40,7 @@ export enum Status {
 
 export const LoginRequestPayload = z.object({
   email_hash: z.string(),
-  otp: z.optional(z.string()),
+  otp: z.string().optional(),
 })
 
 export const LoginResultPayload = z.object({
@@ -57,15 +54,16 @@ export const LoginSelectPayload = z.object({
 })
 
 export const LoginChallengePayload = z.object({
-  peers: z.number(),
+  index: z.number(),
+  total: z.number(),
   client: z.string(),
-  otp_ciphertext: z.string(),
+  otp: z.string(),
   email_ciphertext: z.string(),
 })
 
 export const RecoverRequestPayload = z.object({
   email_hash: z.string(),
-  otp: z.optional(z.string()),
+  otp: z.string().optional(),
 })
 
 export const RecoverResultPayload = z.object({
@@ -80,9 +78,10 @@ export const RecoverSelectPayload = z.object({
 })
 
 export const RecoverChallengePayload = z.object({
-  peers: z.number(),
+  index: z.number(),
+  total: z.number(),
   client: z.string(),
-  otp_ciphertext: z.string(),
+  otp: z.string(),
   email_ciphertext: z.string(),
 })
 
@@ -110,9 +109,10 @@ export const SetEmailResultPayload = z.object({
 })
 
 export const SetEmailChallengePayload = z.object({
-  peers: z.number(),
+  index: z.number(),
+  total: z.number(),
   client: z.string(),
-  otp_ciphertext: z.string(),
+  otp: z.string(),
   email_ciphertext: z.string(),
 })
 
@@ -138,13 +138,13 @@ export const UnregisterRequestPayload = z.object({
   revoke: z.enum(Object.values(RevokeScope)),
 })
 
-export const ValidateRequestPayload = z.object({
-  client: z.string(),
-  email_ciphertext: z.string(),
+export const EcdhRequestPayload = z.object({
+  session: Schema.pkg.ecdh,
+  pubkey: z.string(),
 })
 
-export const ValidateResultPayload = z.object({
-  client: z.string(),
+export const EcdhResultPayload = z.object({
+  secret: z.string().optional(),
   status: z.enum(Object.values(Status)),
   message: z.string(),
 })
@@ -231,14 +231,14 @@ export const UnregisterRequestSchema = z.object({
   payload: UnregisterRequestPayload,
 })
 
-export const ValidateRequestSchema = z.object({
-  method: z.literal(Method.ValidateRequest),
-  payload: ValidateRequestPayload,
+export const EcdhRequestSchema = z.object({
+  method: z.literal(Method.EcdhRequest),
+  payload: EcdhRequestPayload,
 })
 
-export const ValidateResultSchema = z.object({
-  method: z.literal(Method.ValidateResult),
-  payload: ValidateResultPayload,
+export const EcdhResultSchema = z.object({
+  method: z.literal(Method.EcdhResult),
+  payload: EcdhResultPayload,
 })
 
 export function getMessageSchema(method: Method) {
@@ -259,8 +259,8 @@ export function getMessageSchema(method: Method) {
     [Method.SignRequest]: SignRequestSchema,
     [Method.SignResult]: SignResultSchema,
     [Method.UnregisterRequest]: UnregisterRequestSchema,
-    [Method.ValidateRequest]: ValidateRequestSchema,
-    [Method.ValidateResult]: ValidateResultSchema,
+    [Method.EcdhRequest]: EcdhRequestSchema,
+    [Method.EcdhResult]: EcdhResultSchema,
   })
 }
 
@@ -282,8 +282,8 @@ export type SetEmailChallenge = z.infer<typeof SetEmailChallengeSchema>
 export type SignRequest = z.infer<typeof SignRequestSchema>
 export type SignResult = z.infer<typeof SignResultSchema>
 export type UnregisterRequest = z.infer<typeof UnregisterRequestSchema>
-export type ValidateRequest = z.infer<typeof ValidateRequestSchema>
-export type ValidateResult = z.infer<typeof ValidateResultSchema>
+export type EcdhRequest = z.infer<typeof EcdhRequestSchema>
+export type EcdhResult = z.infer<typeof EcdhResultSchema>
 
 export type Message =
   | LoginRequest
@@ -302,8 +302,8 @@ export type Message =
   | SignRequest
   | SignResult
   | UnregisterRequest
-  | ValidateRequest
-  | ValidateResult
+  | EcdhRequest
+  | EcdhResult
 
 // Construction
 
@@ -365,11 +365,11 @@ export const makeSignResult = (payload: z.infer<typeof SignResultPayload>) =>
 export const makeUnregisterRequest = (payload: z.infer<typeof UnregisterRequestPayload>) =>
   makeMessage(Method.UnregisterRequest, payload) as UnregisterRequest
 
-export const makeValidateRequest = (payload: z.infer<typeof ValidateRequestPayload>) =>
-  makeMessage(Method.ValidateRequest, payload) as ValidateRequest
+export const makeEcdhRequest = (payload: z.infer<typeof EcdhRequestPayload>) =>
+  makeMessage(Method.EcdhRequest, payload) as EcdhRequest
 
-export const makeValidateResult = (payload: z.infer<typeof ValidateResultPayload>) =>
-  makeMessage(Method.ValidateResult, payload) as ValidateResult
+export const makeEcdhResult = (payload: z.infer<typeof EcdhResultPayload>) =>
+  makeMessage(Method.EcdhResult, payload) as EcdhResult
 
 // Parse
 
@@ -387,8 +387,7 @@ export function parseMessage(s: string): Maybe<Message> {
 export const isLoginRequest = (m: Message): m is LoginRequest => m.method === Method.LoginRequest
 export const isLoginResult = (m: Message): m is LoginResult => m.method === Method.LoginResult
 export const isLoginSelect = (m: Message): m is LoginSelect => m.method === Method.LoginSelect
-export const isLoginChallenge = (m: Message): m is LoginChallenge =>
-  m.method === Method.LoginChallenge
+export const isLoginChallenge = (m: Message): m is LoginChallenge => m.method === Method.LoginChallenge
 export const isRecoverRequest = (m: Message): m is RecoverRequest =>
   m.method === Method.RecoverRequest
 export const isRecoverResult = (m: Message): m is RecoverResult => m.method === Method.RecoverResult
@@ -409,7 +408,5 @@ export const isSignRequest = (m: Message): m is SignRequest => m.method === Meth
 export const isSignResult = (m: Message): m is SignResult => m.method === Method.SignResult
 export const isUnregisterRequest = (m: Message): m is UnregisterRequest =>
   m.method === Method.UnregisterRequest
-export const isValidateRequest = (m: Message): m is ValidateRequest =>
-  m.method === Method.ValidateRequest
-export const isValidateResult = (m: Message): m is ValidateResult =>
-  m.method === Method.ValidateResult
+export const isEcdhRequest = (m: Message): m is EcdhRequest => m.method === Method.EcdhRequest
+export const isEcdhResult = (m: Message): m is EcdhResult => m.method === Method.EcdhResult

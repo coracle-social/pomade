@@ -1,5 +1,5 @@
 import * as nt44 from "nostr-tools/nip44"
-import {cached, hexToBytes} from "@welshman/lib"
+import {cached, dec, hexToBytes} from "@welshman/lib"
 import type {EventTemplate} from "@welshman/util"
 import {prep, sign, getPubkey} from "@welshman/util"
 
@@ -18,4 +18,10 @@ export const nip44 = {
     nt44.v2.encrypt(m, nip44.getSharedSecret(secret, pubkey)!),
   decrypt: (pubkey: string, secret: string, m: string) =>
     nt44.v2.decrypt(m, nip44.getSharedSecret(secret, pubkey)!),
+}
+
+export function generateOTP(peers: number): string {
+  const min = Math.pow(10, Math.ceil(6 / peers))
+
+  return Math.floor(min + Math.random() * dec(10 * min)).toString()
 }

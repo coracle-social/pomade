@@ -13,12 +13,13 @@ context.indexerRelays = [LOCAL_RELAY_URL]
 let signers: Signer[]
 
 export function beforeHook() {
-  signers = signerSecrets.map(secret =>
-    new Signer({
-      secret,
-      relays: [LOCAL_RELAY_URL],
-      storage: defaultStorageFactory,
-    })
+  signers = signerSecrets.map(
+    secret =>
+      new Signer({
+        secret,
+        relays: [LOCAL_RELAY_URL],
+        storage: defaultStorageFactory,
+      }),
   )
 }
 
