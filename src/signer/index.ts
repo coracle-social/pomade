@@ -15,7 +15,13 @@ import {
   makeSignResult,
   generateOTP,
 } from "../lib/index.js"
-import type {IStorageFactory, IStorage, RegisterRequest, SignRequest, SetEmailRequest} from "../lib/index.js"
+import type {
+  IStorageFactory,
+  IStorage,
+  RegisterRequest,
+  SignRequest,
+  SetEmailRequest,
+} from "../lib/index.js"
 
 export type SignerRegistration = {
   share: SharePackage

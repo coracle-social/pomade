@@ -387,7 +387,8 @@ export function parseMessage(s: string): Maybe<Message> {
 export const isLoginRequest = (m: Message): m is LoginRequest => m.method === Method.LoginRequest
 export const isLoginResult = (m: Message): m is LoginResult => m.method === Method.LoginResult
 export const isLoginSelect = (m: Message): m is LoginSelect => m.method === Method.LoginSelect
-export const isLoginChallenge = (m: Message): m is LoginChallenge => m.method === Method.LoginChallenge
+export const isLoginChallenge = (m: Message): m is LoginChallenge =>
+  m.method === Method.LoginChallenge
 export const isRecoverRequest = (m: Message): m is RecoverRequest =>
   m.method === Method.RecoverRequest
 export const isRecoverResult = (m: Message): m is RecoverResult => m.method === Method.RecoverResult

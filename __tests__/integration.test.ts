@@ -34,7 +34,7 @@ describe("cryptography related methods", () => {
   })
 
   describe("set email", () => {
-    it("successfully sets user email", async () => {
+    it("successfully sets user email multiple times", async () => {
       let email, otp
 
       const mailer = makeMailer(makeSecret(), {
@@ -56,13 +56,55 @@ describe("cryptography related methods", () => {
       const confirmed2 = await client.setEmail("test@example.com", mailer.pubkey, otp)
 
       expect(confirmed2).toBe(true)
+
+      const confirmed3 = await client.setEmail("test2@example.com", mailer.pubkey)
+
+      await sleep(10)
+
+      expect(confirmed3).toBe(false)
+
+      const confirmed4 = await client.setEmail("test2@example.com", mailer.pubkey, otp)
+
+      expect(confirmed4).toBe(true)
     })
 
-    it.skip("successfully sets a different user email", async () => {})
+    it("rejects invalid email", async () => {
+      let otp
 
-    it.skip("rejects invalid email", async () => {})
+      const mailer = makeMailer(makeSecret(), {
+        sendValidationEmail: (_email, _otp) => {
+          otp = _otp
+        },
+      })
 
-    it.skip("rejects forged otp", async () => {})
+      const client = await Client.register(1, 2, makeSecret())
+      const confirmed1 = await client.setEmail("test@example.com", mailer.pubkey)
+
+      await sleep(10)
+
+      await expect(client.setEmail("test2@example.com", mailer.pubkey, otp)).rejects.toThrowError(
+        /does not match/,
+      )
+    })
+
+    it("rejects forged otp", async () => {
+      let otp
+
+      const mailer = makeMailer(makeSecret(), {
+        sendValidationEmail: (_email, _otp) => {
+          otp = _otp
+        },
+      })
+
+      const client = await Client.register(1, 2, makeSecret())
+      const confirmed1 = await client.setEmail("test@example.com", mailer.pubkey)
+
+      await sleep(10)
+
+      await expect(client.setEmail("test@example.com", mailer.pubkey, otp + '0')).rejects.toThrowError(
+        /Invalid OTP/,
+      )
+    })
   })
 
   describe("login", () => {

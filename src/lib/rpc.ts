@@ -164,9 +164,13 @@ export class RPCChannel {
   }
 
   receive<T>(handler: MessageHandlerWithCallback<T>) {
-    return new Promise<Maybe<T>>(resolve => {
-      const unsubscribe = this.subscribe((message, event) => {
-        handler(message, event, done)
+    return new Promise<Maybe<T>>((resolve, reject) => {
+      const unsubscribe = this.subscribe(async (message, event) => {
+        try {
+          handler(message, event, done)
+        } catch (e) {
+          reject(e)
+        }
       })
 
       const done = (result?: Maybe<T>) => {

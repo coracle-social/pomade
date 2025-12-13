@@ -50,23 +50,24 @@ export class Mailer {
     if (!email?.includes("@")) return
 
     const key = getValidationKey(email, client)
-    const validation = await this.validations.get(key) || {
-      email,
-      total,
-      client,
-      status: Status.Pending,
-      peers: [],
-    }
 
-    validation.peers.push([index, otp])
 
-    if (validation.peers.length === validation.total) {
-      const combinedOTP = sortBy(first, validation.peers).map(last).join('')
+    await this.validations.tx(async () => {
+      let validation = await this.validations.get(key)
+      if (!validation) {
+        validation = {email, index, total, client, status: Status.Pending, peers: []}
+      }
 
-      await this.options.provider.sendValidationEmail(email, combinedOTP)
-      await this.validations.delete(key)
-    } else {
-      await this.validations.set(key, validation)
-    }
+      validation.peers.push([index, otp])
+
+      if (validation.peers.length === validation.total) {
+        const combinedOTP = sortBy(first, validation.peers).map(last).join("")
+
+        await this.options.provider.sendValidationEmail(email, combinedOTP)
+        await this.validations.delete(key)
+      } else {
+        await this.validations.set(key, validation)
+      }
+    })
   }
 }
