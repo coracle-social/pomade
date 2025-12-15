@@ -4,7 +4,7 @@ import {publish, request, PublishStatus} from "@welshman/net"
 import type {HashedEvent, TrustedEvent} from "@welshman/util"
 import {prep, sign, getPubkey} from "@welshman/util"
 import {nip44} from "./misc.js"
-import {Message, parseMessage} from "./msg.js"
+import {Message, parseMessage} from "./message.js"
 import {fetchRelays, publishRelays} from "./relays.js"
 
 // Base RPC class

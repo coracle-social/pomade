@@ -7,12 +7,14 @@ import {
   RPC,
   Status,
   makeRegisterResult,
-  makeSetEmailResult,
+  makeSetEmailRequestResult,
+  makeSetEmailFinalizeResult,
   makeSetEmailChallenge,
   isRegisterRequest,
   isSignRequest,
   isEcdhRequest,
   isSetEmailRequest,
+  isSetEmailFinalize,
   makeSignResult,
   makeEcdhResult,
   generateOTP,
@@ -20,10 +22,11 @@ import {
 import type {
   IStorageFactory,
   IStorage,
-  RegisterRequest,
-  SignRequest,
-  SetEmailRequest,
-  EcdhRequest,
+  RegisterRequestMessage,
+  SignRequestMessage,
+  SetEmailRequestMessage,
+  SetEmailFinalizeMessage,
+  EcdhRequestMessage,
 } from "../lib/index.js"
 
 export type SignerRegistration = {
@@ -62,18 +65,19 @@ export class Signer {
     this.rpc = new RPC(options.secret, options.relays)
     this.stop = this.rpc.subscribe((message, event) => {
       if (isRegisterRequest(message)) this.handleRegisterRequest(message, event)
-      if (isSetEmailRequest(message)) this.handleSetEmailRequest(message, event)
-      if (isSignRequest(message)) this.handleSignRequest(message, event)
-      if (isEcdhRequest(message)) this.handleEcdhRequest(message, event)
+      if (isSetEmailRequest(message)) this.handleSetEmailRequestMessage(message, event)
+      if (isSetEmailFinalize(message)) this.handleSetEmailFinalizeMessage(message, event)
+      if (isSignRequest(message)) this.handleSignRequestMessage(message, event)
+      if (isEcdhRequest(message)) this.handleEcdhRequestMessage(message, event)
     })
   }
 
-  async handleRegisterRequest({payload}: RegisterRequest, event: TrustedEvent) {
+  async handleRegisterRequest({payload}: RegisterRequestMessage, event: TrustedEvent) {
     const channel = this.rpc.channel(event.pubkey)
     const share = tryCatch(() => PackageEncoder.share.decode(payload.share))
     const group = tryCatch(() => PackageEncoder.group.decode(payload.group))
     const cb = (status: Status, message: string) =>
-      channel.send(makeRegisterResult({status, message}))
+      channel.send(makeRegisterResult({status, message, prev: event.id}))
 
     if (!share) return cb(Status.Error, `Failed to deserialize share package.`)
     if (!group) return cb(Status.Error, `Failed to deserialize group package.`)
@@ -98,69 +102,84 @@ export class Signer {
     return cb(Status.Ok, "Your key has been registered")
   }
 
-  async handleSetEmailRequest({payload}: SetEmailRequest, event: TrustedEvent) {
+  async handleSetEmailRequestMessage({payload}: SetEmailRequestMessage, event: TrustedEvent) {
     const clientChannel = this.rpc.channel(event.pubkey)
     const registration = await this.registrations.get(event.pubkey)
 
     if (!registration) {
       return clientChannel.send(
-        makeSetEmailResult({
+        makeSetEmailRequestResult({
           status: Status.Error,
           message: "No registration found for client",
+          prev: event.id,
         }),
       )
     }
 
-    // Case 1: No OTP provided - initiate email verification
-    if (!payload.otp) {
-      const index = registration.share.idx
-      const total = registration.group.commits.length
-      const otp = generateOTP(total)
-      const challenge: EmailChallenge = {
+    const index = registration.share.idx
+    const total = registration.group.commits.length
+    const otp = generateOTP(total)
+    const challenge: EmailChallenge = {
+      otp,
+      attempts: 0,
+      email_hash: payload.email_hash,
+      email_service: payload.email_service,
+      email_ciphertext: payload.email_ciphertext,
+    }
+
+    await this.challenges.set(event.pubkey, challenge)
+
+    this.rpc.channel(payload.email_service).send(
+      makeSetEmailChallenge({
         otp,
-        attempts: 0,
-        email_hash: payload.email_hash,
-        email_service: payload.email_service,
+        index,
+        total,
+        client: event.pubkey,
         email_ciphertext: payload.email_ciphertext,
-      }
+      }),
+    )
 
-      await this.challenges.set(event.pubkey, challenge)
+    clientChannel.send(
+      makeSetEmailRequestResult({
+        status: Status.Ok,
+        message: "Verification email sent. Please check your email for the OTP.",
+        prev: event.id,
+      }),
+    )
+  }
 
-      await this.rpc.channel(payload.email_service).send(
-        makeSetEmailChallenge({
-          otp,
-          index,
-          total,
-          client: event.pubkey,
-          email_ciphertext: payload.email_ciphertext,
-        }),
-      )
+  async handleSetEmailFinalizeMessage({payload}: SetEmailFinalizeMessage, event: TrustedEvent) {
+    const clientChannel = this.rpc.channel(event.pubkey)
+    const registration = await this.registrations.get(event.pubkey)
 
+    if (!registration) {
       return clientChannel.send(
-        makeSetEmailResult({
-          status: Status.Pending,
-          message: "Verification email sent. Please check your email for the OTP.",
+        makeSetEmailFinalizeResult({
+          status: Status.Error,
+          message: "No registration found for client",
+          prev: event.id,
         }),
       )
     }
 
-    // Case 2: OTP provided - verify it
     const challenge = await this.challenges.get(event.pubkey)
 
     if (!challenge) {
       return clientChannel.send(
-        makeSetEmailResult({
+        makeSetEmailFinalizeResult({
           status: Status.Error,
           message: "No email verification in progress",
+          prev: event.id,
         }),
       )
     }
 
     if (challenge.email_hash !== payload.email_hash) {
       return clientChannel.send(
-        makeSetEmailResult({
+        makeSetEmailFinalizeResult({
           status: Status.Error,
           message: "Email address does not match verification request",
+          prev: event.id,
         }),
       )
     }
@@ -173,9 +192,10 @@ export class Signer {
         await this.challenges.delete(event.pubkey)
 
         return clientChannel.send(
-          makeSetEmailResult({
+          makeSetEmailFinalizeResult({
             status: Status.Error,
             message: "Too many invalid OTP attempts. Please request a new verification code.",
+            prev: event.id,
           }),
         )
       }
@@ -184,28 +204,29 @@ export class Signer {
       await this.challenges.set(event.pubkey, challenge)
 
       return clientChannel.send(
-        makeSetEmailResult({
+        makeSetEmailFinalizeResult({
           status: Status.Error,
           message: `Invalid OTP. You have ${2 - challenge.attempts} attempt(s) remaining.`,
+          prev: event.id,
         }),
       )
     }
 
-    // OTP is valid - associate email with registration
-    registration.email_hash = payload.email_hash
-    registration.email_ciphertext = payload.email_ciphertext
+    registration.email_hash = challenge.email_hash
+    registration.email_ciphertext = challenge.email_ciphertext
     await this.registrations.set(event.pubkey, registration)
     await this.challenges.delete(event.pubkey)
 
     return clientChannel.send(
-      makeSetEmailResult({
+      makeSetEmailFinalizeResult({
         status: Status.Ok,
         message: "Email successfully verified and associated with your account",
+        prev: event.id,
       }),
     )
   }
 
-  async handleSignRequest({payload}: SignRequest, event: TrustedEvent) {
+  async handleSignRequestMessage({payload}: SignRequestMessage, event: TrustedEvent) {
     const channel = this.rpc.channel(event.pubkey)
     const registration = await this.registrations.get(event.pubkey)
 
@@ -214,24 +235,26 @@ export class Signer {
         makeSignResult({
           status: Status.Error,
           message: "No registration found for client",
+          prev: event.id,
         }),
       )
     }
 
     const {session} = payload
     const ctx = Lib.get_session_ctx(registration.group, session)
-    const psig = Lib.create_psig_pkg(ctx, registration.share)
+    const partialSignature = Lib.create_psig_pkg(ctx, registration.share)
 
     channel.send(
       makeSignResult({
-        psig,
+        result: partialSignature,
         status: Status.Ok,
         message: "Successfully signed event",
+        prev: event.id,
       }),
     )
   }
 
-  async handleEcdhRequest({payload}: EcdhRequest, event: TrustedEvent) {
+  async handleEcdhRequestMessage({payload}: EcdhRequestMessage, event: TrustedEvent) {
     const channel = this.rpc.channel(event.pubkey)
     const registration = await this.registrations.get(event.pubkey)
 
@@ -240,6 +263,7 @@ export class Signer {
         makeSignResult({
           status: Status.Error,
           message: "No registration found for client",
+          prev: event.id,
         }),
       )
     }
@@ -252,6 +276,7 @@ export class Signer {
         result: ecdhPackage,
         status: Status.Ok,
         message: "Successfully signed event",
+        prev: event.id,
       }),
     )
   }

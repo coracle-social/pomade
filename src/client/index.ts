@@ -1,4 +1,4 @@
-import {sortBy, identity, first, last, isDefined, sha256, sample, textEncoder} from "@welshman/lib"
+import {sortBy, first, last, isDefined, sha256, sample, textEncoder} from "@welshman/lib"
 import {extract} from "@noble/hashes/hkdf.js"
 import {sha256 as sha256Hash} from "@noble/hashes/sha2.js"
 import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
@@ -7,18 +7,23 @@ import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Schema, Lib, PackageEncoder} from "@frostr/bifrost"
 import type {GroupPackage, PartialSigPackage, ECDHPackage} from "@frostr/bifrost"
 import {
-  RPC,
-  Status,
   context,
-  makeRegisterRequest,
+  isEcdhResult,
   isRegisterResult,
-  makeSetEmailRequest,
-  isSetEmailResult,
-  makeSignRequest,
+  isSetEmailFinalizeResult,
+  isSetEmailRequestResult,
   isSignResult,
   makeEcdhRequest,
-  isEcdhResult,
+  makeRegisterRequest,
+  makeSetEmailFinalize,
+  makeSetEmailRequest,
+  makeSignRequest,
+  RPC,
+  SetEmailFinalizeResultMessage,
+  SetEmailRequestResultMessage,
+  SignResultMessage,
   splitOTP,
+  Status,
 } from "../lib/index.js"
 
 export type ClientOptions = {
@@ -97,54 +102,52 @@ export class Client {
     })
   }
 
-  async setEmail(email: string, emailService: string, combinedOTP?: string) {
+  async setEmailRequest(email: string, emailService: string) {
     const emailHash = await sha256(textEncoder.encode(email))
     const emailCiphertext = this.rpc.encrypt(emailService, email)
 
-    const results = await Promise.all(
+    const messages = await Promise.all(
       this.peers.map(async (peer, i) => {
         const channel = this.rpc.channel(peer)
 
-        if (combinedOTP) {
-          const otp = splitOTP(combinedOTP, this.peers.length, i)
+        channel.send(
+          makeSetEmailRequest({
+            email_hash: emailHash,
+            email_service: emailService,
+            email_ciphertext: emailCiphertext,
+          }),
+        )
 
-          channel.send(
-            makeSetEmailRequest({
-              otp,
-              email_hash: emailHash,
-              email_service: emailService,
-              email_ciphertext: emailCiphertext,
-            }),
-          )
-        } else {
-          channel.send(
-            makeSetEmailRequest({
-              email_hash: emailHash,
-              email_service: emailService,
-              email_ciphertext: emailCiphertext,
-            }),
-          )
-        }
-
-        return channel.receive((message, event, resolve) => {
-          if (isSetEmailResult(message)) {
-            if (message.payload.status === Status.Ok) {
-              resolve(true)
-            }
-
-            if (message.payload.status === Status.Pending) {
-              resolve(false)
-            }
-
-            if (message.payload.status === Status.Error) {
-              throw new Error(message.payload.message)
-            }
+        return channel.receive<SetEmailRequestResultMessage>((message, event, resolve) => {
+          if (isSetEmailRequestResult(message)) {
+            resolve(message)
           }
         })
       }),
     )
 
-    return results.every(identity)
+    return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
+  }
+
+  async setEmailFinalize(email: string, emailService: string, combinedOTP: string) {
+    const emailHash = await sha256(textEncoder.encode(email))
+
+    const messages = await Promise.all(
+      this.peers.map(async (peer, i) => {
+        const channel = this.rpc.channel(peer)
+        const otp = splitOTP(combinedOTP, this.peers.length, i)
+
+        channel.send(makeSetEmailFinalize({otp, email_hash: emailHash}))
+
+        return channel.receive<SetEmailFinalizeResultMessage>((message, event, resolve) => {
+          if (isSetEmailFinalizeResult(message)) {
+            resolve(message)
+          }
+        })
+      }),
+    )
+
+    return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
   }
 
   async sign(stampedEvent: StampedEvent) {
@@ -157,29 +160,32 @@ export class Client {
 
     const session = Lib.create_session_pkg(this.group, template)
 
-    const results = await Promise.all(
+    const messages = await Promise.all(
       members.map(async idx => {
         const peer = this.peers[idx - 1]!
         const channel = this.rpc.channel(peer)
 
         channel.send(makeSignRequest({session}))
 
-        return channel.receive<PartialSigPackage>((message, event, resolve) => {
+        return channel.receive<SignResultMessage>((message, event, resolve) => {
           if (isSignResult(message)) {
-            resolve(Schema.sign.psig_pkg.parse(message.payload.result))
+            resolve(message)
           }
         })
       }),
     )
 
-    if (results.every(isDefined)) {
+    if (messages.every(m => m?.payload.status === Status.Ok)) {
       const ctx = Lib.get_session_ctx(this.group, session)
-      const sig = Lib.combine_signature_pkgs(ctx, results)[0]?.[2]
+      const pkgs = messages.map(m => Schema.sign.psig_pkg.parse(m!.payload.result))
+      const sig = Lib.combine_signature_pkgs(ctx, pkgs)[0]?.[2]
 
-      if (!sig) throw new Error("Failed to combine signatures")
-
-      return {...event, sig} as SignedEvent
+      if (sig) {
+        return {ok: true, messages, event: {...event, sig} as SignedEvent}
+      }
     }
+
+    return {ok: false, messages}
   }
 
   async getConversationKey(ecdh_pk: string) {

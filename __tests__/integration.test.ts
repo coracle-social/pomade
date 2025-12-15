@@ -27,14 +27,15 @@ describe("cryptography related methods", () => {
   describe("signing", () => {
     it("successfully signs an event", async () => {
       const client = await Client.register(2, 3, makeSecret())
-      const event = await client.sign(makeEvent(1))
+      const result = await client.sign(makeEvent(1))
 
-      expect(verifyEvent(event)).toBe(true)
+      expect(result.ok).toBe(true)
+      expect(verifyEvent(result.event)).toBe(true)
     })
   })
 
   describe("ecdh", () => {
-    it.only("successfully generates a conversation key", async () => {
+    it("successfully generates a conversation key", async () => {
       const clientSecret = makeSecret()
       const pubkey = getPubkey(makeSecret())
       const client = await Client.register(2, 3, clientSecret)
@@ -58,27 +59,23 @@ describe("cryptography related methods", () => {
       })
 
       const client = await Client.register(1, 2, makeSecret())
-      const confirmed1 = await client.setEmail("test@example.com", mailer.pubkey)
 
+      await client.setEmailRequest("test@example.com", mailer.pubkey)
       await sleep(10)
 
-      expect(confirmed1).toBe(false)
       expect(email).toBe("test@example.com")
       expect(otp.length).toBe(6)
 
-      const confirmed2 = await client.setEmail("test@example.com", mailer.pubkey, otp)
+      const confirmed1 = await client.setEmailFinalize("test@example.com", mailer.pubkey, otp)
 
-      expect(confirmed2).toBe(true)
+      expect(confirmed1.ok).toBe(true)
 
-      const confirmed3 = await client.setEmail("test2@example.com", mailer.pubkey)
-
+      await client.setEmailRequest("test2@example.com", mailer.pubkey)
       await sleep(10)
 
-      expect(confirmed3).toBe(false)
+      const confirmed2 = await client.setEmailFinalize("test2@example.com", mailer.pubkey, otp)
 
-      const confirmed4 = await client.setEmail("test2@example.com", mailer.pubkey, otp)
-
-      expect(confirmed4).toBe(true)
+      expect(confirmed2.ok).toBe(true)
     })
 
     it("rejects invalid email", async () => {
@@ -92,11 +89,12 @@ describe("cryptography related methods", () => {
 
       const client = await Client.register(1, 2, makeSecret())
 
-      await client.setEmail("test@example.com", mailer.pubkey)
+      await client.setEmailRequest("test@example.com", mailer.pubkey)
       await sleep(10)
-      await expect(client.setEmail("test2@example.com", mailer.pubkey, otp)).rejects.toThrowError(
-        /does not match/,
-      )
+
+      const confirmed = await client.setEmailFinalize("test2@example.com", mailer.pubkey, otp)
+
+      await expect(confirmed.ok).toBe(false)
     })
 
     it("rejects invalid otp", async () => {
@@ -110,11 +108,12 @@ describe("cryptography related methods", () => {
 
       const client = await Client.register(1, 2, makeSecret())
 
-      await client.setEmail("test@example.com", mailer.pubkey)
+      await client.setEmailRequest("test@example.com", mailer.pubkey)
       await sleep(10)
-      await expect(
-        client.setEmail("test@example.com", mailer.pubkey, otp + "0"),
-      ).rejects.toThrowError(/Invalid OTP/)
+
+      const confirmed = await client.setEmailFinalize("test2@example.com", mailer.pubkey, otp)
+
+      await expect(confirmed.ok).toBe(false)
     })
   })
 
