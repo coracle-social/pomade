@@ -1,9 +1,9 @@
+import * as nt44 from "nostr-tools/nip44"
 import {describe, it, expect, beforeEach, afterEach} from "vitest"
-import {sleep} from "@welshman/lib"
+import {sleep, hexToBytes, bytesToHex} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
-import {LOCAL_RELAY_URL} from "@welshman/net"
 import {Client} from "../src/client"
-import {beforeHook, afterHook, clientSecret, makeMailer} from "./util"
+import {beforeHook, afterHook, makeMailer} from "./util"
 
 describe("cryptography related methods", () => {
   beforeEach(beforeHook)
@@ -30,6 +30,19 @@ describe("cryptography related methods", () => {
       const event = await client.sign(makeEvent(1))
 
       expect(verifyEvent(event)).toBe(true)
+    })
+  })
+
+  describe("ecdh", () => {
+    it.only("successfully generates a conversation key", async () => {
+      const clientSecret = makeSecret()
+      const pubkey = getPubkey(makeSecret())
+      const client = await Client.register(2, 3, clientSecret)
+      const sharedSecret = await client.getConversationKey(pubkey)
+
+      expect(sharedSecret).toBe(
+        bytesToHex(nt44.v2.utils.getConversationKey(hexToBytes(clientSecret), pubkey)),
+      )
     })
   })
 
@@ -78,16 +91,15 @@ describe("cryptography related methods", () => {
       })
 
       const client = await Client.register(1, 2, makeSecret())
-      const confirmed1 = await client.setEmail("test@example.com", mailer.pubkey)
 
+      await client.setEmail("test@example.com", mailer.pubkey)
       await sleep(10)
-
       await expect(client.setEmail("test2@example.com", mailer.pubkey, otp)).rejects.toThrowError(
         /does not match/,
       )
     })
 
-    it("rejects forged otp", async () => {
+    it("rejects invalid otp", async () => {
       let otp
 
       const mailer = makeMailer(makeSecret(), {
@@ -97,13 +109,12 @@ describe("cryptography related methods", () => {
       })
 
       const client = await Client.register(1, 2, makeSecret())
-      const confirmed1 = await client.setEmail("test@example.com", mailer.pubkey)
 
+      await client.setEmail("test@example.com", mailer.pubkey)
       await sleep(10)
-
-      await expect(client.setEmail("test@example.com", mailer.pubkey, otp + '0')).rejects.toThrowError(
-        /Invalid OTP/,
-      )
+      await expect(
+        client.setEmail("test@example.com", mailer.pubkey, otp + "0"),
+      ).rejects.toThrowError(/Invalid OTP/)
     })
   })
 

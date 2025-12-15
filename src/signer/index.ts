@@ -11,8 +11,10 @@ import {
   makeSetEmailChallenge,
   isRegisterRequest,
   isSignRequest,
+  isEcdhRequest,
   isSetEmailRequest,
   makeSignResult,
+  makeEcdhResult,
   generateOTP,
 } from "../lib/index.js"
 import type {
@@ -21,6 +23,7 @@ import type {
   RegisterRequest,
   SignRequest,
   SetEmailRequest,
+  EcdhRequest,
 } from "../lib/index.js"
 
 export type SignerRegistration = {
@@ -61,6 +64,7 @@ export class Signer {
       if (isRegisterRequest(message)) this.handleRegisterRequest(message, event)
       if (isSetEmailRequest(message)) this.handleSetEmailRequest(message, event)
       if (isSignRequest(message)) this.handleSignRequest(message, event)
+      if (isEcdhRequest(message)) this.handleEcdhRequest(message, event)
     })
   }
 
@@ -214,11 +218,38 @@ export class Signer {
       )
     }
 
-    const ctx = Lib.get_session_ctx(registration.group, payload.session)
+    const {session} = payload
+    const ctx = Lib.get_session_ctx(registration.group, session)
     const psig = Lib.create_psig_pkg(ctx, registration.share)
+
     channel.send(
       makeSignResult({
         psig,
+        status: Status.Ok,
+        message: "Successfully signed event",
+      }),
+    )
+  }
+
+  async handleEcdhRequest({payload}: EcdhRequest, event: TrustedEvent) {
+    const channel = this.rpc.channel(event.pubkey)
+    const registration = await this.registrations.get(event.pubkey)
+
+    if (!registration) {
+      return channel.send(
+        makeSignResult({
+          status: Status.Error,
+          message: "No registration found for client",
+        }),
+      )
+    }
+
+    const {members, ecdh_pk} = payload
+    const ecdhPackage = Lib.create_ecdh_pkg(members, ecdh_pk, registration.share)
+
+    channel.send(
+      makeEcdhResult({
+        result: ecdhPackage,
         status: Status.Ok,
         message: "Successfully signed event",
       }),

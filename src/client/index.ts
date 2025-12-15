@@ -1,8 +1,11 @@
 import {sortBy, identity, first, last, isDefined, sha256, sample, textEncoder} from "@welshman/lib"
+import {extract} from "@noble/hashes/hkdf.js"
+import {sha256 as sha256Hash} from "@noble/hashes/sha2.js"
+import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
 import {hash, own, makeSecret} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Schema, Lib, PackageEncoder} from "@frostr/bifrost"
-import type {GroupPackage, PartialSigPackage} from "@frostr/bifrost"
+import type {GroupPackage, PartialSigPackage, ECDHPackage} from "@frostr/bifrost"
 import {
   RPC,
   Status,
@@ -13,6 +16,8 @@ import {
   isSetEmailResult,
   makeSignRequest,
   isSignResult,
+  makeEcdhRequest,
+  isEcdhResult,
   splitOTP,
 } from "../lib/index.js"
 
@@ -152,28 +157,58 @@ export class Client {
 
     const session = Lib.create_session_pkg(this.group, template)
 
-    const psigs = await Promise.all(
+    const results = await Promise.all(
       members.map(async idx => {
         const peer = this.peers[idx - 1]!
         const channel = this.rpc.channel(peer)
 
-        channel.send(makeSignRequest({session, event}))
+        channel.send(makeSignRequest({session}))
 
         return channel.receive<PartialSigPackage>((message, event, resolve) => {
           if (isSignResult(message)) {
-            resolve(Schema.sign.psig_pkg.parse(message.payload.psig))
+            resolve(Schema.sign.psig_pkg.parse(message.payload.result))
           }
         })
       }),
     )
 
-    if (psigs.every(isDefined)) {
+    if (results.every(isDefined)) {
       const ctx = Lib.get_session_ctx(this.group, session)
-      const sig = Lib.combine_signature_pkgs(ctx, psigs)[0]?.[2]
+      const sig = Lib.combine_signature_pkgs(ctx, results)[0]?.[2]
 
       if (!sig) throw new Error("Failed to combine signatures")
 
       return {...event, sig} as SignedEvent
+    }
+  }
+
+  async getConversationKey(ecdh_pk: string) {
+    const {threshold, commits} = this.group
+    const members = sample(threshold, commits).map(c => c.idx)
+
+    const results = await Promise.all(
+      members.map(async idx => {
+        const peer = this.peers[idx - 1]!
+        const channel = this.rpc.channel(peer)
+
+        channel.send(makeEcdhRequest({idx, members, ecdh_pk}))
+
+        return channel.receive<ECDHPackage>((message, event, resolve) => {
+          if (isEcdhResult(message)) {
+            resolve(message.payload.result)
+          }
+        })
+      }),
+    )
+
+    if (results.every(isDefined)) {
+      return bytesToHex(
+        extract(
+          sha256Hash,
+          hexToBytes(Lib.combine_ecdh_pkgs(results).slice(2)),
+          textEncoder.encode("nip44-v2"),
+        ),
+      )
     }
   }
 }

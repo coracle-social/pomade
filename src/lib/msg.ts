@@ -118,18 +118,10 @@ export const SetEmailChallengePayload = z.object({
 
 export const SignRequestPayload = z.object({
   session: Schema.sign.session,
-  event: z.object({
-    id: z.string(),
-    kind: z.number(),
-    pubkey: z.string(),
-    content: z.string(),
-    created_at: z.int(),
-    tags: z.array(z.array(z.string())),
-  }),
 })
 
 export const SignResultPayload = z.object({
-  psig: Schema.sign.psig_pkg.optional(),
+  result: Schema.sign.psig_pkg.optional(),
   status: z.enum(Object.values(Status)),
   message: z.string(),
 })
@@ -139,12 +131,13 @@ export const UnregisterRequestPayload = z.object({
 })
 
 export const EcdhRequestPayload = z.object({
-  session: Schema.pkg.ecdh,
-  pubkey: z.string(),
+  idx: z.number(),
+  members: z.number().array(),
+  ecdh_pk: Schema.base.hex,
 })
 
 export const EcdhResultPayload = z.object({
-  secret: z.string().optional(),
+  result: Schema.pkg.ecdh.optional(),
   status: z.enum(Object.values(Status)),
   message: z.string(),
 })

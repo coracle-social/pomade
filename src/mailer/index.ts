@@ -51,7 +51,6 @@ export class Mailer {
 
     const key = getValidationKey(email, client)
 
-
     await this.validations.tx(async () => {
       let validation = await this.validations.get(key)
       if (!validation) {
