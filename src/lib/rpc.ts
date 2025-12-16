@@ -220,7 +220,14 @@ export class RPCChannel {
 
     const ok = res.then(r => Object.values(r).some(spec({status: PublishStatus.Success})))
 
-    return {abort, event, res, ok}
+    const receive = <T>(handler: MessageHandlerWithCallback<T>) =>
+      this.receive<T>((message, resolve) => {
+        if ((message.payload as any).prev === event.id) {
+          handler(message, resolve)
+        }
+      })
+
+    return {abort, event, res, ok, receive}
   }
 
   stop() {

@@ -100,23 +100,22 @@ export class Client {
     await Promise.all(
       shares.map(async (share, i) => {
         while (remainingSignerPubkeys.length > 0 && !peersByIndex.has(i)) {
-          const channel = rpc.channel(remainingSignerPubkeys.shift()!)
+          await rpc
+            .channel(remainingSignerPubkeys.shift()!)
+            .send(makeRegisterRequest({threshold, share, group}))
+            .receive((message, resolve) => {
+              if (isRegisterResult(message)) {
+                if (message.payload.status === Status.Ok) {
+                  peersByIndex.set(i, message.event.pubkey)
+                  resolve()
+                }
 
-          channel.send(makeRegisterRequest({threshold, share, group}))
-
-          await channel.receive((message, resolve) => {
-            if (isRegisterResult(message)) {
-              if (message.payload.status === Status.Ok) {
-                peersByIndex.set(i, message.event.pubkey)
-                resolve()
+                if (message.payload.status === Status.Error) {
+                  errorsByPeer.set(message.event.pubkey, message.payload.message)
+                  resolve()
+                }
               }
-
-              if (message.payload.status === Status.Error) {
-                errorsByPeer.set(message.event.pubkey, message.payload.message)
-                resolve()
-              }
-            }
-          })
+            })
         }
       }),
     )
@@ -144,16 +143,15 @@ export class Client {
     const email_hash = await sha256(textEncoder.encode(email))
 
     const messages = await Promise.all(
-      context.signerPubkeys.map(async (peer, i) => {
-        const channel = rpc.channel(peer)
-
-        channel.send(makeLoginRequest({email_hash, pubkey}))
-
-        return channel.receive<LoginRequestResultMessage>((message, resolve) => {
-          if (isLoginRequestResult(message)) {
-            resolve(message)
-          }
-        })
+      context.signerPubkeys.map((peer, i) => {
+        return rpc
+          .channel(peer)
+          .send(makeLoginRequest({email_hash, pubkey}))
+          .receive<LoginRequestResultMessage>((message, resolve) => {
+            if (isLoginRequestResult(message)) {
+              resolve(message)
+            }
+          })
       }),
     )
 
@@ -171,16 +169,15 @@ export class Client {
     const email_hash = await sha256(textEncoder.encode(email))
 
     const messages = await Promise.all(
-      parseChallenge(challenge).map(async ([peer, otp]) => {
-        const channel = rpc.channel(peer)
-
-        channel.send(makeLoginFinalize({otp, email_hash}))
-
-        return channel.receive<WithEvent<LoginFinalizeResultMessage>>((message, resolve) => {
-          if (isLoginFinalizeResult(message)) {
-            resolve(message)
-          }
-        })
+      parseChallenge(challenge).map(([peer, otp]) => {
+        return rpc
+          .channel(peer)
+          .send(makeLoginFinalize({otp, email_hash}))
+          .receive<WithEvent<LoginFinalizeResultMessage>>((message, resolve) => {
+            if (isLoginFinalizeResult(message)) {
+              resolve(message)
+            }
+          })
       }),
     )
 
@@ -214,16 +211,15 @@ export class Client {
     const email_hash = await sha256(textEncoder.encode(email))
 
     const messages = await Promise.all(
-      context.signerPubkeys.map(async (peer, i) => {
-        const channel = rpc.channel(peer)
-
-        channel.send(makeRecoverRequest({email_hash, pubkey}))
-
-        return channel.receive<RecoverRequestResultMessage>((message, resolve) => {
-          if (isRecoverRequestResult(message)) {
-            resolve(message)
-          }
-        })
+      context.signerPubkeys.map((peer, i) => {
+        return rpc
+          .channel(peer)
+          .send(makeRecoverRequest({email_hash, pubkey}))
+          .receive<RecoverRequestResultMessage>((message, resolve) => {
+            if (isRecoverRequestResult(message)) {
+              resolve(message)
+            }
+          })
       }),
     )
 
@@ -241,16 +237,15 @@ export class Client {
     const email_hash = await sha256(textEncoder.encode(email))
 
     const messages = await Promise.all(
-      parseChallenge(challenge).map(async ([peer, otp]) => {
-        const channel = rpc.channel(peer)
-
-        channel.send(makeRecoverFinalize({otp, email_hash}))
-
-        return channel.receive<WithEvent<RecoverFinalizeResultMessage>>((message, resolve) => {
-          if (isRecoverFinalizeResult(message)) {
-            resolve(message)
-          }
-        })
+      parseChallenge(challenge).map(([peer, otp]) => {
+        return rpc
+          .channel(peer)
+          .send(makeRecoverFinalize({otp, email_hash}))
+          .receive<WithEvent<RecoverFinalizeResultMessage>>((message, resolve) => {
+            if (isRecoverFinalizeResult(message)) {
+              resolve(message)
+            }
+          })
       }),
     )
 
@@ -288,22 +283,22 @@ export class Client {
     const emailCiphertext = this.rpc.encrypt(emailService, email)
 
     const messages = await Promise.all(
-      this.peers.map(async (peer, i) => {
-        const channel = this.rpc.channel(peer)
-
-        channel.send(
-          makeSetEmailRequest({
-            email_hash: emailHash,
-            email_service: emailService,
-            email_ciphertext: emailCiphertext,
-          }),
-        )
-
-        return channel.receive<WithEvent<SetEmailRequestResultMessage>>((message, resolve) => {
-          if (isSetEmailRequestResult(message)) {
-            resolve(message)
-          }
-        })
+      this.peers.map((peer, i) => {
+        return this
+          .rpc
+          .channel(peer)
+          .send(
+            makeSetEmailRequest({
+              email_hash: emailHash,
+              email_service: emailService,
+              email_ciphertext: emailCiphertext,
+            }),
+          )
+          .receive<WithEvent<SetEmailRequestResultMessage>>((message, resolve) => {
+            if (isSetEmailRequestResult(message)) {
+              resolve(message)
+            }
+          })
       }),
     )
 
@@ -315,21 +310,21 @@ export class Client {
     const otpsByPeer = fromPairs(parseChallenge(challenge))
 
     const messages = await Promise.all(
-      this.peers.map(async (peer, i) => {
-        const channel = this.rpc.channel(peer)
-
-        channel.send(
-          makeSetEmailFinalize({
-            email_hash: emailHash,
-            otp: otpsByPeer[peer] || "",
-          }),
-        )
-
-        return channel.receive<WithEvent<SetEmailFinalizeResultMessage>>((message, resolve) => {
-          if (isSetEmailFinalizeResult(message)) {
-            resolve(message)
-          }
-        })
+      this.peers.map((peer, i) => {
+        return this
+          .rpc
+          .channel(peer)
+          .send(
+            makeSetEmailFinalize({
+              email_hash: emailHash,
+              otp: otpsByPeer[peer] || "",
+            }),
+          )
+          .receive<WithEvent<SetEmailFinalizeResultMessage>>((message, resolve) => {
+            if (isSetEmailFinalizeResult(message)) {
+              resolve(message)
+            }
+          })
       }),
     )
 
@@ -347,17 +342,16 @@ export class Client {
     const session = Lib.create_session_pkg(this.group, template)
 
     const messages = await Promise.all(
-      members.map(async idx => {
+      members.map(idx => {
         const peer = this.peers[idx - 1]!
-        const channel = this.rpc.channel(peer)
 
-        const pub = channel.send(makeSignRequest({session}))
-
-        return channel.receive<WithEvent<SignResultMessage>>((message, resolve) => {
-          if (isSignResult(message) && message.payload.prev === pub.event.id) {
-            resolve(message)
-          }
-        })
+        return this.rpc.channel(peer)
+          .send(makeSignRequest({session}))
+          .receive<WithEvent<SignResultMessage>>((message, resolve) => {
+            if (isSignResult(message)) {
+              resolve(message)
+            }
+          })
       }),
     )
 
@@ -407,17 +401,16 @@ export class Client {
   async listClients() {
     const messages = await Promise.all(
       context.signerPubkeys.map(async (peer, i) => {
-        const channel = this.rpc.channel(peer)
         const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.ClientListRequest))
 
         if (auth) {
-          const pub = channel.send(makeClientListRequest({auth}))
-
-          return channel.receive<WithEvent<ClientListResultMessage>>((message, resolve) => {
-            if (isClientListResult(message) && message.payload.prev === pub.event.id) {
-              resolve(message)
-            }
-          })
+          return this.rpc.channel(peer)
+            .send(makeClientListRequest({auth}))
+            .receive<WithEvent<ClientListResultMessage>>((message, resolve) => {
+              if (isClientListResult(message)) {
+                resolve(message)
+              }
+            })
         }
       }),
     )
@@ -438,17 +431,16 @@ export class Client {
   async unregister(client: string, peers: string[]) {
     const messages = await Promise.all(
       peers.map(async (peer, i) => {
-        const channel = this.rpc.channel(peer)
         const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.UnregisterRequest))
 
         if (auth) {
-          const pub = channel.send(makeUnregisterRequest({client, auth}))
-
-          return channel.receive<WithEvent<UnregisterResultMessage>>((message, resolve) => {
-            if (isUnregisterResult(message) && message.payload.prev === pub.event.id) {
-              resolve(message)
-            }
-          })
+          return this.rpc.channel(peer)
+            .send(makeUnregisterRequest({client, auth}))
+            .receive<WithEvent<UnregisterResultMessage>>((message, resolve) => {
+              if (isUnregisterResult(message)) {
+                resolve(message)
+              }
+            })
         }
       }),
     )
