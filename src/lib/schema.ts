@@ -5,11 +5,6 @@ export enum Method {
   SessionListResult = "session/list/result",
   EcdhRequest = "ecdh/request",
   EcdhResult = "ecdh/result",
-  LoginRequest = "login/request",
-  LoginRequestResult = "login/request/result",
-  LoginChallenge = "login/challenge",
-  LoginFinalize = "login/finalize",
-  LoginFinalizeResult = "login/finalize/result",
   RecoverRequest = "recover/request",
   RecoverRequestResult = "recover/request/result",
   RecoverChallenge = "recover/challenge",
@@ -130,34 +125,6 @@ export const Schema = {
     message: z.string(),
     prev: hex32,
   }),
-  loginRequest: z.object({
-    email: z.string(),
-    callback_url: z.string().optional(),
-    pubkey: hex32.optional(),
-  }),
-  loginRequestResult: z.object({
-    options: hex32.array().optional(),
-    status: z.enum(Object.values(Status)),
-    message: z.string(),
-    prev: hex32,
-  }),
-  loginChallenge: z.object({
-    otp: z.string(),
-    total: z.number(),
-    email: z.string(),
-    client: hex32,
-    callback_url: z.string().optional(),
-  }),
-  loginFinalize: z.object({
-    email: z.string(),
-    otp: z.string(),
-  }),
-  loginFinalizeResult: z.object({
-    group: group.optional(),
-    status: z.enum(Object.values(Status)),
-    message: z.string(),
-    prev: hex32,
-  }),
   recoverRequest: z.object({
     email: z.string(),
     callback_url: z.string().optional(),
@@ -171,9 +138,9 @@ export const Schema = {
   }),
   recoverChallenge: z.object({
     otp: z.string(),
-    total: z.number(),
     email: z.string(),
     client: hex32,
+    threshold: z.number(),
     callback_url: z.string().optional(),
   }),
   recoverFinalize: z.object({
@@ -211,7 +178,7 @@ export const Schema = {
   }),
   setEmailChallenge: z.object({
     otp: z.string(),
-    total: z.number(),
+    threshold: z.number(),
     email: z.string(),
     client: hex32,
     callback_url: z.string().optional(),

@@ -30,7 +30,6 @@ export function makeMailer(secret: string, provider: Partial<EmailProvider> = {}
     provider: {
       sendValidationEmail: noop,
       sendRecoverEmail: noop,
-      sendLoginEmail: noop,
       ...provider,
     },
   })

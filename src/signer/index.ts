@@ -15,8 +15,6 @@ import {
   isRegisterRequest,
   isSignRequest,
   isEcdhRequest,
-  isLoginRequest,
-  isLoginFinalize,
   isRecoverRequest,
   isRecoverFinalize,
   isSetEmailRequest,
@@ -24,9 +22,6 @@ import {
   isLogoutRequest,
   makeSignResult,
   makeEcdhResult,
-  makeLoginChallenge,
-  makeLoginRequestResult,
-  makeLoginFinalizeResult,
   makeRecoverChallenge,
   makeRecoverRequestResult,
   makeRecoverFinalizeResult,
@@ -44,8 +39,6 @@ import type {
   SetEmailRequest,
   SetEmailFinalize,
   EcdhRequest,
-  LoginRequest,
-  LoginFinalize,
   RecoverRequest,
   RecoverFinalize,
   LogoutRequest,
@@ -69,13 +62,6 @@ export type Validation = {
   event: TrustedEvent
 }
 
-export type Login = {
-  otp: string
-  email: string
-  copy_from: string
-  event: TrustedEvent
-}
-
 export type Recover = {
   otp: string
   email: string
@@ -94,7 +80,6 @@ export class Signer {
   pubkey: string
   sessions: IStorage<Session>
   validations: IStorage<Validation>
-  logins: IStorage<Login>
   recovers: IStorage<Recover>
   unsubscribe: () => void
   intervals: number[]
@@ -103,15 +88,12 @@ export class Signer {
     this.pubkey = getPubkey(options.secret)
     this.sessions = options.storage("sessions")
     this.validations = options.storage("validations")
-    this.logins = options.storage("logins")
     this.recovers = options.storage("recovers")
     this.rpc = new RPC(options.secret, options.relays)
     this.unsubscribe = this.rpc.subscribe(message => {
       if (isRegisterRequest(message)) this.handleRegisterRequest(message)
       if (isSetEmailRequest(message)) this.handleSetEmailRequest(message)
       if (isSetEmailFinalize(message)) this.handleSetEmailFinalize(message)
-      if (isLoginRequest(message)) this.handleLoginRequest(message)
-      if (isLoginFinalize(message)) this.handleLoginFinalize(message)
       if (isRecoverRequest(message)) this.handleRecoverRequest(message)
       if (isRecoverFinalize(message)) this.handleRecoverFinalize(message)
       if (isSignRequest(message)) this.handleSignRequest(message)
@@ -120,14 +102,10 @@ export class Signer {
       if (isLogoutRequest(message)) this.handleLogoutRequest(message)
     })
 
-    // Periodically clean up login/recover requests
+    // Periodically clean up recover requests
     this.intervals = [
       setInterval(
         async () => {
-          for (const [k, login] of await this.logins.entries()) {
-            if (login.event.created_at < ago(15, MINUTE)) await this.logins.delete(k)
-          }
-
           for (const [k, recover] of await this.recovers.entries()) {
             if (recover.event.created_at < ago(15, MINUTE)) await this.recovers.delete(k)
           }
@@ -162,18 +140,6 @@ export class Signer {
       getTagValue("u", auth.tags) === this.pubkey &&
       getTagValue("method", auth.tags) === method
     )
-  }
-
-  async _listSessionsByEmail(email: string, pubkey?: string) {
-    const sessions: Session[] = []
-    for (const [_, session] of await this.sessions.entries()) {
-      if (session.email !== email) continue
-      if (pubkey && session.group.group_pk !== pubkey) continue
-
-      sessions.push(session)
-    }
-
-    return sessions
   }
 
   async handleRegisterRequest({payload, event}: WithEvent<RegisterRequest>) {
@@ -232,11 +198,11 @@ export class Signer {
     }
 
     const otp = generateOTP()
-    const total = session.group.commits.length
+    const threshold = session.group.commits.length
 
     await this.validations.set(client, {otp, email, email_service, event})
 
-    this.rpc.channel(email_service).send(makeSetEmailChallenge({otp, total, email, client}))
+    this.rpc.channel(email_service).send(makeSetEmailChallenge({otp, threshold, email, client}))
 
     this.rpc.channel(client).send(
       makeSetEmailRequestResult({
@@ -280,77 +246,17 @@ export class Signer {
     })
   }
 
-  async handleLoginRequest({payload, event}: WithEvent<LoginRequest>) {
-    const client = event.pubkey
-    const {email, pubkey} = payload
-    const sessions = await this._listSessionsByEmail(email, pubkey)
-    const pubkeys = new Set(sessions.map(s => s.group.group_pk.slice(2)))
-
-    if (pubkeys.size > 1) {
-      this.rpc.channel(client).send(
-        makeLoginRequestResult({
-          status: Status.Pending,
-          message:
-            "Multiple pubkeys are associated with this email. Please select one to continue.",
-          options: Array.from(pubkeys),
-          prev: event.id,
-        }),
-      )
-    } else if (sessions.length > 0) {
-      const otp = generateOTP()
-      const [session] = sessions
-      const total = session.group.commits.length
-
-      await this.logins.set(client, {otp, email, copy_from: session.client, event})
-
-      this.rpc
-        .channel(session.email_service!)
-        .send(makeLoginChallenge({otp, total, client, email: session.email!}))
-    }
-
-    // Always show success (if we can) so attackers can't get information on who is registered
-    this.rpc.channel(client).send(
-      makeLoginRequestResult({
-        status: Status.Ok,
-        message: "Verification email sent. Please check your email to continue.",
-        prev: event.id,
-      }),
-    )
-  }
-
-  async handleLoginFinalize({payload, event}: WithEvent<LoginFinalize>) {
-    return this.sessions.tx(async sessions => {
-      const client = event.pubkey
-      const login = await this.logins.get(client)
-      const session = login ? await sessions.get(login.copy_from) : undefined
-
-      if (session && login?.email === payload.email && login?.otp === payload.otp) {
-        await sessions.set(client, {...session, event, last_activity: now()})
-
-        this.rpc.channel(client).send(
-          makeLoginFinalizeResult({
-            status: Status.Ok,
-            message: "Login successfully completed.",
-            group: session.group,
-            prev: event.id,
-          }),
-        )
-      } else {
-        this.rpc.channel(client).send(
-          makeLoginFinalizeResult({
-            status: Status.Error,
-            message: `Failed to validate challenge. Please request a new one to try again.`,
-            prev: event.id,
-          }),
-        )
-      }
-    })
-  }
-
   async handleRecoverRequest({payload, event}: WithEvent<RecoverRequest>) {
     const client = event.pubkey
     const {email, pubkey} = payload
-    const sessions = await this._listSessionsByEmail(email, pubkey)
+    const sessions: Session[] = []
+    for (const [_, session] of await this.sessions.entries()) {
+      if (session.email !== email) continue
+      if (pubkey && session.group.group_pk !== pubkey) continue
+
+      sessions.push(session)
+    }
+
     const pubkeys = new Set(sessions.map(s => s.group.group_pk.slice(2)))
 
     if (pubkeys.size > 1) {
@@ -366,16 +272,16 @@ export class Signer {
     } else if (sessions.length > 0) {
       const otp = generateOTP()
       const [session] = sessions
-      const total = session.group.commits.length
+      const threshold = session.group.threshold
 
       await this.recovers.set(client, {otp, email, copy_from: session.client, event})
 
       this.rpc
         .channel(session.email_service!)
-        .send(makeRecoverChallenge({otp, total, client, email: session.email!}))
+        .send(makeRecoverChallenge({otp, threshold, client, email: session.email!}))
     }
 
-    // Always show success (if we can) so attackers can't get information on who is registered
+    // Always show success so attackers can't get information on who is registered
     this.rpc.channel(client).send(
       makeRecoverRequestResult({
         status: Status.Ok,

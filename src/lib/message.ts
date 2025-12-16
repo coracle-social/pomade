@@ -17,17 +17,6 @@ export type SessionListResult = DefineMessage<
 >
 export type EcdhRequest = DefineMessage<Method.EcdhRequest, typeof Schema.ecdhRequest>
 export type EcdhResult = DefineMessage<Method.EcdhResult, typeof Schema.ecdhResult>
-export type LoginRequest = DefineMessage<Method.LoginRequest, typeof Schema.loginRequest>
-export type LoginRequestResult = DefineMessage<
-  Method.LoginRequestResult,
-  typeof Schema.loginRequestResult
->
-export type LoginChallenge = DefineMessage<Method.LoginChallenge, typeof Schema.loginChallenge>
-export type LoginFinalize = DefineMessage<Method.LoginFinalize, typeof Schema.loginFinalize>
-export type LoginFinalizeResult = DefineMessage<
-  Method.LoginFinalizeResult,
-  typeof Schema.loginFinalizeResult
->
 export type RecoverRequest = DefineMessage<Method.RecoverRequest, typeof Schema.recoverRequest>
 export type RecoverRequestResult = DefineMessage<
   Method.RecoverRequestResult,
@@ -71,11 +60,6 @@ export type Message =
   | SessionListResult
   | EcdhRequest
   | EcdhResult
-  | LoginRequest
-  | LoginRequestResult
-  | LoginChallenge
-  | LoginFinalize
-  | LoginFinalizeResult
   | RecoverRequest
   | RecoverRequestResult
   | RecoverChallenge
@@ -109,28 +93,6 @@ export function makeEcdhRequest(payload: EcdhRequest["payload"]): EcdhRequest {
 
 export function makeEcdhResult(payload: EcdhResult["payload"]): EcdhResult {
   return {method: Method.EcdhResult, payload: Schema.ecdhResult.parse(payload)}
-}
-
-export function makeLoginRequest(payload: LoginRequest["payload"]): LoginRequest {
-  return {method: Method.LoginRequest, payload: Schema.loginRequest.parse(payload)}
-}
-
-export function makeLoginRequestResult(payload: LoginRequestResult["payload"]): LoginRequestResult {
-  return {method: Method.LoginRequestResult, payload: Schema.loginRequestResult.parse(payload)}
-}
-
-export function makeLoginChallenge(payload: LoginChallenge["payload"]): LoginChallenge {
-  return {method: Method.LoginChallenge, payload: Schema.loginChallenge.parse(payload)}
-}
-
-export function makeLoginFinalize(payload: LoginFinalize["payload"]): LoginFinalize {
-  return {method: Method.LoginFinalize, payload: Schema.loginFinalize.parse(payload)}
-}
-
-export function makeLoginFinalizeResult(
-  payload: LoginFinalizeResult["payload"],
-): LoginFinalizeResult {
-  return {method: Method.LoginFinalizeResult, payload: Schema.loginFinalizeResult.parse(payload)}
 }
 
 export function makeRecoverRequest(payload: RecoverRequest["payload"]): RecoverRequest {
@@ -222,11 +184,6 @@ export function getMessageSchema(method: Method) {
     [Method.SessionListResult]: Schema.sessionListResult,
     [Method.EcdhRequest]: Schema.ecdhRequest,
     [Method.EcdhResult]: Schema.ecdhResult,
-    [Method.LoginRequest]: Schema.loginRequest,
-    [Method.LoginRequestResult]: Schema.loginRequestResult,
-    [Method.LoginChallenge]: Schema.loginChallenge,
-    [Method.LoginFinalize]: Schema.loginFinalize,
-    [Method.LoginFinalizeResult]: Schema.loginFinalizeResult,
     [Method.RecoverRequest]: Schema.recoverRequest,
     [Method.RecoverRequestResult]: Schema.recoverRequestResult,
     [Method.RecoverChallenge]: Schema.recoverChallenge,
@@ -263,14 +220,6 @@ export const isSessionListResult = (m: Message): m is SessionListResult =>
   m.method === Method.SessionListResult
 export const isEcdhRequest = (m: Message): m is EcdhRequest => m.method === Method.EcdhRequest
 export const isEcdhResult = (m: Message): m is EcdhResult => m.method === Method.EcdhResult
-export const isLoginRequest = (m: Message): m is LoginRequest => m.method === Method.LoginRequest
-export const isLoginRequestResult = (m: Message): m is LoginRequestResult =>
-  m.method === Method.LoginRequestResult
-export const isLoginChallenge = (m: Message): m is LoginChallenge =>
-  m.method === Method.LoginChallenge
-export const isLoginFinalize = (m: Message): m is LoginFinalize => m.method === Method.LoginFinalize
-export const isLoginFinalizeResult = (m: Message): m is LoginFinalizeResult =>
-  m.method === Method.LoginFinalizeResult
 export const isRecoverRequest = (m: Message): m is RecoverRequest =>
   m.method === Method.RecoverRequest
 export const isRecoverRequestResult = (m: Message): m is RecoverRequestResult =>

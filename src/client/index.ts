@@ -26,8 +26,6 @@ import {
   SessionListResult,
   isSessionListResult,
   isEcdhResult,
-  isLoginFinalizeResult,
-  isLoginRequestResult,
   isRecoverFinalizeResult,
   isRecoverRequestResult,
   isRegisterResult,
@@ -35,14 +33,10 @@ import {
   isSetEmailRequestResult,
   isSignResult,
   isLogoutResult,
-  LoginFinalizeResult,
-  LoginRequestResult,
   RecoverFinalizeResult,
   RecoverRequestResult,
   makeSessionListRequest,
   makeEcdhRequest,
-  makeLoginFinalize,
-  makeLoginRequest,
   makeRecoverFinalize,
   makeRecoverRequest,
   makeRegisterRequest,
@@ -137,72 +131,6 @@ export class Client {
       group,
       peers: sortBy(first, peersByIndex).map(last) as string[],
     })
-  }
-
-  static async loginRequest(secret: string, email: string, pubkey?: string) {
-    const rpc = new RPC(secret)
-
-    const messages = await Promise.all(
-      context.signerPubkeys.map((peer, i) => {
-        return rpc
-          .channel(peer)
-          .send(makeLoginRequest({email, pubkey}))
-          .receive<LoginRequestResult>((message, resolve) => {
-            if (isLoginRequestResult(message)) {
-              resolve(message)
-            }
-          })
-      }),
-    )
-
-    rpc.stop()
-
-    return {
-      messages,
-      ok: messages.every(m => m?.payload.status === Status.Ok),
-      options: uniq(messages.flatMap(m => m?.payload.options || [])),
-    }
-  }
-
-  static async loginFinalize(secret: string, email: string, challenge: string) {
-    const rpc = new RPC(secret)
-
-    const messages = await Promise.all(
-      parseChallenge(challenge).map(([peer, otp]) => {
-        return rpc
-          .channel(peer)
-          .send(makeLoginFinalize({otp, email}))
-          .receive<WithEvent<LoginFinalizeResult>>((message, resolve) => {
-            if (isLoginFinalizeResult(message)) {
-              resolve(message)
-            }
-          })
-      }),
-    )
-
-    rpc.stop()
-
-    let group: Maybe<GroupPackage> = undefined
-    const peers: string[] = []
-
-    for (const m of messages) {
-      if (m?.payload.status !== Status.Ok || !m.payload.group) {
-        continue
-      }
-
-      if (group && m.payload.group.group_pk !== group.group_pk) {
-        continue
-      }
-
-      group = m.payload.group
-      peers.push(m.event.pubkey)
-    }
-
-    if (group && peers.length >= group.threshold) {
-      return {ok: true, group, peers, messages}
-    }
-
-    return {ok: false, messages}
   }
 
   static async recoverRequest(secret: string, email: string, pubkey?: string) {

@@ -6,7 +6,6 @@ import {
   Status,
   buildChallenge,
   isSetEmailChallenge,
-  isLoginChallenge,
   isRecoverChallenge,
   Method,
 } from "../lib/index.js"
@@ -14,14 +13,13 @@ import type {
   IStorageFactory,
   IStorage,
   SetEmailChallenge,
-  LoginChallenge,
   RecoverChallenge,
   WithEvent,
 } from "../lib/index.js"
 
 export type Batch = {
   email: string
-  total: number
+  threshold: number
   method: Method
   client: string
   event: TrustedEvent
@@ -35,7 +33,6 @@ const getBatchKey = (email: string, client: string, method: Method) =>
 export type EmailProvider = {
   sendValidationEmail: (email: string, challenge: string, callbackUrl?: string) => Promise<void>
   sendRecoverEmail: (email: string, challenge: string, callbackUrl?: string) => Promise<void>
-  sendLoginEmail: (email: string, challenge: string, callbackUrl?: string) => Promise<void>
 }
 
 export type MailerOptions = {
@@ -58,7 +55,6 @@ export class Mailer {
     this.rpc = new RPC(options.secret, options.relays)
     this.unsubscribe = this.rpc.subscribe(message => {
       if (isSetEmailChallenge(message)) this.handleSetEmailChallenge(message)
-      if (isLoginChallenge(message)) this.handleLoginChallenge(message)
       if (isRecoverChallenge(message)) this.handleRecoverChallenge(message)
     })
 
@@ -81,18 +77,18 @@ export class Mailer {
   }
 
   async handleSetEmailChallenge({method, payload, event}: WithEvent<SetEmailChallenge>) {
-    const {total, client, otp, email, callback_url} = payload
+    const {threshold, client, otp, email, callback_url} = payload
     const key = getBatchKey(email, client, method)
 
     await this.batches.tx(async () => {
       let batch = await this.batches.get(key)
       if (!batch) {
-        batch = {email, total, client, method, event, status: Status.Pending, peers: []}
+        batch = {email, threshold, client, method, event, status: Status.Pending, peers: []}
       }
 
       batch.peers.push([event.pubkey, otp])
 
-      if (batch.peers.length === batch.total) {
+      if (batch.peers.length === batch.threshold) {
         await this.options.provider.sendValidationEmail(
           email,
           buildChallenge(batch.peers),
@@ -105,45 +101,22 @@ export class Mailer {
     })
   }
 
-  async handleLoginChallenge({method, payload, event}: WithEvent<LoginChallenge>) {
-    const {total, client, otp, email, callback_url} = payload
-    const key = getBatchKey(email, client, method)
-
-    await this.batches.tx(async () => {
-      let batch = await this.batches.get(key)
-      if (!batch) {
-        batch = {email, total, client, method, event, status: Status.Pending, peers: []}
-      }
-
-      batch.peers.push([event.pubkey, otp])
-
-      if (batch.peers.length === batch.total) {
-        await this.options.provider.sendLoginEmail(email, buildChallenge(batch.peers), callback_url)
-        await this.batches.delete(key)
-      } else {
-        await this.batches.set(key, batch)
-      }
-    })
-  }
-
   async handleRecoverChallenge({method, payload, event}: WithEvent<RecoverChallenge>) {
-    const {total, client, otp, email, callback_url} = payload
+    const {threshold, client, otp, email, callback_url} = payload
     const key = getBatchKey(email, client, method)
 
     await this.batches.tx(async () => {
       let batch = await this.batches.get(key)
       if (!batch) {
-        batch = {email, total, client, method, event, status: Status.Pending, peers: []}
+        batch = {email, threshold, client, method, event, status: Status.Pending, peers: []}
       }
 
       batch.peers.push([event.pubkey, otp])
 
-      if (batch.peers.length === batch.total) {
-        await this.options.provider.sendRecoverEmail(
-          email,
-          buildChallenge(batch.peers),
-          callback_url,
-        )
+      if (batch.peers.length === batch.threshold) {
+        const challenge = buildChallenge(batch.peers)
+
+        await this.options.provider.sendRecoverEmail(email, challenge, callback_url)
         await this.batches.delete(key)
       } else {
         await this.batches.set(key, batch)
