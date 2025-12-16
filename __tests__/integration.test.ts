@@ -115,12 +115,11 @@ describe("protocol flows", () => {
 
   describe("set email", () => {
     it("successfully sets user email multiple times", async () => {
-      let email, challenge
+      let payloads = []
 
       const mailer = makeMailer(makeSecret(), {
-        sendValidationEmail: (_email, _challenge) => {
-          email = _email
-          challenge = _challenge
+        sendValidationEmail: payload => {
+          payloads.push(payload)
         },
       })
 
@@ -129,10 +128,10 @@ describe("protocol flows", () => {
       await client.setEmailRequest("test@example.com", mailer.pubkey)
       await sleep(10)
 
-      expect(email).toBe("test@example.com")
-      expect(challenge.length).toBeGreaterThan(90)
+      expect(payloads[0].email).toBe("test@example.com")
+      expect(payloads[0].challenge.length).toBeGreaterThan(90)
 
-      const confirmed1 = await client.setEmailFinalize("test@example.com", mailer.pubkey, challenge)
+      const confirmed1 = await client.setEmailFinalize("test@example.com", mailer.pubkey, payloads[0].challenge)
 
       expect(confirmed1.ok).toBe(true)
 
@@ -142,7 +141,7 @@ describe("protocol flows", () => {
       const confirmed2 = await client.setEmailFinalize(
         "test2@example.com",
         mailer.pubkey,
-        challenge,
+        payloads[1].challenge,
       )
 
       expect(confirmed2.ok).toBe(true)
@@ -152,8 +151,8 @@ describe("protocol flows", () => {
       let challenge
 
       const mailer = makeMailer(makeSecret(), {
-        sendValidationEmail: (_email, _challenge) => {
-          challenge = _challenge
+        sendValidationEmail: payload => {
+          challenge = payload.challenge
         },
       })
 
@@ -171,8 +170,8 @@ describe("protocol flows", () => {
       let challenge
 
       const mailer = makeMailer(makeSecret(), {
-        sendValidationEmail: (_email, _challenge) => {
-          challenge = _challenge
+        sendValidationEmail: payload => {
+          challenge = payload.challenge
         },
       })
 
@@ -189,12 +188,11 @@ describe("protocol flows", () => {
 
   describe("recovery", () => {
     it("successfully allows recovery", async () => {
-      let email, challenge
+      let payload
 
       const client = await makeClientWithEmail("test@example.com", {
-        sendRecoverEmail: (_email, _challenge) => {
-          email = _email
-          challenge = _challenge
+        sendRecoverEmail: payload_ => {
+          payload = payload_
         },
       })
 
@@ -203,10 +201,10 @@ describe("protocol flows", () => {
       await Client.recoverRequest(secret, "test@example.com")
       await sleep(10)
 
-      expect(email).toBe("test@example.com")
-      expect(challenge.length).toBeGreaterThan(90)
+      expect(payload.email).toBe("test@example.com")
+      expect(payload.challenge.length).toBeGreaterThan(90)
 
-      const res = await Client.recoverFinalize(secret, "test@example.com", challenge)
+      const res = await Client.recoverFinalize(secret, "test@example.com", payload.challenge)
 
       expect(res.ok).toBe(true)
       expect(getPubkey(res.secret)).toBe(client.group.group_pk.slice(2))
@@ -227,8 +225,8 @@ describe("protocol flows", () => {
       let challenge
 
       await makeClientWithEmail("test@example.com", {
-        sendRecoverEmail: (_email, _challenge) => {
-          challenge = _challenge
+        sendRecoverEmail: payload => {
+          challenge = payload.challenge
         },
       })
 
@@ -261,8 +259,8 @@ describe("protocol flows", () => {
       let challenge
 
       await makeClientWithEmail("test@example.com", {
-        sendRecoverEmail: (_email, _challenge) => {
-          challenge = _challenge
+        sendRecoverEmail: payload => {
+          challenge = payload.challenge
         },
       })
 
@@ -274,19 +272,28 @@ describe("protocol flows", () => {
       expect(res.ok).toBe(false)
     })
 
-    it.skip("handles pubkey selection", async () => {
-      await makeClientWithEmail("test@example.com")
-      await makeClientWithEmail("test@example.com")
+    it("handles multiple pubkeys associated with a single email", async () => {
+      const payloads: RecoverEmailPayload[] = []
 
-      const res1 = await Client.recoverRequest(makeSecret(), "test@example.com")
+      const provider = {
+        sendRecoverEmail: payload => {
+          payloads.push(payload)
+        },
+      }
 
-      expect(res1.ok).toBe(false)
-      expect(res1.options.length).toBe(2)
+      await makeClientWithEmail("test@example.com", provider)
+      await makeClientWithEmail("test@example.com", provider)
 
-      doLet(await Client.recoverRequest(makeSecret(), "test@example.com", res1.options[1]), res => {
-        expect(res.ok).toBe(true)
-        expect(res.options.length).toBe(0)
-      })
+      const secret = makeSecret()
+      const res1 = await Client.recoverRequest(secret, "test@example.com")
+      await sleep(10)
+
+      expect(payloads.length).toBe(2)
+      expect(res1.ok).toBe(true)
+
+      const res2 = await Client.recoverFinalize(secret, "test@example.com", payloads[1].challenge)
+
+      expect(res2.ok).toBe(true)
     })
   })
 })

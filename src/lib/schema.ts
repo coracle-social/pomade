@@ -127,11 +127,10 @@ export const Schema = {
   }),
   recoverRequest: z.object({
     email: z.string(),
-    callback_url: z.string().optional(),
     pubkey: hex32.optional(),
+    callback_url: z.string().optional(),
   }),
   recoverRequestResult: z.object({
-    options: hex32.array().optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,
@@ -139,7 +138,7 @@ export const Schema = {
   recoverChallenge: z.object({
     otp: z.string(),
     email: z.string(),
-    client: hex32,
+    pubkey: hex32,
     threshold: z.number(),
     callback_url: z.string().optional(),
   }),
@@ -168,19 +167,17 @@ export const Schema = {
     email: z.string(),
     email_service: hex32,
     callback_url: z.string().optional(),
-    pubkey: hex32.optional(),
   }),
   setEmailRequestResult: z.object({
-    options: hex32.array().optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,
   }),
   setEmailChallenge: z.object({
     otp: z.string(),
-    threshold: z.number(),
     email: z.string(),
-    client: hex32,
+    pubkey: hex32,
+    threshold: z.number(),
     callback_url: z.string().optional(),
   }),
   setEmailFinalize: z.object({

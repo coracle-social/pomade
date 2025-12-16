@@ -48,12 +48,12 @@ export async function makeClientWithEmail(email: string, provider: Partial<Email
 
   const mailer = makeMailer(makeSecret(), {
     ...provider,
-    sendValidationEmail: (_email, _challenge) => {
-      challenge = _challenge
+    sendValidationEmail: payload => {
+      challenge = payload.challenge
     },
   })
 
-  const client = await Client.register(1, 2, makeSecret())
+  const client = await Client.register(2, 3, makeSecret())
 
   await client.setEmailRequest(email, mailer.pubkey)
   await sleep(10)

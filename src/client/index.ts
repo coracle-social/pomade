@@ -151,11 +151,7 @@ export class Client {
 
     rpc.stop()
 
-    return {
-      messages,
-      ok: messages.every(m => m?.payload.status === Status.Ok),
-      options: uniq(messages.flatMap(m => m?.payload.options || [])),
-    }
+    return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
   }
 
   static async recoverFinalize(secret: string, email: string, challenge: string) {

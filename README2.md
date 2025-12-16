@@ -13,5 +13,3 @@ The initial email validation provides no security, because the user is the one s
 
 - generalize email? Login could be any string, mailer service need not use email
 - update readme, include a disclaimer that it's alpha
-- Remove login and always use recovery? Or add a flag that says whether to send the share?
-- pubkey selection isn't going to work, since it leaks info to someone with an email, and signers also don't know about all sessions. Maybe we have to restrict emails to a single pubkey? Or put pubkey selection in the email?

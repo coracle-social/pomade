@@ -18,21 +18,31 @@ import type {
 } from "../lib/index.js"
 
 export type Batch = {
-  email: string
-  threshold: number
-  method: Method
-  client: string
-  event: TrustedEvent
-  status: Status
+  created_at: number
   peers: [string, string][]
 }
 
-const getBatchKey = (email: string, client: string, method: Method) =>
-  `${email}:${client}:${method}`
+const makeBatch = (event: TrustedEvent) => ({created_at: event.created_at, peers: []})
+
+const getBatchKey = (pubkey: string, email: string, method: string) =>
+  `${pubkey}:${email}:${method}`
+
+export type ValidationEmailPayload = {
+  email: string,
+  challenge: string,
+  callback_url?: string
+}
+
+export type RecoverEmailPayload = {
+  email: string,
+  pubkey: string,
+  challenge: string,
+  callback_url?: string
+}
 
 export type EmailProvider = {
-  sendValidationEmail: (email: string, challenge: string, callbackUrl?: string) => Promise<void>
-  sendRecoverEmail: (email: string, challenge: string, callbackUrl?: string) => Promise<void>
+  sendValidationEmail: (payload: ValidationEmailPayload) => Promise<void>
+  sendRecoverEmail: (payload: RecoverEmailPayload) => Promise<void>
 }
 
 export type MailerOptions = {
@@ -63,7 +73,7 @@ export class Mailer {
       setInterval(
         async () => {
           for (const [k, batch] of await this.batches.entries()) {
-            if (batch.event.created_at < ago(15, MINUTE)) await this.batches.delete(k)
+            if (batch.created_at < ago(15, MINUTE)) await this.batches.delete(k)
           }
         },
         int(5, MINUTE),
@@ -77,23 +87,18 @@ export class Mailer {
   }
 
   async handleSetEmailChallenge({method, payload, event}: WithEvent<SetEmailChallenge>) {
-    const {threshold, client, otp, email, callback_url} = payload
-    const key = getBatchKey(email, client, method)
+    const {otp, email, pubkey, threshold, callback_url} = payload
+    const key = getBatchKey(pubkey, email, method)
 
     await this.batches.tx(async () => {
-      let batch = await this.batches.get(key)
-      if (!batch) {
-        batch = {email, threshold, client, method, event, status: Status.Pending, peers: []}
-      }
+      const batch = await this.batches.get(key) || makeBatch(event)
 
       batch.peers.push([event.pubkey, otp])
 
-      if (batch.peers.length === batch.threshold) {
-        await this.options.provider.sendValidationEmail(
-          email,
-          buildChallenge(batch.peers),
-          callback_url,
-        )
+      if (batch.peers.length === threshold) {
+        const challenge = buildChallenge(batch.peers)
+
+        await this.options.provider.sendValidationEmail({email, challenge, callback_url})
         await this.batches.delete(key)
       } else {
         await this.batches.set(key, batch)
@@ -102,25 +107,21 @@ export class Mailer {
   }
 
   async handleRecoverChallenge({method, payload, event}: WithEvent<RecoverChallenge>) {
-    const {threshold, client, otp, email, callback_url} = payload
-    const key = getBatchKey(email, client, method)
+    const {otp, email, pubkey, threshold, callback_url} = payload
+    const key = getBatchKey(pubkey, email, method)
 
     await this.batches.tx(async () => {
-      let batch = await this.batches.get(key)
-      if (!batch) {
-        batch = {email, threshold, client, method, event, status: Status.Pending, peers: []}
-      }
+      const batch = await this.batches.get(key) || makeBatch(event)
 
       batch.peers.push([event.pubkey, otp])
 
-      if (batch.peers.length === batch.threshold) {
+      if (batch.peers.length === threshold) {
         const challenge = buildChallenge(batch.peers)
 
-        await this.options.provider.sendRecoverEmail(email, challenge, callback_url)
-        await this.batches.delete(key)
-      } else {
-        await this.batches.set(key, batch)
+        await this.options.provider.sendRecoverEmail({email, pubkey, challenge, callback_url})
       }
+
+      await this.batches.set(key, batch)
     })
   }
 }
