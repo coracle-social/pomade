@@ -2,7 +2,7 @@ import {Lib} from "@frostr/bifrost"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
 import {now, ago, MINUTE} from "@welshman/lib"
 import {getPubkey, verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
-import type {TrustedEvent} from "@welshman/util"
+import type {TrustedEvent, SignedEvent} from "@welshman/util"
 import {
   RPC,
   Status,
@@ -115,6 +115,17 @@ export class Signer {
       if (isClientListRequest(message)) this.handleClientListRequest(message)
       if (isUnregisterRequest(message)) this.handleUnregisterRequest(message)
     })
+  }
+
+  _isAuthValid(auth: SignedEvent, method: Method) {
+    return (
+      verifyEvent(auth) &&
+      auth.kind === HTTP_AUTH &&
+      auth.created_at > ago(15) &&
+      auth.created_at < now() + 5 &&
+      getTagValue("u", auth.tags) === this.pubkey &&
+      getTagValue("method", auth.tags) === method
+    )
   }
 
   async handleRegisterRequest({payload, event}: WithEvent<RegisterRequest>) {
@@ -421,12 +432,8 @@ export class Signer {
 
   async handleClientListRequest({payload, event}: WithEvent<ClientListRequest>) {
     const channel = this.rpc.channel(event.pubkey)
-    if (
-      !verifyEvent(payload.auth) ||
-      payload.auth.kind !== HTTP_AUTH ||
-      getTagValue("u", payload.auth.tags) !== this.pubkey ||
-      getTagValue("method", payload.auth.tags) !== Method.ClientListRequest
-    ) {
+
+    if (!this._isAuthValid(payload.auth, Method.ClientListRequest)) {
       return channel.send(
         makeClientListResult({
           clients: [],
@@ -462,12 +469,7 @@ export class Signer {
   async handleUnregisterRequest({payload, event}: WithEvent<UnregisterRequest>) {
     const channel = this.rpc.channel(event.pubkey)
 
-    if (
-      !verifyEvent(payload.auth) ||
-      payload.auth.kind !== HTTP_AUTH ||
-      getTagValue("u", payload.auth.tags) !== this.pubkey ||
-      getTagValue("method", payload.auth.tags) !== Method.UnregisterRequest
-    ) {
+    if (!this._isAuthValid(payload.auth, Method.UnregisterRequest)) {
       return channel.send(
         makeUnregisterResult({
           status: Status.Error,
