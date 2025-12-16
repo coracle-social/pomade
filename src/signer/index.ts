@@ -1,5 +1,6 @@
 import {Lib} from "@frostr/bifrost"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
+import {now, ago, MINUTE} from "@welshman/lib"
 import {getPubkey, verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
 import type {TrustedEvent} from "@welshman/util"
 import {
@@ -56,7 +57,7 @@ export type SignerRegistration = {
   share: SharePackage
   group: GroupPackage
   event: TrustedEvent
-  // last_activity: number
+  last_activity: number
   email?: string
   email_service?: string
 }
@@ -138,10 +139,9 @@ export class Signer {
     if (indices.size !== group.commits.length)
       return cb(Status.Error, "Group contains duplicate member indices.")
     if (!commit) return cb(Status.Error, "Share index not found in group commits.")
-    if (await this.registrations.has(client))
-      return cb(Status.Error, "Client key has already been used.")
+    if (await this.registrations.has(client)) return cb(Status.Error, "Client is already registered.")
 
-    await this.registrations.set(client, {client, event, share, group})
+    await this.registrations.set(client, {client, event, share, group, last_activity: now()})
 
     return cb(Status.Ok, "Your key has been registered")
   }
@@ -151,16 +151,35 @@ export class Signer {
     const registration = await this.registrations.get(client)
     const {email, email_service} = payload
 
-    if (registration) {
-      const otp = generateOTP()
-      const total = registration.group.commits.length
-
-      await this.challenges.set(client, {otp, email, email_service})
-
-      this.rpc.channel(email_service).send(makeSetEmailChallenge({otp, total, email, client}))
+    if (!registration) {
+      return this.rpc.channel(client).send(
+        makeSetEmailRequestResult({
+          status: Status.Error,
+          message: "No registration found for client.",
+          prev: event.id,
+        }),
+      )
     }
 
-    // Always show success so attackers can't get information on who is registered
+    // email has to be bound at (or shorly after) registration, otherwise an attacker with access
+    // to any session could escalate permissions by recovering the secret key to their own email
+    if (registration.event.created_at < ago(5, MINUTE)) {
+      return this.rpc.channel(client).send(
+        makeSetEmailRequestResult({
+          status: Status.Error,
+          message: "Email must be set within 5 minutes of registration.",
+          prev: event.id,
+        }),
+      )
+    }
+
+    const otp = generateOTP()
+    const total = registration.group.commits.length
+
+    await this.challenges.set(client, {otp, email, email_service})
+
+    this.rpc.channel(email_service).send(makeSetEmailChallenge({otp, total, email, client}))
+
     this.rpc.channel(client).send(
       makeSetEmailRequestResult({
         status: Status.Ok,
@@ -251,7 +270,7 @@ export class Signer {
     const registration = login ? await this.registrations.get(login.copy_from) : undefined
 
     if (registration && login?.email === payload.email && login?.otp === payload.otp) {
-      await this.registrations.set(client, {...registration, event})
+      await this.registrations.set(client, {...registration, event, last_activity: now()})
 
       this.rpc.channel(client).send(
         makeLoginFinalizeResult({
@@ -323,7 +342,7 @@ export class Signer {
     const registration = recover ? await this.registrations.get(recover.copy_from) : undefined
 
     if (registration && recover?.otp === payload.otp && recover?.email === payload.email) {
-      await this.registrations.set(client, {...registration, event})
+      await this.registrations.set(client, {...registration, event, last_activity: now()})
 
       this.rpc.channel(client).send(
         makeRecoverFinalizeResult({
@@ -425,7 +444,7 @@ export class Signer {
           email: reg.email,
           client: reg.client,
           created_at: reg.event.created_at,
-          // last_activity: reg.last_activity,
+          last_activity: reg.last_activity,
         })
       }
     }

@@ -105,7 +105,7 @@ const clientItem = z.object({
   client: hex32,
   email: z.string().optional(),
   created_at: z.int().positive(),
-  // last_activity: z.int().positive(),
+  last_activity: z.int().positive(),
 })
 
 export const Schema = {
