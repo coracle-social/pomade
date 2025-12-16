@@ -7,6 +7,8 @@ import {nip44} from "./misc.js"
 import {Message, parseMessage} from "./message.js"
 import {fetchRelays, publishRelays} from "./relays.js"
 
+export type WithEvent<T extends Message> = T & {event: TrustedEvent}
+
 // Base RPC class
 
 export function rpc(secret: string) {
@@ -51,8 +53,12 @@ export class RPC {
     }
   }
 
-  read(event: TrustedEvent): Maybe<Message> {
-    return tryCatch(() => parseMessage(this.decrypt(event.pubkey, event.content)))
+  read(event: TrustedEvent): Maybe<WithEvent<Message>> {
+    const result = tryCatch(() => parseMessage(this.decrypt(event.pubkey, event.content)))
+
+    if (result) {
+      return {...result, event}
+    }
   }
 
   notify(event: TrustedEvent) {
@@ -60,7 +66,7 @@ export class RPC {
 
     if (message) {
       for (const subscriber of this.subscribers) {
-        subscriber(message, event)
+        subscriber(message)
       }
     }
   }
@@ -116,11 +122,10 @@ export class RPC {
 
 // RPC channel
 
-export type MessageHandler = (message: Message, event: TrustedEvent) => void
+export type MessageHandler = (message: WithEvent<Message>) => void
 
 export type MessageHandlerWithCallback<T> = (
-  message: Message,
-  event: TrustedEvent,
+  message: WithEvent<Message>,
   resolve: (result?: T) => void,
 ) => void
 
@@ -156,18 +161,18 @@ export class RPCChannel {
       throw new Error("Attempted to subscribe to a channel that has been closed")
     }
 
-    return this.rpc.subscribe((message, event) => {
-      if (event.pubkey === this.peer) {
-        handler(message, event)
+    return this.rpc.subscribe((message) => {
+      if (message.event.pubkey === this.peer) {
+        handler(message)
       }
     })
   }
 
   receive<T>(handler: MessageHandlerWithCallback<T>) {
     return new Promise<Maybe<T>>((resolve, reject) => {
-      const unsubscribe = this.subscribe(async (message, event) => {
+      const unsubscribe = this.subscribe(async (message) => {
         try {
-          handler(message, event, done)
+          handler(message, done)
         } catch (e) {
           reject(e)
         }

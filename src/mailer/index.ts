@@ -1,24 +1,24 @@
-import {tryCatch, first, last, sortBy} from "@welshman/lib"
+import {tryCatch} from "@welshman/lib"
 import {getPubkey} from "@welshman/util"
 import type {TrustedEvent} from "@welshman/util"
-import {RPC, Status, isSetEmailChallenge} from "../lib/index.js"
-import type {IStorageFactory, IStorage, SetEmailChallengeMessage} from "../lib/index.js"
+import {RPC, Status, buildChallenge, isSetEmailChallenge, isLoginChallenge, Method} from "../lib/index.js"
+import type {IStorageFactory, IStorage, SetEmailChallengeMessage, LoginChallengeMessage, WithEvent} from "../lib/index.js"
 
-export type ValidationState = {
+export type BatchState = {
   email: string
-  index: number
   total: number
+  method: Method
   client: string
-  peers: [number, string][]
+  peers: [string, string][]
   status: Status
 }
 
-const getValidationKey = (email: string, client: string) => `${email}:${client}`
+const getBatchKey = (email: string, client: string, method: Method) => `${email}:${client}:${method}`
 
 export type EmailProvider = {
-  sendValidationEmail: (email: string, otp: string) => Promise<void>
-  sendRecoveryEmail: () => Promise<void>
-  sendLoginEmail: () => Promise<void>
+  sendValidationEmail: (email: string, challenge: string, callbackUrl?: string) => Promise<void>
+  sendRecoveryEmail: (email: string, challenge: string, callbackUrl?: string) => Promise<void>
+  sendLoginEmail: (email: string, challenge: string, callbackUrl?: string) => Promise<void>
 }
 
 export type MailerOptions = {
@@ -31,41 +31,65 @@ export type MailerOptions = {
 export class Mailer {
   rpc: RPC
   pubkey: string
-  validations: IStorage<ValidationState>
+  batches: IStorage<BatchState>
   stop: () => void
 
   constructor(private options: MailerOptions) {
     this.pubkey = getPubkey(options.secret)
-    this.validations = options.storage("validations")
+    this.batches = options.storage("batches")
     this.rpc = new RPC(options.secret, options.relays)
-    this.stop = this.rpc.subscribe((message, event) => {
-      if (isSetEmailChallenge(message)) this.handleSetEmailChallenge(message, event)
+    this.stop = this.rpc.subscribe(message => {
+      if (isSetEmailChallenge(message)) this.handleSetEmailChallenge(message)
+      if (isLoginChallenge(message)) this.handleLoginChallenge(message)
     })
   }
 
-  async handleSetEmailChallenge({payload}: SetEmailChallengeMessage, event: TrustedEvent) {
-    const {index, total, client, otp, email_ciphertext} = payload
+  async handleSetEmailChallenge({method, payload, event}: WithEvent<SetEmailChallengeMessage>) {
+    const {total, client, otp, email_ciphertext, callback_url} = payload
     const email = tryCatch(() => this.rpc.decrypt(client, email_ciphertext))
 
-    if (!email?.includes("@")) return
+    if (!email) return
 
-    const key = getValidationKey(email, client)
+    const key = getBatchKey(email, client, method)
 
-    await this.validations.tx(async () => {
-      let validation = await this.validations.get(key)
-      if (!validation) {
-        validation = {email, index, total, client, status: Status.Pending, peers: []}
+    await this.batches.tx(async () => {
+      let batch = await this.batches.get(key)
+      if (!batch) {
+        batch = {email, total, client, method, status: Status.Pending, peers: []}
       }
 
-      validation.peers.push([index, otp])
+      batch.peers.push([event.pubkey, otp])
 
-      if (validation.peers.length === validation.total) {
-        const combinedOTP = sortBy(first, validation.peers).map(last).join("")
-
-        await this.options.provider.sendValidationEmail(email, combinedOTP)
-        await this.validations.delete(key)
+      if (batch.peers.length === batch.total) {
+        await this.options.provider.sendValidationEmail(email, buildChallenge(batch.peers), callback_url)
+        await this.batches.delete(key)
       } else {
-        await this.validations.set(key, validation)
+        await this.batches.set(key, batch)
+      }
+    })
+  }
+
+  async handleLoginChallenge({method, payload, event}: WithEvent<LoginChallengeMessage>) {
+    const {total, client, otp, email_ciphertext, callback_url} = payload
+    const email = tryCatch(() => this.rpc.decrypt(client, email_ciphertext))
+
+    if (!email) return
+
+    const key = getBatchKey(email, client, method)
+
+    await this.batches.tx(async () => {
+      let batch = await this.batches.get(key)
+      if (!batch) {
+        batch = {email, total, client, method, status: Status.Pending, peers: []}
+      }
+
+      batch.peers.push([event.pubkey, otp])
+
+      if (batch.peers.length === batch.total) {
+        await this.options.provider.sendLoginEmail(email, buildChallenge(batch.peers), callback_url)
+        await this.batches.delete(key)
+      } else {
+        await this.batches.set(key, batch)
       }
     })
   }

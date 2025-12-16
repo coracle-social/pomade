@@ -42,6 +42,7 @@
     "@welshman/lib": "^0.7.1",
     "@welshman/net": "^0.7.1",
     "@welshman/util": "^0.7.1",
+    "base58-js": "^3.0.3",
     "nostr-tools": "^2.19.3",
     "vitest": "^4.0.15",
     "zod": "^4.1.13"

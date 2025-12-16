@@ -1,29 +1,46 @@
-import {sortBy, first, last, isDefined, sha256, sample, textEncoder} from "@welshman/lib"
+import {
+  sortBy,
+  fromPairs,
+  uniq,
+  first,
+  last,
+  isDefined,
+  sha256,
+  sample,
+  textEncoder,
+} from "@welshman/lib"
 import {extract} from "@noble/hashes/hkdf.js"
 import {sha256 as sha256Hash} from "@noble/hashes/sha2.js"
 import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
 import {hash, own, makeSecret} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Schema, Lib, PackageEncoder} from "@frostr/bifrost"
-import type {GroupPackage, PartialSigPackage, ECDHPackage} from "@frostr/bifrost"
+import type {GroupPackage, ECDHPackage} from "@frostr/bifrost"
 import {
   context,
   isEcdhResult,
+  isLoginFinalizeResult,
+  isLoginRequestResult,
   isRegisterResult,
   isSetEmailFinalizeResult,
   isSetEmailRequestResult,
   isSignResult,
+  LoginFinalizeResultMessage,
+  LoginRequestResultMessage,
   makeEcdhRequest,
+  makeLoginFinalize,
+  makeLoginRequest,
   makeRegisterRequest,
   makeSetEmailFinalize,
   makeSetEmailRequest,
   makeSignRequest,
+  parseChallenge,
   RPC,
   SetEmailFinalizeResultMessage,
   SetEmailRequestResultMessage,
   SignResultMessage,
-  splitOTP,
   Status,
+  WithEvent,
 } from "../lib/index.js"
 
 export type ClientOptions = {
@@ -54,37 +71,36 @@ export class Client {
 
     const secret = makeSecret()
     const rpc = new RPC(secret)
-    const deal = Lib.generate_dealer_pkg(threshold, n, [userSecret])
-    const group = PackageEncoder.group.encode(deal.group)
+    const {group, shares} = Lib.generate_dealer_pkg(threshold, n, [userSecret])
     const remainingSignerPubkeys = Array.from(context.signerPubkeys)
     const errorsByPeer = new Map<string, string>()
     const peersByIndex = new Map<number, string>()
 
     await Promise.all(
-      deal.shares.map(async (rawShare, i) => {
-        const share = PackageEncoder.share.encode(rawShare)
-
+      shares.map(async (share, i) => {
         while (remainingSignerPubkeys.length > 0 && !peersByIndex.has(i)) {
           const channel = rpc.channel(remainingSignerPubkeys.shift()!)
 
           channel.send(makeRegisterRequest({threshold, share, group}))
 
-          await channel.receive((message, event, done) => {
+          await channel.receive((message, resolve) => {
             if (isRegisterResult(message)) {
               if (message.payload.status === Status.Ok) {
-                peersByIndex.set(i, event.pubkey)
-                done()
+                peersByIndex.set(i, message.event.pubkey)
+                resolve()
               }
 
               if (message.payload.status === Status.Error) {
-                errorsByPeer.set(event.pubkey, message.payload.message)
-                done()
+                errorsByPeer.set(message.event.pubkey, message.payload.message)
+                resolve()
               }
             }
           })
         }
       }),
     )
+
+    rpc.stop()
 
     // Check if we have enough successful registrations
     if (peersByIndex.size < n) {
@@ -97,9 +113,59 @@ export class Client {
 
     return new Client({
       secret,
-      group: deal.group,
+      group,
       peers: sortBy(first, peersByIndex).map(last) as string[],
     })
+  }
+
+  static async loginRequest(secret: string, email: string, pubkey?: string) {
+    const rpc = new RPC(secret)
+    const emailHash = await sha256(textEncoder.encode(email))
+
+    const messages = await Promise.all(
+      context.signerPubkeys.map(async (peer, i) => {
+        const channel = rpc.channel(peer)
+
+        channel.send(makeLoginRequest({email_hash: emailHash}))
+
+        return channel.receive<LoginRequestResultMessage>((message, resolve) => {
+          if (isLoginRequestResult(message)) {
+            resolve(message)
+          }
+        })
+      }),
+    )
+
+    rpc.stop()
+
+    return {
+      messages,
+      ok: messages.every(m => m?.payload.status === Status.Ok),
+      options: uniq(messages.flatMap(m => m?.payload.options || [])),
+    }
+  }
+
+  static async loginFinalize(secret: string, email: string, challenge: string) {
+    const rpc = new RPC(secret)
+    const emailHash = await sha256(textEncoder.encode(email))
+
+    const messages = await Promise.all(
+      parseChallenge(challenge).map(async ([peer, otp]) => {
+        const channel = rpc.channel(peer)
+
+        channel.send(makeLoginFinalize({otp, email_hash: emailHash}))
+
+        return channel.receive<WithEvent<LoginFinalizeResultMessage>>((message, resolve) => {
+          if (isLoginFinalizeResult(message)) {
+            resolve(message)
+          }
+        })
+      }),
+    )
+
+    rpc.stop()
+
+    return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
   }
 
   async setEmailRequest(email: string, emailService: string) {
@@ -118,7 +184,7 @@ export class Client {
           }),
         )
 
-        return channel.receive<SetEmailRequestResultMessage>((message, event, resolve) => {
+        return channel.receive<WithEvent<SetEmailRequestResultMessage>>((message, resolve) => {
           if (isSetEmailRequestResult(message)) {
             resolve(message)
           }
@@ -129,17 +195,22 @@ export class Client {
     return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
   }
 
-  async setEmailFinalize(email: string, emailService: string, combinedOTP: string) {
+  async setEmailFinalize(email: string, emailService: string, challenge: string) {
     const emailHash = await sha256(textEncoder.encode(email))
+    const otpsByPeer = fromPairs(parseChallenge(challenge))
 
     const messages = await Promise.all(
       this.peers.map(async (peer, i) => {
         const channel = this.rpc.channel(peer)
-        const otp = splitOTP(combinedOTP, this.peers.length, i)
 
-        channel.send(makeSetEmailFinalize({otp, email_hash: emailHash}))
+        channel.send(
+          makeSetEmailFinalize({
+            email_hash: emailHash,
+            otp: otpsByPeer[peer] || "",
+          }),
+        )
 
-        return channel.receive<SetEmailFinalizeResultMessage>((message, event, resolve) => {
+        return channel.receive<WithEvent<SetEmailFinalizeResultMessage>>((message, resolve) => {
           if (isSetEmailFinalizeResult(message)) {
             resolve(message)
           }
@@ -167,7 +238,7 @@ export class Client {
 
         channel.send(makeSignRequest({session}))
 
-        return channel.receive<SignResultMessage>((message, event, resolve) => {
+        return channel.receive<WithEvent<SignResultMessage>>((message, resolve) => {
           if (isSignResult(message)) {
             resolve(message)
           }
@@ -199,7 +270,7 @@ export class Client {
 
         channel.send(makeEcdhRequest({idx, members, ecdh_pk}))
 
-        return channel.receive<ECDHPackage>((message, event, resolve) => {
+        return channel.receive<ECDHPackage>((message, resolve) => {
           if (isEcdhResult(message)) {
             resolve(message.payload.result)
           }

@@ -26,6 +26,9 @@ importers:
       '@welshman/util':
         specifier: ^0.7.1
         version: 0.7.1(typescript@5.9.3)
+      base58-js:
+        specifier: ^3.0.3
+        version: 3.0.3
       nostr-tools:
         specifier: ^2.19.3
         version: 2.19.3(typescript@5.9.3)
@@ -619,6 +622,10 @@ packages:
 
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
+
+  base58-js@3.0.3:
+    resolution: {integrity: sha512-3hf42BysHnUqmZO7mK6e5X/hs1AvyEJIhdVLbG/Mxn/fhFnhGxOO37mWbMHg1RT4TxqcPKXgqj9/bp1YG0GBXA==}
+    engines: {node: '>=16.0.0', npm: '>=7.0.0'}
 
   brace-expansion@1.1.12:
     resolution: {integrity: sha512-9T9UjW3r0UW5c1Q7GTwllptXwhvYmEzFhzMfZ9H7FQWt+uZePjZPjBP/W1ZEyZ1twGWom5/56TF4lPcqjnDHcg==}
@@ -1723,6 +1730,8 @@ snapshots:
   assertion-error@2.0.1: {}
 
   balanced-match@1.0.2: {}
+
+  base58-js@3.0.3: {}
 
   brace-expansion@1.1.12:
     dependencies:

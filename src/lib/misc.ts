@@ -1,5 +1,6 @@
 import * as nt44 from "nostr-tools/nip44"
-import {cached, inc, dec, hexToBytes} from "@welshman/lib"
+import * as b58 from "base58-js"
+import {cached, textDecoder, textEncoder, hexToBytes} from "@welshman/lib"
 import type {EventTemplate} from "@welshman/util"
 import {prep, sign, getPubkey} from "@welshman/util"
 
@@ -20,13 +21,14 @@ export const nip44 = {
     nt44.v2.decrypt(m, nip44.getSharedSecret(secret, pubkey)!),
 }
 
-export function generateOTP(peers: number): string {
-  const min = Math.pow(10, dec(Math.round(6 / peers)))
-
-  return Math.floor(min + Math.random() * 9 * min).toString()
+export function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString()
 }
 
-export function splitOTP(otp: string, peers: number, index: number): string {
-  const chunkSize = Math.round(otp.length / peers)
-  return otp.slice(chunkSize * index, chunkSize * inc(index))
+export function buildChallenge(otpsByPeer: [string, string][]) {
+  return b58.binary_to_base58(textEncoder.encode(new URLSearchParams(otpsByPeer).toString()))
+}
+
+export function parseChallenge(challenge: string): [string, string][] {
+  return Array.from(new URLSearchParams(textDecoder.decode(b58.base58_to_binary(challenge))))
 }

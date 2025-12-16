@@ -10,3 +10,8 @@ New plan: adapt bifrost signer stuff so that it supports email recovery and logi
 - When doing any otp flow, bunkers MUST validate that the same client secret is used for the entire flow, and invalidate the challenge after a very small number of otps are attempted.
 
 The initial email validation provides no security, because the user is the one specifying the email service. It must be done with a valid registration, where the user has already proved they have access to the key, or access to the email using a past email service. The OTP flow is still valuable to give users a familiar experience, and to ensure they don't associate the wrong email with their key.
+
+- check prev
+- fix otps
+- Run cleanup job for challenges, inactive registrations, etc that have expired
+- generalize email? Login could be any string, mailer service need not use email

@@ -13,10 +13,15 @@ import {
   isRegisterRequest,
   isSignRequest,
   isEcdhRequest,
+  isLoginRequest,
+  isLoginFinalize,
   isSetEmailRequest,
   isSetEmailFinalize,
   makeSignResult,
   makeEcdhResult,
+  makeLoginChallenge,
+  makeLoginRequestResult,
+  makeLoginFinalizeResult,
   generateOTP,
 } from "../lib/index.js"
 import type {
@@ -27,22 +32,32 @@ import type {
   SetEmailRequestMessage,
   SetEmailFinalizeMessage,
   EcdhRequestMessage,
+  LoginRequestMessage,
+  LoginFinalizeMessage,
+  WithEvent,
 } from "../lib/index.js"
 
 export type SignerRegistration = {
+  client: string
   share: SharePackage
   group: GroupPackage
   event: TrustedEvent
   email_hash?: string
+  email_service?: string
   email_ciphertext?: string
 }
 
 export type EmailChallenge = {
   otp: string
-  attempts: number
   email_hash: string
   email_service: string
   email_ciphertext: string
+}
+
+export type LoginRequest = {
+  otp: string
+  email_hash: string
+  copy_from: string
 }
 
 export type SignerOptions = {
@@ -56,26 +71,30 @@ export class Signer {
   pubkey: string
   registrations: IStorage<SignerRegistration>
   challenges: IStorage<EmailChallenge>
+  logins: IStorage<LoginRequest>
   stop: () => void
 
   constructor(private options: SignerOptions) {
     this.pubkey = getPubkey(options.secret)
     this.registrations = options.storage("registrations")
     this.challenges = options.storage("challenges")
+    this.logins = options.storage("logins")
     this.rpc = new RPC(options.secret, options.relays)
-    this.stop = this.rpc.subscribe((message, event) => {
-      if (isRegisterRequest(message)) this.handleRegisterRequest(message, event)
-      if (isSetEmailRequest(message)) this.handleSetEmailRequestMessage(message, event)
-      if (isSetEmailFinalize(message)) this.handleSetEmailFinalizeMessage(message, event)
-      if (isSignRequest(message)) this.handleSignRequestMessage(message, event)
-      if (isEcdhRequest(message)) this.handleEcdhRequestMessage(message, event)
+    this.stop = this.rpc.subscribe(message => {
+      if (isRegisterRequest(message)) this.handleRegisterRequest(message)
+      if (isSetEmailRequest(message)) this.handleSetEmailRequestMessage(message)
+      if (isSetEmailFinalize(message)) this.handleSetEmailFinalizeMessage(message)
+      if (isLoginRequest(message)) this.handleLoginRequestMessage(message)
+      if (isLoginFinalize(message)) this.handleLoginFinalizeMessage(message)
+      if (isSignRequest(message)) this.handleSignRequestMessage(message)
+      if (isEcdhRequest(message)) this.handleEcdhRequestMessage(message)
     })
   }
 
-  async handleRegisterRequest({payload}: RegisterRequestMessage, event: TrustedEvent) {
-    const channel = this.rpc.channel(event.pubkey)
-    const share = tryCatch(() => PackageEncoder.share.decode(payload.share))
-    const group = tryCatch(() => PackageEncoder.group.decode(payload.group))
+  async handleRegisterRequest({payload, event}: WithEvent<RegisterRequestMessage>) {
+    const client = event.pubkey
+    const {group, share} = payload
+    const channel = this.rpc.channel(client)
     const cb = (status: Status, message: string) =>
       channel.send(makeRegisterResult({status, message, prev: event.id}))
 
@@ -94,139 +113,146 @@ export class Signer {
     if (indices.size !== group.commits.length)
       return cb(Status.Error, "Group contains duplicate member indices.")
     if (!commit) return cb(Status.Error, "Share index not found in group commits.")
-    if (await this.registrations.has(event.pubkey))
-      return cb(Status.Error, "Client key has already been used.")
+    if (await this.registrations.has(client)) return cb(Status.Error, "Client key has already been used.")
 
-    await this.registrations.set(event.pubkey, {event, share, group})
+    await this.registrations.set(client, {client, event, share, group})
 
     return cb(Status.Ok, "Your key has been registered")
   }
 
-  async handleSetEmailRequestMessage({payload}: SetEmailRequestMessage, event: TrustedEvent) {
-    const clientChannel = this.rpc.channel(event.pubkey)
-    const registration = await this.registrations.get(event.pubkey)
+  async handleSetEmailRequestMessage({payload, event}: WithEvent<SetEmailRequestMessage>) {
+    const client = event.pubkey
+    const registration = await this.registrations.get(client)
+    const {email_hash, email_service, email_ciphertext} = payload
 
-    if (!registration) {
-      return clientChannel.send(
-        makeSetEmailRequestResult({
-          status: Status.Error,
-          message: "No registration found for client",
-          prev: event.id,
-        }),
+    if (registration) {
+      const otp = generateOTP()
+      const total = registration.group.commits.length
+
+      await this.challenges.set(client, {otp, email_hash, email_service, email_ciphertext})
+
+      this.rpc.channel(email_service).send(
+        makeSetEmailChallenge({otp, total, client, email_ciphertext}),
       )
     }
 
-    const index = registration.share.idx
-    const total = registration.group.commits.length
-    const otp = generateOTP(total)
-    const challenge: EmailChallenge = {
-      otp,
-      attempts: 0,
-      email_hash: payload.email_hash,
-      email_service: payload.email_service,
-      email_ciphertext: payload.email_ciphertext,
-    }
-
-    await this.challenges.set(event.pubkey, challenge)
-
-    this.rpc.channel(payload.email_service).send(
-      makeSetEmailChallenge({
-        otp,
-        index,
-        total,
-        client: event.pubkey,
-        email_ciphertext: payload.email_ciphertext,
-      }),
-    )
-
-    clientChannel.send(
+    // Always show success so attackers can't get information on who is registered
+    this.rpc.channel(client).send(
       makeSetEmailRequestResult({
         status: Status.Ok,
-        message: "Verification email sent. Please check your email for the OTP.",
+        message: "Verification email sent. Please check your email to continue.",
         prev: event.id,
       }),
     )
   }
 
-  async handleSetEmailFinalizeMessage({payload}: SetEmailFinalizeMessage, event: TrustedEvent) {
-    const clientChannel = this.rpc.channel(event.pubkey)
-    const registration = await this.registrations.get(event.pubkey)
+  async handleSetEmailFinalizeMessage({payload, event}: WithEvent<SetEmailFinalizeMessage>) {
+    const client = event.pubkey
+    const challenge = await this.challenges.get(client)
+    const registration = await this.registrations.get(client)
 
-    if (!registration) {
-      return clientChannel.send(
+    if (registration && challenge?.email_hash === payload.email_hash && challenge?.otp === payload.otp) {
+      await this.registrations.set(client, {
+        ...registration,
+        email_hash: challenge.email_hash,
+        email_service: challenge.email_service,
+        email_ciphertext: challenge.email_ciphertext,
+      })
+
+      this.rpc.channel(client).send(
+        makeSetEmailFinalizeResult({
+          status: Status.Ok,
+          message: "Email successfully verified and associated with your account",
+          prev: event.id,
+        }),
+      )
+    } else {
+      this.rpc.channel(client).send(
         makeSetEmailFinalizeResult({
           status: Status.Error,
-          message: "No registration found for client",
+          message: `Failed to validate challenge. Please request a new one to try again.`,
           prev: event.id,
         }),
       )
     }
+  }
 
-    const challenge = await this.challenges.get(event.pubkey)
+  async handleLoginRequestMessage({payload, event}: WithEvent<LoginRequestMessage>) {
+    const client = event.pubkey
+    const {email_hash, pubkey} = payload
+    const pubkeys = new Set<string>()
+    const registrations: SignerRegistration[] = []
+    for (const [_, reg] of await this.registrations.entries()) {
+      if (reg.email_hash !== email_hash) continue
+      if (pubkey && reg.group.group_pk !== pubkey) continue
 
-    if (!challenge) {
-      return clientChannel.send(
-        makeSetEmailFinalizeResult({
-          status: Status.Error,
-          message: "No email verification in progress",
+      registrations.push(reg)
+      pubkeys.add(reg.group.group_pk)
+    }
+
+    if (pubkeys.size > 1) {
+      this.rpc.channel(client).send(
+        makeLoginRequestResult({
+          status: Status.Pending,
+          message: "Multiple pubkeys are associated with this email. Please select one to continue.",
           prev: event.id,
+        })
+      )
+    } else if (registrations.length > 0) {
+      const otp = generateOTP()
+      const [registration] = registrations
+      const total = registration.group.commits.length
+
+      await this.logins.set(client, {otp, email_hash, copy_from: registration.client})
+
+      this.rpc.channel(registration.email_service!).send(
+        makeLoginChallenge({
+          otp,
+          total,
+          client: registration.client,
+          email_ciphertext: registration.email_ciphertext!,
         }),
       )
     }
 
-    if (challenge.email_hash !== payload.email_hash) {
-      return clientChannel.send(
-        makeSetEmailFinalizeResult({
-          status: Status.Error,
-          message: "Email address does not match verification request",
-          prev: event.id,
-        }),
-      )
-    }
-
-    if (challenge.otp !== payload.otp) {
-      challenge.attempts += 1
-
-      // Invalidate challenge after 2 failed attempts
-      if (challenge.attempts >= 2) {
-        await this.challenges.delete(event.pubkey)
-
-        return clientChannel.send(
-          makeSetEmailFinalizeResult({
-            status: Status.Error,
-            message: "Too many invalid OTP attempts. Please request a new verification code.",
-            prev: event.id,
-          }),
-        )
-      }
-
-      // Save updated challenge with incremented attempts
-      await this.challenges.set(event.pubkey, challenge)
-
-      return clientChannel.send(
-        makeSetEmailFinalizeResult({
-          status: Status.Error,
-          message: `Invalid OTP. You have ${2 - challenge.attempts} attempt(s) remaining.`,
-          prev: event.id,
-        }),
-      )
-    }
-
-    registration.email_hash = challenge.email_hash
-    registration.email_ciphertext = challenge.email_ciphertext
-    await this.registrations.set(event.pubkey, registration)
-    await this.challenges.delete(event.pubkey)
-
-    return clientChannel.send(
-      makeSetEmailFinalizeResult({
+    // Always show success (if we can) so attackers can't get information on who is registered
+    this.rpc.channel(client).send(
+      makeLoginRequestResult({
         status: Status.Ok,
-        message: "Email successfully verified and associated with your account",
+        message: "Verification email sent. Please check your email to continue.",
         prev: event.id,
       }),
     )
   }
 
-  async handleSignRequestMessage({payload}: SignRequestMessage, event: TrustedEvent) {
+  async handleLoginFinalizeMessage({payload, event}: WithEvent<LoginFinalizeMessage>) {
+    const client = event.pubkey
+    const login = await this.logins.get(client)
+    const registration = login ? await this.registrations.get(login.copy_from) : undefined
+
+    if (registration && login?.email_hash === payload.email_hash && login?.otp === payload.otp) {
+      await this.registrations.set(client, {...registration, event})
+
+      this.rpc.channel(client).send(
+        makeLoginFinalizeResult({
+          status: Status.Ok,
+          message: "Email successfully verified and associated with your account",
+          group: registration.group,
+          prev: event.id,
+        }),
+      )
+    } else {
+      this.rpc.channel(client).send(
+        makeLoginFinalizeResult({
+          status: Status.Error,
+          message: `Failed to validate challenge. Please request a new one to try again.`,
+          prev: event.id,
+        }),
+      )
+    }
+  }
+
+  async handleSignRequestMessage({payload, event}: WithEvent<SignRequestMessage>) {
     const channel = this.rpc.channel(event.pubkey)
     const registration = await this.registrations.get(event.pubkey)
 
@@ -254,7 +280,7 @@ export class Signer {
     )
   }
 
-  async handleEcdhRequestMessage({payload}: EcdhRequestMessage, event: TrustedEvent) {
+  async handleEcdhRequestMessage({payload, event}: WithEvent<EcdhRequestMessage>) {
     const channel = this.rpc.channel(event.pubkey)
     const registration = await this.registrations.get(event.pubkey)
 

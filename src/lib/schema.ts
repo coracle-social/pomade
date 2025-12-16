@@ -1,18 +1,15 @@
 import * as z from "zod"
-import {Schema as Bifrost} from "@frostr/bifrost"
 
 export enum Method {
   EcdhRequest = "ecdh/request",
   EcdhResult = "ecdh/result",
   LoginRequest = "login/request",
   LoginRequestResult = "login/request/result",
-  LoginRequestSelect = "login/request/select",
   LoginChallenge = "login/challenge",
   LoginFinalize = "login/finalize",
   LoginFinalizeResult = "login/finalize/result",
   RecoverRequest = "recover/request",
   RecoverRequestResult = "recover/request/result",
-  RecoverRequestSelect = "recover/request/select",
   RecoverChallenge = "recover/challenge",
   RecoverFinalize = "recover/finalize",
   RecoverFinalizeResult = "recover/finalize/result",
@@ -20,7 +17,6 @@ export enum Method {
   RegisterResult = "register/result",
   SetEmailRequest = "setEmail/request",
   SetEmailRequestResult = "setEmail/request/result",
-  SetEmailRequestSelect = "setEmail/request/select",
   SetEmailChallenge = "setEmail/challenge",
   SetEmailFinalize = "setEmail/finalize",
   SetEmailFinalizeResult = "setEmail/finalize/result",
@@ -42,125 +38,182 @@ export enum Status {
   Pending = "pending",
 }
 
+const hex = z.string().regex(/^[0-9a-fA-F]*$/).refine(e => e.length % 2 === 0)
+const hex32 = hex.refine((e) => e.length === 64)
+const hex33 = hex.refine((e) => e.length === 66)
+
+const commit = z.object({
+  idx       : z.number(),
+  pubkey    : hex33,
+  hidden_pn : hex33,
+  binder_pn : hex33
+})
+
+const group = z.object({
+  commits   : z.array(commit),
+  group_pk  : hex33,
+  threshold : z.number()
+})
+
+const share = z.object({
+  idx       : z.number(),
+  binder_sn : hex32,
+  hidden_sn : hex32,
+  seckey    : hex32
+})
+
+const ecdh = z.object({
+  idx      : z.number(),
+  keyshare : hex,
+  members  : z.number().array(),
+  ecdh_pk  : hex
+})
+
+const member = share.extend({
+  bind_hash : hex32,
+  sid       : hex32,
+  sighash   : hex32
+})
+
+const psig_entry  = z.tuple([ hex32, hex32 ])
+const sighash_vec = z.tuple([ hex32 ]).rest(hex32)
+
+const template = z.object({
+  content : z.string().nullable(),
+  hashes  : sighash_vec.array(),
+  members : z.number().array(),
+  stamp   : z.number(),
+  type    : z.string(),
+})
+
+const session = template.extend({
+  gid : hex32,
+  sid : hex32,
+})
+
+const psig = z.object({
+  idx     : z.number(),
+  psigs   : psig_entry.array(),
+  pubkey  : hex33,
+  sid     : hex32
+})
+
 export const Schema = {
   ecdhRequest: z.object({
     idx: z.number(),
     members: z.number().array(),
-    ecdh_pk: Bifrost.base.hex32,
+    ecdh_pk: hex32,
   }),
   ecdhResult: z.object({
-    result: Bifrost.pkg.ecdh.optional(),
+    result: ecdh.optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
-    prev: Bifrost.base.hex32,
+    prev: hex32,
   }),
   loginRequest: z.object({
     email_hash: z.string(),
+    callback_url: z.string().optional(),
+    pubkey: hex32.optional(),
   }),
   loginRequestResult: z.object({
+    options: z.string().array().optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
-    prev: Bifrost.base.hex32,
-  }),
-  loginRequestSelect: z.object({
-    options: z.string().array(),
-    prev: Bifrost.base.hex32,
+    prev: hex32,
   }),
   loginChallenge: z.object({
     otp: z.string(),
-    index: z.number(),
     total: z.number(),
     client: z.string(),
     email_ciphertext: z.string(),
+    callback_url: z.string().optional(),
   }),
   loginFinalize: z.object({
     email_hash: z.string(),
     otp: z.string(),
   }),
-  loginResult: z.object({
-    group: z.string().optional(),
+  loginFinalizeResult: z.object({
+    group: group.optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
-    prev: Bifrost.base.hex32,
+    prev: hex32,
   }),
   recoverRequest: z.object({
     email_hash: z.string(),
+    callback_url: z.string().optional(),
+    pubkey: hex32.optional(),
   }),
   recoverRequestResult: z.object({
+    options: z.string().array().optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
-    prev: Bifrost.base.hex32,
-  }),
-  recoverRequestSelect: z.object({
-    options: z.string().array(),
-    prev: Bifrost.base.hex32,
+    prev: hex32,
   }),
   recoverChallenge: z.object({
     otp: z.string(),
-    index: z.number(),
     total: z.number(),
     client: z.string(),
     email_ciphertext: z.string(),
+    callback_url: z.string().optional(),
   }),
   recoverFinalize: z.object({
     email_hash: z.string(),
     otp: z.string(),
   }),
-  recoverResult: z.object({
-    group: z.string().optional(),
-    share: z.string().optional(),
+  recoverFinalizeResult: z.object({
+    group: group.optional(),
+    share: share.optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
-    prev: Bifrost.base.hex32,
+    prev: hex32,
   }),
   registerRequest: z.object({
     threshold: z.int().positive(),
-    share: z.string(),
-    group: z.string(),
+    share: share,
+    group: group,
   }),
   registerResult: z.object({
     status: z.enum(Object.values(Status)),
     message: z.string(),
-    prev: Bifrost.base.hex32,
+    prev: hex32,
   }),
   setEmailRequest: z.object({
     email_hash: z.string(),
     email_service: z.string().length(64),
     email_ciphertext: z.string(),
+    callback_url: z.string().optional(),
+    pubkey: hex32.optional(),
   }),
   setEmailRequestResult: z.object({
+    options: z.string().array().optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
-    prev: Bifrost.base.hex32,
-  }),
-  setEmailRequestSelect: z.object({
-    options: z.string().array(),
-    prev: Bifrost.base.hex32,
+    prev: hex32,
   }),
   setEmailChallenge: z.object({
     otp: z.string(),
-    index: z.number(),
     total: z.number(),
     client: z.string(),
     email_ciphertext: z.string(),
+    callback_url: z.string().optional(),
   }),
   setEmailFinalize: z.object({
     email_hash: z.string(),
     otp: z.string(),
   }),
-  setEmailResult: z.object({
+  setEmailFinalizeResult: z.object({
     status: z.enum(Object.values(Status)),
     message: z.string(),
-    prev: Bifrost.base.hex32,
+    prev: hex32,
   }),
   signRequest: z.object({
-    session: Bifrost.sign.session,
+    session: session,
   }),
   signResult: z.object({
-    result: Bifrost.sign.psig_pkg.optional(),
+    result: psig.optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
-    prev: Bifrost.base.hex32,
+    prev: hex32,
   }),
   unregisterRequest: z.object({
     revoke: z.enum(Object.values(RevokeScope)),
@@ -168,6 +221,6 @@ export const Schema = {
   unregisterResult: z.object({
     status: z.enum(Object.values(Status)),
     message: z.string(),
-    prev: Bifrost.base.hex32,
+    prev: hex32,
   }),
 }

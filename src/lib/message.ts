@@ -14,10 +14,6 @@ export type LoginRequestResultMessage = DefineMessage<
   Method.LoginRequestResult,
   typeof Schema.loginRequestResult
 >
-export type LoginRequestSelectMessage = DefineMessage<
-  Method.LoginRequestSelect,
-  typeof Schema.loginRequestSelect
->
 export type LoginChallengeMessage = DefineMessage<
   Method.LoginChallenge,
   typeof Schema.loginChallenge
@@ -25,7 +21,7 @@ export type LoginChallengeMessage = DefineMessage<
 export type LoginFinalizeMessage = DefineMessage<Method.LoginFinalize, typeof Schema.loginFinalize>
 export type LoginFinalizeResultMessage = DefineMessage<
   Method.LoginFinalizeResult,
-  typeof Schema.loginResult
+  typeof Schema.loginFinalizeResult
 >
 export type RecoverRequestMessage = DefineMessage<
   Method.RecoverRequest,
@@ -34,10 +30,6 @@ export type RecoverRequestMessage = DefineMessage<
 export type RecoverRequestResultMessage = DefineMessage<
   Method.RecoverRequestResult,
   typeof Schema.recoverRequestResult
->
-export type RecoverRequestSelectMessage = DefineMessage<
-  Method.RecoverRequestSelect,
-  typeof Schema.recoverRequestSelect
 >
 export type RecoverChallengeMessage = DefineMessage<
   Method.RecoverChallenge,
@@ -49,7 +41,7 @@ export type RecoverFinalizeMessage = DefineMessage<
 >
 export type RecoverFinalizeResultMessage = DefineMessage<
   Method.RecoverFinalizeResult,
-  typeof Schema.recoverResult
+  typeof Schema.recoverFinalizeResult
 >
 export type RegisterRequestMessage = DefineMessage<
   Method.RegisterRequest,
@@ -67,10 +59,6 @@ export type SetEmailRequestResultMessage = DefineMessage<
   Method.SetEmailRequestResult,
   typeof Schema.setEmailRequestResult
 >
-export type SetEmailRequestSelectMessage = DefineMessage<
-  Method.SetEmailRequestSelect,
-  typeof Schema.setEmailRequestSelect
->
 export type SetEmailChallengeMessage = DefineMessage<
   Method.SetEmailChallenge,
   typeof Schema.setEmailChallenge
@@ -81,7 +69,7 @@ export type SetEmailFinalizeMessage = DefineMessage<
 >
 export type SetEmailFinalizeResultMessage = DefineMessage<
   Method.SetEmailFinalizeResult,
-  typeof Schema.setEmailResult
+  typeof Schema.setEmailFinalizeResult
 >
 export type SignRequestMessage = DefineMessage<Method.SignRequest, typeof Schema.signRequest>
 export type SignResultMessage = DefineMessage<Method.SignResult, typeof Schema.signResult>
@@ -99,13 +87,11 @@ export type Message =
   | EcdhResultMessage
   | LoginRequestMessage
   | LoginRequestResultMessage
-  | LoginRequestSelectMessage
   | LoginChallengeMessage
   | LoginFinalizeMessage
   | LoginFinalizeResultMessage
   | RecoverRequestMessage
   | RecoverRequestResultMessage
-  | RecoverRequestSelectMessage
   | RecoverChallengeMessage
   | RecoverFinalizeMessage
   | RecoverFinalizeResultMessage
@@ -113,7 +99,6 @@ export type Message =
   | RegisterResultMessage
   | SetEmailRequestMessage
   | SetEmailRequestResultMessage
-  | SetEmailRequestSelectMessage
   | SetEmailChallengeMessage
   | SetEmailFinalizeMessage
   | SetEmailFinalizeResultMessage
@@ -142,12 +127,6 @@ export function makeLoginRequestResult(
   return {method: Method.LoginRequestResult, payload: Schema.loginRequestResult.parse(payload)}
 }
 
-export function makeLoginRequestSelect(
-  payload: LoginRequestSelectMessage["payload"],
-): LoginRequestSelectMessage {
-  return {method: Method.LoginRequestSelect, payload: Schema.loginRequestSelect.parse(payload)}
-}
-
 export function makeLoginChallenge(
   payload: LoginChallengeMessage["payload"],
 ): LoginChallengeMessage {
@@ -161,7 +140,7 @@ export function makeLoginFinalize(payload: LoginFinalizeMessage["payload"]): Log
 export function makeLoginFinalizeResult(
   payload: LoginFinalizeResultMessage["payload"],
 ): LoginFinalizeResultMessage {
-  return {method: Method.LoginFinalizeResult, payload: Schema.loginResult.parse(payload)}
+  return {method: Method.LoginFinalizeResult, payload: Schema.loginFinalizeResult.parse(payload)}
 }
 
 export function makeRecoverRequest(
@@ -174,12 +153,6 @@ export function makeRecoverRequestResult(
   payload: RecoverRequestResultMessage["payload"],
 ): RecoverRequestResultMessage {
   return {method: Method.RecoverRequestResult, payload: Schema.recoverRequestResult.parse(payload)}
-}
-
-export function makeRecoverRequestSelect(
-  payload: RecoverRequestSelectMessage["payload"],
-): RecoverRequestSelectMessage {
-  return {method: Method.RecoverRequestSelect, payload: Schema.recoverRequestSelect.parse(payload)}
 }
 
 export function makeRecoverChallenge(
@@ -197,7 +170,7 @@ export function makeRecoverFinalize(
 export function makeRecoverFinalizeResult(
   payload: RecoverFinalizeResultMessage["payload"],
 ): RecoverFinalizeResultMessage {
-  return {method: Method.RecoverFinalizeResult, payload: Schema.recoverResult.parse(payload)}
+  return {method: Method.RecoverFinalizeResult, payload: Schema.recoverFinalizeResult.parse(payload)}
 }
 
 export function makeRegisterRequest(
@@ -227,15 +200,6 @@ export function makeSetEmailRequestResult(
   }
 }
 
-export function makeSetEmailRequestSelect(
-  payload: SetEmailRequestSelectMessage["payload"],
-): SetEmailRequestSelectMessage {
-  return {
-    method: Method.SetEmailRequestSelect,
-    payload: Schema.setEmailRequestSelect.parse(payload),
-  }
-}
-
 export function makeSetEmailChallenge(
   payload: SetEmailChallengeMessage["payload"],
 ): SetEmailChallengeMessage {
@@ -251,7 +215,7 @@ export function makeSetEmailFinalize(
 export function makeSetEmailFinalizeResult(
   payload: SetEmailFinalizeResultMessage["payload"],
 ): SetEmailFinalizeResultMessage {
-  return {method: Method.SetEmailFinalizeResult, payload: Schema.setEmailResult.parse(payload)}
+  return {method: Method.SetEmailFinalizeResult, payload: Schema.setEmailFinalizeResult.parse(payload)}
 }
 
 export function makeSignRequest(payload: SignRequestMessage["payload"]): SignRequestMessage {
@@ -282,24 +246,21 @@ export function getMessageSchema(method: Method) {
     [Method.EcdhResult]: Schema.ecdhResult,
     [Method.LoginRequest]: Schema.loginRequest,
     [Method.LoginRequestResult]: Schema.loginRequestResult,
-    [Method.LoginRequestSelect]: Schema.loginRequestSelect,
     [Method.LoginChallenge]: Schema.loginChallenge,
     [Method.LoginFinalize]: Schema.loginFinalize,
-    [Method.LoginFinalizeResult]: Schema.loginResult,
+    [Method.LoginFinalizeResult]: Schema.loginFinalizeResult,
     [Method.RecoverRequest]: Schema.recoverRequest,
     [Method.RecoverRequestResult]: Schema.recoverRequestResult,
-    [Method.RecoverRequestSelect]: Schema.recoverRequestSelect,
     [Method.RecoverChallenge]: Schema.recoverChallenge,
     [Method.RecoverFinalize]: Schema.recoverFinalize,
-    [Method.RecoverFinalizeResult]: Schema.recoverResult,
+    [Method.RecoverFinalizeResult]: Schema.recoverFinalizeResult,
     [Method.RegisterRequest]: Schema.registerRequest,
     [Method.RegisterResult]: Schema.registerResult,
     [Method.SetEmailRequest]: Schema.setEmailRequest,
     [Method.SetEmailRequestResult]: Schema.setEmailRequestResult,
-    [Method.SetEmailRequestSelect]: Schema.setEmailRequestSelect,
     [Method.SetEmailChallenge]: Schema.setEmailChallenge,
     [Method.SetEmailFinalize]: Schema.setEmailFinalize,
-    [Method.SetEmailFinalizeResult]: Schema.setEmailResult,
+    [Method.SetEmailFinalizeResult]: Schema.setEmailFinalizeResult,
     [Method.SignRequest]: Schema.signRequest,
     [Method.SignResult]: Schema.signResult,
     [Method.UnregisterRequest]: Schema.unregisterRequest,
@@ -312,7 +273,7 @@ export function parseMessage(s: string): Maybe<Message> {
   const result = getMessageSchema(message?.method)?.safeParse(message.payload)
 
   if (result?.success) {
-    return {method: message.method, payload: result.data}
+    return {method: message.method, payload: result.data} as Message
   }
 }
 
@@ -325,8 +286,6 @@ export const isLoginRequest = (m: Message): m is LoginRequestMessage =>
   m.method === Method.LoginRequest
 export const isLoginRequestResult = (m: Message): m is LoginRequestResultMessage =>
   m.method === Method.LoginRequestResult
-export const isLoginRequestSelect = (m: Message): m is LoginRequestSelectMessage =>
-  m.method === Method.LoginRequestSelect
 export const isLoginChallenge = (m: Message): m is LoginChallengeMessage =>
   m.method === Method.LoginChallenge
 export const isLoginFinalize = (m: Message): m is LoginFinalizeMessage =>
@@ -337,8 +296,6 @@ export const isRecoverRequest = (m: Message): m is RecoverRequestMessage =>
   m.method === Method.RecoverRequest
 export const isRecoverRequestResult = (m: Message): m is RecoverRequestResultMessage =>
   m.method === Method.RecoverRequestResult
-export const isRecoverRequestSelect = (m: Message): m is RecoverRequestSelectMessage =>
-  m.method === Method.RecoverRequestSelect
 export const isRecoverChallenge = (m: Message): m is RecoverChallengeMessage =>
   m.method === Method.RecoverChallenge
 export const isRecoverFinalize = (m: Message): m is RecoverFinalizeMessage =>
@@ -353,8 +310,6 @@ export const isSetEmailRequest = (m: Message): m is SetEmailRequestMessage =>
   m.method === Method.SetEmailRequest
 export const isSetEmailRequestResult = (m: Message): m is SetEmailRequestResultMessage =>
   m.method === Method.SetEmailRequestResult
-export const isSetEmailRequestSelect = (m: Message): m is SetEmailRequestSelectMessage =>
-  m.method === Method.SetEmailRequestSelect
 export const isSetEmailChallenge = (m: Message): m is SetEmailChallengeMessage =>
   m.method === Method.SetEmailChallenge
 export const isSetEmailFinalize = (m: Message): m is SetEmailFinalizeMessage =>

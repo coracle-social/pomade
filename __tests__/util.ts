@@ -1,7 +1,8 @@
-import {range, noop} from "@welshman/lib"
+import {range, sleep, noop} from "@welshman/lib"
 import {getPubkey, makeSecret} from "@welshman/util"
 import {LOCAL_RELAY_URL} from "@welshman/net"
 import {defaultStorageFactory, context} from "../src/lib"
+import {Client} from "../src/client"
 import {Signer} from "../src/signer"
 import {Mailer} from "../src/mailer"
 
@@ -41,4 +42,21 @@ export function beforeHook() {
 
 export function afterHook() {
   signers.forEach(signer => signer.stop())
+}
+
+export async function makeClientWithEmail(email: string, provider: Partial<EmailProvider> = {}) {
+  let challenge
+
+  const mailer = makeMailer(makeSecret(), {
+    ...provider,
+    sendValidationEmail: (_email, _challenge) => {
+      challenge = _challenge
+    },
+  })
+
+  const client = await Client.register(1, 2, makeSecret())
+
+  await client.setEmailRequest(email, mailer.pubkey)
+  await sleep(10)
+  await client.setEmailFinalize(email, mailer.pubkey, challenge)
 }
