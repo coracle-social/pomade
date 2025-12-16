@@ -1,6 +1,6 @@
 import {Lib} from "@frostr/bifrost"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
-import {now, ago, MINUTE} from "@welshman/lib"
+import {now, call, int, ago, MINUTE, YEAR} from "@welshman/lib"
 import {getPubkey, verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
 import type {TrustedEvent, SignedEvent} from "@welshman/util"
 import {
@@ -62,22 +62,25 @@ export type SignerRegistration = {
   email_service?: string
 }
 
-export type EmailChallenge = {
+export type Validation = {
   otp: string
   email: string
   email_service: string
+  event: TrustedEvent
 }
 
 export type Login = {
   otp: string
   email: string
   copy_from: string
+  event: TrustedEvent
 }
 
 export type Recover = {
   otp: string
   email: string
   copy_from: string
+  event: TrustedEvent
 }
 
 export type SignerOptions = {
@@ -90,19 +93,20 @@ export class Signer {
   rpc: RPC
   pubkey: string
   registrations: IStorage<SignerRegistration>
-  challenges: IStorage<EmailChallenge>
+  validations: IStorage<Validation>
   logins: IStorage<Login>
   recovers: IStorage<Recover>
-  stop: () => void
+  unsubscribe: () => void
+  intervals: number[]
 
   constructor(private options: SignerOptions) {
     this.pubkey = getPubkey(options.secret)
     this.registrations = options.storage("registrations")
-    this.challenges = options.storage("challenges")
+    this.validations = options.storage("validations")
     this.logins = options.storage("logins")
     this.recovers = options.storage("recovers")
     this.rpc = new RPC(options.secret, options.relays)
-    this.stop = this.rpc.subscribe(message => {
+    this.unsubscribe = this.rpc.subscribe(message => {
       if (isRegisterRequest(message)) this.handleRegisterRequest(message)
       if (isSetEmailRequest(message)) this.handleSetEmailRequest(message)
       if (isSetEmailFinalize(message)) this.handleSetEmailFinalize(message)
@@ -115,6 +119,38 @@ export class Signer {
       if (isClientListRequest(message)) this.handleClientListRequest(message)
       if (isUnregisterRequest(message)) this.handleUnregisterRequest(message)
     })
+
+    // Periodically clean up login/recover requests
+    this.intervals = [
+      setInterval(
+        async () => {
+          for (const [k, login] of await this.logins.entries()) {
+            if (login.event.created_at < ago(15, MINUTE)) await this.logins.delete(k)
+          }
+
+          for (const [k, recover] of await this.recovers.entries()) {
+            if (recover.event.created_at < ago(15, MINUTE)) await this.recovers.delete(k)
+          }
+        },
+        int(5, MINUTE),
+      ) as unknown as number,
+    ]
+
+    // Immediately clean up old registrations/validations
+    call(async () => {
+      for (const [k, registration] of await this.registrations.entries()) {
+        if (registration.last_activity < ago(YEAR)) await this.registrations.delete(k)
+      }
+
+      for (const [k, validation] of await this.validations.entries()) {
+        if (validation.event.created_at < ago(YEAR)) await this.validations.delete(k)
+      }
+    })
+  }
+
+  stop() {
+    this.unsubscribe()
+    this.intervals.forEach(clearInterval)
   }
 
   _isAuthValid(auth: SignedEvent, method: Method) {
@@ -150,7 +186,8 @@ export class Signer {
     if (indices.size !== group.commits.length)
       return cb(Status.Error, "Group contains duplicate member indices.")
     if (!commit) return cb(Status.Error, "Share index not found in group commits.")
-    if (await this.registrations.has(client)) return cb(Status.Error, "Client is already registered.")
+    if (await this.registrations.has(client))
+      return cb(Status.Error, "Client is already registered.")
 
     await this.registrations.set(client, {client, event, share, group, last_activity: now()})
 
@@ -187,7 +224,7 @@ export class Signer {
     const otp = generateOTP()
     const total = registration.group.commits.length
 
-    await this.challenges.set(client, {otp, email, email_service})
+    await this.validations.set(client, {otp, email, email_service, event})
 
     this.rpc.channel(email_service).send(makeSetEmailChallenge({otp, total, email, client}))
 
@@ -202,7 +239,7 @@ export class Signer {
 
   async handleSetEmailFinalize({payload, event}: WithEvent<SetEmailFinalize>) {
     const client = event.pubkey
-    const challenge = await this.challenges.get(client)
+    const challenge = await this.validations.get(client)
     const registration = await this.registrations.get(client)
 
     if (registration && challenge?.otp === payload.otp && challenge?.email === payload.email) {
@@ -258,7 +295,7 @@ export class Signer {
       const [registration] = registrations
       const total = registration.group.commits.length
 
-      await this.logins.set(client, {otp, email, copy_from: registration.client})
+      await this.logins.set(client, {otp, email, copy_from: registration.client, event})
 
       this.rpc
         .channel(registration.email_service!)
@@ -330,7 +367,7 @@ export class Signer {
       const [registration] = registrations
       const total = registration.group.commits.length
 
-      await this.recovers.set(client, {otp, email, copy_from: registration.client})
+      await this.recovers.set(client, {otp, email, copy_from: registration.client, event})
 
       this.rpc
         .channel(registration.email_service!)

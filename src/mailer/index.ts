@@ -1,4 +1,6 @@
+import {int, ago, MINUTE} from "@welshman/lib"
 import {getPubkey} from "@welshman/util"
+import type {TrustedEvent} from "@welshman/util"
 import {
   RPC,
   Status,
@@ -17,13 +19,14 @@ import type {
   WithEvent,
 } from "../lib/index.js"
 
-export type BatchState = {
+export type Batch = {
   email: string
   total: number
   method: Method
   client: string
-  peers: [string, string][]
+  event: TrustedEvent
   status: Status
+  peers: [string, string][]
 }
 
 const getBatchKey = (email: string, client: string, method: Method) =>
@@ -45,18 +48,36 @@ export type MailerOptions = {
 export class Mailer {
   rpc: RPC
   pubkey: string
-  batches: IStorage<BatchState>
-  stop: () => void
+  batches: IStorage<Batch>
+  unsubscribe: () => void
+  intervals: number[]
 
   constructor(private options: MailerOptions) {
     this.pubkey = getPubkey(options.secret)
     this.batches = options.storage("batches")
     this.rpc = new RPC(options.secret, options.relays)
-    this.stop = this.rpc.subscribe(message => {
+    this.unsubscribe = this.rpc.subscribe(message => {
       if (isSetEmailChallenge(message)) this.handleSetEmailChallenge(message)
       if (isLoginChallenge(message)) this.handleLoginChallenge(message)
       if (isRecoverChallenge(message)) this.handleRecoverChallenge(message)
     })
+
+    // Periodically clean up batches
+    this.intervals = [
+      setInterval(
+        async () => {
+          for (const [k, batch] of await this.batches.entries()) {
+            if (batch.event.created_at < ago(15, MINUTE)) await this.batches.delete(k)
+          }
+        },
+        int(5, MINUTE),
+      ) as unknown as number,
+    ]
+  }
+
+  stop() {
+    this.unsubscribe()
+    this.intervals.forEach(clearInterval)
   }
 
   async handleSetEmailChallenge({method, payload, event}: WithEvent<SetEmailChallenge>) {
@@ -66,7 +87,7 @@ export class Mailer {
     await this.batches.tx(async () => {
       let batch = await this.batches.get(key)
       if (!batch) {
-        batch = {email, total, client, method, status: Status.Pending, peers: []}
+        batch = {email, total, client, method, event, status: Status.Pending, peers: []}
       }
 
       batch.peers.push([event.pubkey, otp])
@@ -91,7 +112,7 @@ export class Mailer {
     await this.batches.tx(async () => {
       let batch = await this.batches.get(key)
       if (!batch) {
-        batch = {email, total, client, method, status: Status.Pending, peers: []}
+        batch = {email, total, client, method, event, status: Status.Pending, peers: []}
       }
 
       batch.peers.push([event.pubkey, otp])
@@ -112,7 +133,7 @@ export class Mailer {
     await this.batches.tx(async () => {
       let batch = await this.batches.get(key)
       if (!batch) {
-        batch = {email, total, client, method, status: Status.Pending, peers: []}
+        batch = {email, total, client, method, event, status: Status.Pending, peers: []}
       }
 
       batch.peers.push([event.pubkey, otp])
