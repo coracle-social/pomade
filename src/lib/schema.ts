@@ -116,7 +116,7 @@ export const Schema = {
     pubkey: hex32.optional(),
   }),
   loginRequestResult: z.object({
-    options: z.string().array().optional(),
+    options: hex32.array().optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,
@@ -124,7 +124,7 @@ export const Schema = {
   loginChallenge: z.object({
     otp: z.string(),
     total: z.number(),
-    client: z.string(),
+    client: hex32,
     email_ciphertext: z.string(),
     callback_url: z.string().optional(),
   }),
@@ -144,7 +144,7 @@ export const Schema = {
     pubkey: hex32.optional(),
   }),
   recoverRequestResult: z.object({
-    options: z.string().array().optional(),
+    options: hex32.array().optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,
@@ -152,7 +152,7 @@ export const Schema = {
   recoverChallenge: z.object({
     otp: z.string(),
     total: z.number(),
-    client: z.string(),
+    client: hex32,
     email_ciphertext: z.string(),
     callback_url: z.string().optional(),
   }),
@@ -185,7 +185,7 @@ export const Schema = {
     pubkey: hex32.optional(),
   }),
   setEmailRequestResult: z.object({
-    options: z.string().array().optional(),
+    options: hex32.array().optional(),
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,
@@ -193,7 +193,7 @@ export const Schema = {
   setEmailChallenge: z.object({
     otp: z.string(),
     total: z.number(),
-    client: z.string(),
+    client: hex32,
     email_ciphertext: z.string(),
     callback_url: z.string().optional(),
   }),

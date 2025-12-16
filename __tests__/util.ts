@@ -29,7 +29,7 @@ export function makeMailer(secret: string, provider: Partial<EmailProvider> = {}
     storage: defaultStorageFactory,
     provider: {
       sendValidationEmail: noop,
-      sendRecoveryEmail: noop,
+      sendRecoverEmail: noop,
       sendLoginEmail: noop,
       ...provider,
     },
@@ -59,4 +59,6 @@ export async function makeClientWithEmail(email: string, provider: Partial<Email
   await client.setEmailRequest(email, mailer.pubkey)
   await sleep(10)
   await client.setEmailFinalize(email, mailer.pubkey, challenge)
+
+  return client
 }

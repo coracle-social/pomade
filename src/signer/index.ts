@@ -15,6 +15,8 @@ import {
   isEcdhRequest,
   isLoginRequest,
   isLoginFinalize,
+  isRecoverRequest,
+  isRecoverFinalize,
   isSetEmailRequest,
   isSetEmailFinalize,
   makeSignResult,
@@ -22,6 +24,9 @@ import {
   makeLoginChallenge,
   makeLoginRequestResult,
   makeLoginFinalizeResult,
+  makeRecoverChallenge,
+  makeRecoverRequestResult,
+  makeRecoverFinalizeResult,
   generateOTP,
 } from "../lib/index.js"
 import type {
@@ -34,6 +39,8 @@ import type {
   EcdhRequestMessage,
   LoginRequestMessage,
   LoginFinalizeMessage,
+  RecoverRequestMessage,
+  RecoverFinalizeMessage,
   WithEvent,
 } from "../lib/index.js"
 
@@ -60,6 +67,12 @@ export type LoginRequest = {
   copy_from: string
 }
 
+export type RecoverRequest = {
+  otp: string
+  email_hash: string
+  copy_from: string
+}
+
 export type SignerOptions = {
   secret: string
   relays: string[]
@@ -72,6 +85,7 @@ export class Signer {
   registrations: IStorage<SignerRegistration>
   challenges: IStorage<EmailChallenge>
   logins: IStorage<LoginRequest>
+  recovers: IStorage<RecoverRequest>
   stop: () => void
 
   constructor(private options: SignerOptions) {
@@ -79,6 +93,7 @@ export class Signer {
     this.registrations = options.storage("registrations")
     this.challenges = options.storage("challenges")
     this.logins = options.storage("logins")
+    this.recovers = options.storage("recovers")
     this.rpc = new RPC(options.secret, options.relays)
     this.stop = this.rpc.subscribe(message => {
       if (isRegisterRequest(message)) this.handleRegisterRequest(message)
@@ -86,6 +101,8 @@ export class Signer {
       if (isSetEmailFinalize(message)) this.handleSetEmailFinalizeMessage(message)
       if (isLoginRequest(message)) this.handleLoginRequestMessage(message)
       if (isLoginFinalize(message)) this.handleLoginFinalizeMessage(message)
+      if (isRecoverRequest(message)) this.handleRecoverRequestMessage(message)
+      if (isRecoverFinalize(message)) this.handleRecoverFinalizeMessage(message)
       if (isSignRequest(message)) this.handleSignRequestMessage(message)
       if (isEcdhRequest(message)) this.handleEcdhRequestMessage(message)
     })
@@ -187,7 +204,7 @@ export class Signer {
       if (pubkey && reg.group.group_pk !== pubkey) continue
 
       registrations.push(reg)
-      pubkeys.add(reg.group.group_pk)
+      pubkeys.add(reg.group.group_pk.slice(2))
     }
 
     if (pubkeys.size > 1) {
@@ -195,6 +212,7 @@ export class Signer {
         makeLoginRequestResult({
           status: Status.Pending,
           message: "Multiple pubkeys are associated with this email. Please select one to continue.",
+          options: Array.from(pubkeys),
           prev: event.id,
         })
       )
@@ -236,7 +254,7 @@ export class Signer {
       this.rpc.channel(client).send(
         makeLoginFinalizeResult({
           status: Status.Ok,
-          message: "Email successfully verified and associated with your account",
+          message: "Login successfully completed.",
           group: registration.group,
           prev: event.id,
         }),
@@ -244,6 +262,83 @@ export class Signer {
     } else {
       this.rpc.channel(client).send(
         makeLoginFinalizeResult({
+          status: Status.Error,
+          message: `Failed to validate challenge. Please request a new one to try again.`,
+          prev: event.id,
+        }),
+      )
+    }
+  }
+
+  async handleRecoverRequestMessage({payload, event}: WithEvent<RecoverRequestMessage>) {
+    const client = event.pubkey
+    const {email_hash, pubkey} = payload
+    const pubkeys = new Set<string>()
+    const registrations: SignerRegistration[] = []
+    for (const [_, reg] of await this.registrations.entries()) {
+      if (reg.email_hash !== email_hash) continue
+      if (pubkey && reg.group.group_pk !== pubkey) continue
+
+      registrations.push(reg)
+      pubkeys.add(reg.group.group_pk.slice(2))
+    }
+
+    if (pubkeys.size > 1) {
+      this.rpc.channel(client).send(
+        makeRecoverRequestResult({
+          status: Status.Pending,
+          message: "Multiple pubkeys are associated with this email. Please select one to continue.",
+          options: Array.from(pubkeys),
+          prev: event.id,
+        })
+      )
+    } else if (registrations.length > 0) {
+      const otp = generateOTP()
+      const [registration] = registrations
+      const total = registration.group.commits.length
+
+      await this.recovers.set(client, {otp, email_hash, copy_from: registration.client})
+
+      this.rpc.channel(registration.email_service!).send(
+        makeRecoverChallenge({
+          otp,
+          total,
+          client: registration.client,
+          email_ciphertext: registration.email_ciphertext!,
+        }),
+      )
+    }
+
+    // Always show success (if we can) so attackers can't get information on who is registered
+    this.rpc.channel(client).send(
+      makeRecoverRequestResult({
+        status: Status.Ok,
+        message: "Verification email sent. Please check your email to continue.",
+        prev: event.id,
+      }),
+    )
+  }
+
+  async handleRecoverFinalizeMessage({payload, event}: WithEvent<RecoverFinalizeMessage>) {
+    const client = event.pubkey
+    const recover = await this.recovers.get(client)
+    const registration = recover ? await this.registrations.get(recover.copy_from) : undefined
+
+    if (registration && recover?.email_hash === payload.email_hash && recover?.otp === payload.otp) {
+      await this.registrations.set(client, {...registration, event})
+
+      this.rpc.channel(client).send(
+        makeRecoverFinalizeResult({
+          status: Status.Ok,
+          message: "Recovery successfully completed.",
+          group: registration.group,
+          share: registration.share,
+          prev: event.id,
+        }),
+      )
+    } else {
+      this.rpc.channel(client).send(
+        makeRecoverFinalizeResult({
           status: Status.Error,
           message: `Failed to validate challenge. Please request a new one to try again.`,
           prev: event.id,

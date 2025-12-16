@@ -6,6 +6,8 @@ import {beforeHook, afterHook, makeMailer, makeClientWithEmail} from "./util"
 import {Client} from "../src/client"
 import {generateOTP, buildChallenge, context} from "../src/lib"
 
+const doLet = <T>(x: T, f: <R>(x: T) => R) => f(x)
+
 describe("protocol flows", () => {
   beforeEach(beforeHook)
   afterEach(afterHook)
@@ -137,15 +139,9 @@ describe("protocol flows", () => {
       expect(email).toBe("test@example.com")
       expect(challenge.length).toBeGreaterThan(190)
 
-      const res = await Client.loginFinalize(secret, "test@example.com", challenge)
-      const groups = res.messages.map(m => m.payload.group)
+      const {ok, group, peers, messages} = await Client.loginFinalize(secret, "test@example.com", challenge)
 
-      expect(res.ok).toBe(true)
-      expect(groups.length).toBe(2)
-      expect(groups.reduce(equals)).toBe(true)
-
-      const group = groups[0]
-      const peers = res.messages.map(m => m.event.pubkey)
+      expect(ok).toBe(true)
 
       const client = new Client({secret, group, peers})
       const result = await client.sign(makeEvent(1))
@@ -155,11 +151,10 @@ describe("protocol flows", () => {
     })
 
     it("prevents probing for registrations", async () => {
-      const res1 = await Client.loginRequest(makeSecret(), "test@example.com")
-      expect(res1.ok).toBe(true)
+      const client = await makeClientWithEmail('test@example.com')
 
-      const res2 = await Client.loginRequest(makeSecret(), "test@example.com", "bogus")
-      expect(res2.ok).toBe(true)
+      doLet(await Client.loginRequest(makeSecret(), "test@example.com"), res => expect(res.ok).toBe(true))
+      doLet(await Client.loginRequest(makeSecret(), "test@example.com", client.rpc.pubkey), res => expect(res.ok).toBe(true))
     })
 
     it("rejects invalid email", async () => {
@@ -213,18 +208,118 @@ describe("protocol flows", () => {
       expect(res.ok).toBe(false)
     })
 
-    it.skip("handles pubkey selection", async () => {})
+    it("handles pubkey selection", async () => {
+      await makeClientWithEmail('test@example.com')
+      await makeClientWithEmail('test@example.com')
+
+      const res1 = await Client.loginRequest(makeSecret(), "test@example.com")
+
+      expect(res1.ok).toBe(false)
+      expect(res1.options.length).toBe(2)
+
+      doLet(await Client.loginRequest(makeSecret(), "test@example.com", res1.options[1]), res => {
+        expect(res.ok).toBe(true)
+        expect(res.options.length).toBe(0)
+      })
+    })
   })
 
   describe("recovery", () => {
-    it.skip("successfully allows recovery", async () => {})
+    it("successfully allows recovery", async () => {
+      let email, challenge
 
-    it.skip("rejects invalid email", async () => {})
+      const client = await makeClientWithEmail('test@example.com', {
+        sendRecoverEmail: (_email, _challenge) => {
+          email = _email
+          challenge = _challenge
+        },
+      })
 
-    it.skip("rejects invalid challenge", async () => {})
+      const secret = makeSecret()
 
-    it.skip("rejects inconsistent client secret", async () => {})
+      await Client.recoverRequest(secret, "test@example.com")
+      await sleep(10)
 
-    it.skip("handles pubkey selection", async () => {})
+      expect(email).toBe("test@example.com")
+      expect(challenge.length).toBeGreaterThan(190)
+
+      const res = await Client.recoverFinalize(secret, "test@example.com", challenge)
+
+      expect(res.ok).toBe(true)
+      expect(getPubkey(res.secret)).toBe(client.group.group_pk.slice(2))
+    })
+
+    it("prevents probing for registrations", async () => {
+      const client = await makeClientWithEmail('test@example.com')
+
+      doLet(await Client.recoverRequest(makeSecret(), "test@example.com"), res => expect(res.ok).toBe(true))
+      doLet(await Client.recoverRequest(makeSecret(), "test@example.com", client.rpc.pubkey), res => expect(res.ok).toBe(true))
+    })
+
+    it("rejects invalid email", async () => {
+      let challenge
+
+      await makeClientWithEmail('test@example.com', {
+        sendRecoverEmail: (_email, _challenge) => {
+          challenge = _challenge
+        },
+      })
+
+      const secret = makeSecret()
+
+      await Client.recoverRequest(secret, "test@example.com")
+      await sleep(10)
+
+      const res = await Client.recoverFinalize(secret, "test2@example.com", challenge)
+
+      expect(res.ok).toBe(false)
+    })
+
+    it("rejects invalid challenge", async () => {
+      await makeClientWithEmail('test@example.com')
+
+      const secret = makeSecret()
+
+      await Client.recoverRequest(secret, "test@example.com")
+      await sleep(10)
+
+      const challenge = buildChallenge(context.signerPubkeys.map(pk => [pk, generateOTP()]))
+
+      const res = await Client.recoverFinalize(secret, "test2@example.com", challenge)
+
+      expect(res.ok).toBe(false)
+    })
+
+    it("rejects inconsistent client secret", async () => {
+      let challenge
+
+      await makeClientWithEmail('test@example.com', {
+        sendRecoverEmail: (_email, _challenge) => {
+          challenge = _challenge
+        },
+      })
+
+      await Client.recoverRequest(makeSecret(), "test@example.com")
+      await sleep(10)
+
+      const res = await Client.recoverFinalize(makeSecret(), "test@example.com", challenge)
+
+      expect(res.ok).toBe(false)
+    })
+
+    it("handles pubkey selection", async () => {
+      await makeClientWithEmail('test@example.com')
+      await makeClientWithEmail('test@example.com')
+
+      const res1 = await Client.recoverRequest(makeSecret(), "test@example.com")
+
+      expect(res1.ok).toBe(false)
+      expect(res1.options.length).toBe(2)
+
+      doLet(await Client.recoverRequest(makeSecret(), "test@example.com", res1.options[1]), res => {
+        expect(res.ok).toBe(true)
+        expect(res.options.length).toBe(0)
+      })
+    })
   })
 })

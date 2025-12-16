@@ -1,5 +1,9 @@
 import {
+  tryCatch,
   sortBy,
+  identity,
+  groupBy,
+  ffirst,
   fromPairs,
   uniq,
   first,
@@ -21,15 +25,21 @@ import {
   isEcdhResult,
   isLoginFinalizeResult,
   isLoginRequestResult,
+  isRecoverFinalizeResult,
+  isRecoverRequestResult,
   isRegisterResult,
   isSetEmailFinalizeResult,
   isSetEmailRequestResult,
   isSignResult,
   LoginFinalizeResultMessage,
   LoginRequestResultMessage,
+  RecoverFinalizeResultMessage,
+  RecoverRequestResultMessage,
   makeEcdhRequest,
   makeLoginFinalize,
   makeLoginRequest,
+  makeRecoverFinalize,
+  makeRecoverRequest,
   makeRegisterRequest,
   makeSetEmailFinalize,
   makeSetEmailRequest,
@@ -120,13 +130,13 @@ export class Client {
 
   static async loginRequest(secret: string, email: string, pubkey?: string) {
     const rpc = new RPC(secret)
-    const emailHash = await sha256(textEncoder.encode(email))
+    const email_hash = await sha256(textEncoder.encode(email))
 
     const messages = await Promise.all(
       context.signerPubkeys.map(async (peer, i) => {
         const channel = rpc.channel(peer)
 
-        channel.send(makeLoginRequest({email_hash: emailHash}))
+        channel.send(makeLoginRequest({email_hash, pubkey}))
 
         return channel.receive<LoginRequestResultMessage>((message, resolve) => {
           if (isLoginRequestResult(message)) {
@@ -147,13 +157,13 @@ export class Client {
 
   static async loginFinalize(secret: string, email: string, challenge: string) {
     const rpc = new RPC(secret)
-    const emailHash = await sha256(textEncoder.encode(email))
+    const email_hash = await sha256(textEncoder.encode(email))
 
     const messages = await Promise.all(
       parseChallenge(challenge).map(async ([peer, otp]) => {
         const channel = rpc.channel(peer)
 
-        channel.send(makeLoginFinalize({otp, email_hash: emailHash}))
+        channel.send(makeLoginFinalize({otp, email_hash}))
 
         return channel.receive<WithEvent<LoginFinalizeResultMessage>>((message, resolve) => {
           if (isLoginFinalizeResult(message)) {
@@ -165,7 +175,101 @@ export class Client {
 
     rpc.stop()
 
-    return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
+    let group: GroupPackage
+    const peers: string[] = []
+
+    for (const m of messages) {
+      if (m?.payload.status !== Status.Ok || !m.payload.group) {
+        continue
+      }
+
+      if (group && m.payload.group.group_pk !== group.group_pk) {
+        continue
+      }
+
+      group = m.payload.group
+      peers.push(m.event.pubkey)
+    }
+
+    if (group && peers.length >= group.threshold) {
+      return {ok: true, group, peers, messages}
+    }
+
+    return {ok: false, messages}
+  }
+
+  static async recoverRequest(secret: string, email: string, pubkey?: string) {
+    const rpc = new RPC(secret)
+    const email_hash = await sha256(textEncoder.encode(email))
+
+    const messages = await Promise.all(
+      context.signerPubkeys.map(async (peer, i) => {
+        const channel = rpc.channel(peer)
+
+        channel.send(makeRecoverRequest({email_hash, pubkey}))
+
+        return channel.receive<RecoverRequestResultMessage>((message, resolve) => {
+          if (isRecoverRequestResult(message)) {
+            resolve(message)
+          }
+        })
+      }),
+    )
+
+    rpc.stop()
+
+    return {
+      messages,
+      ok: messages.every(m => m?.payload.status === Status.Ok),
+      options: uniq(messages.flatMap(m => m?.payload.options || [])),
+    }
+  }
+
+  static async recoverFinalize(secret: string, email: string, challenge: string) {
+    const rpc = new RPC(secret)
+    const email_hash = await sha256(textEncoder.encode(email))
+
+    const messages = await Promise.all(
+      parseChallenge(challenge).map(async ([peer, otp]) => {
+        const channel = rpc.channel(peer)
+
+        channel.send(makeRecoverFinalize({otp, email_hash}))
+
+        return channel.receive<WithEvent<RecoverFinalizeResultMessage>>((message, resolve) => {
+          if (isRecoverFinalizeResult(message)) {
+            resolve(message)
+          }
+        })
+      }),
+    )
+
+    rpc.stop()
+
+    let group: GroupPackage
+    const peers: string[] = []
+    const shares: SharePackage[] = []
+
+    for (const m of messages) {
+      if (m?.payload.status !== Status.Ok || !m.payload.group) {
+        continue
+      }
+
+      if (group && m.payload.group.group_pk !== group.group_pk) {
+        continue
+      }
+
+      group = m.payload.group
+      peers.push(m.event.pubkey)
+      shares.push(m.payload.share)
+    }
+
+    const userSecret = tryCatch(() => Lib.recover_secret_key(group, shares))
+
+    if (userSecret) {
+      return {ok: true, secret: userSecret, messages}
+    }
+
+    return {ok: false, messages}
   }
 
   async setEmailRequest(email: string, emailService: string) {
