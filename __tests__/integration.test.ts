@@ -53,28 +53,28 @@ describe("protocol flows", () => {
     })
   })
 
-  describe("list sessions and unregister", () => {
-    it("successfully unregisters current session", async () => {
+  describe("list sessions and logout", () => {
+    it("successfully logouts current session", async () => {
       const secret = makeSecret()
       const client1 = await Client.register(1, 2, secret)
       const client2 = await Client.register(1, 2, secret)
       const client3 = await Client.register(1, 2, secret)
 
-      await client1.unregister(client1.pubkey, client1.peers)
+      await client1.logout(client1.pubkey, client1.peers)
 
       doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
       doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
       doLet(await client3.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
     })
 
-    it("successfully unregisters other sessions", async () => {
+    it("successfully logouts other sessions", async () => {
       const secret = makeSecret()
       const client1 = await Client.register(1, 2, secret)
       const client2 = await Client.register(1, 2, secret)
       const client3 = await Client.register(1, 2, secret)
 
-      await client1.unregister(client2.pubkey, client2.peers)
-      await client1.unregister(client3.pubkey, client3.peers)
+      await client1.logout(client2.pubkey, client2.peers)
+      await client1.logout(client3.pubkey, client3.peers)
 
       doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
       doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(false))

@@ -215,14 +215,14 @@ The client then combines the partial signatures into an aggregated signature whi
 
 ### Session deletion
 
-When a user wishes to log out of any active signing sessions, their client can send a `unregister/request` event to all signers:
+When a user wishes to log out of any active signing sessions, their client can send a `logout/request` event to all signers:
 
 ```typescript
 {
   "kind": 28350,
   "pubkey": "<client pubkey>",
   "content": nip44_encrypt([
-    ["method", "unregister/request"],
+    ["method", "logout/request"],
     ["revoke", "<current|others|all>"],
   ]),
   "tags": [

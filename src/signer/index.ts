@@ -21,7 +21,7 @@ import {
   isRecoverFinalize,
   isSetEmailRequest,
   isSetEmailFinalize,
-  isUnregisterRequest,
+  isLogoutRequest,
   makeSignResult,
   makeEcdhResult,
   makeLoginChallenge,
@@ -30,7 +30,7 @@ import {
   makeRecoverChallenge,
   makeRecoverRequestResult,
   makeRecoverFinalizeResult,
-  makeUnregisterResult,
+  makeLogoutResult,
   generateOTP,
   Method,
 } from "../lib/index.js"
@@ -48,7 +48,7 @@ import type {
   LoginFinalize,
   RecoverRequest,
   RecoverFinalize,
-  UnregisterRequest,
+  LogoutRequest,
   WithEvent,
 } from "../lib/index.js"
 
@@ -117,7 +117,7 @@ export class Signer {
       if (isSignRequest(message)) this.handleSignRequest(message)
       if (isEcdhRequest(message)) this.handleEcdhRequest(message)
       if (isSessionListRequest(message)) this.handleSessionListRequest(message)
-      if (isUnregisterRequest(message)) this.handleUnregisterRequest(message)
+      if (isLogoutRequest(message)) this.handleLogoutRequest(message)
     })
 
     // Periodically clean up login/recover requests
@@ -197,8 +197,7 @@ export class Signer {
     if (indices.size !== group.commits.length)
       return cb(Status.Error, "Group contains duplicate member indices.")
     if (!commit) return cb(Status.Error, "Share index not found in group commits.")
-    if (await this.sessions.has(client))
-      return cb(Status.Error, "Client is already registered.")
+    if (await this.sessions.has(client)) return cb(Status.Error, "Client is already registered.")
 
     await this.sessions.set(client, {client, event, share, group, last_activity: now()})
 
@@ -251,8 +250,8 @@ export class Signer {
   async handleSetEmailFinalize({payload, event}: WithEvent<SetEmailFinalize>) {
     return this.sessions.tx(async sessions => {
       const client = event.pubkey
-      const challenge = await this.validations.get(client)
       const session = await sessions.get(client)
+      const challenge = await this.validations.get(client)
 
       if (session && challenge?.otp === payload.otp && challenge?.email === payload.email) {
         await sessions.set(client, {
@@ -510,12 +509,12 @@ export class Signer {
     )
   }
 
-  async handleUnregisterRequest({payload, event}: WithEvent<UnregisterRequest>) {
-    if (!this._isAuthValid(payload.auth, Method.UnregisterRequest)) {
+  async handleLogoutRequest({payload, event}: WithEvent<LogoutRequest>) {
+    if (!this._isAuthValid(payload.auth, Method.LogoutRequest)) {
       return this.rpc.channel(event.pubkey).send(
-        makeUnregisterResult({
+        makeLogoutResult({
           status: Status.Error,
-          message: "Failed to unregister selected client.",
+          message: "Failed to logout selected client.",
           prev: event.id,
         }),
       )
@@ -528,17 +527,17 @@ export class Signer {
         await sessions.delete(payload.client)
 
         this.rpc.channel(event.pubkey).send(
-          makeUnregisterResult({
+          makeLogoutResult({
             status: Status.Ok,
-            message: "Successfully unregister selected client.",
+            message: "Successfully logout selected client.",
             prev: event.id,
           }),
         )
       } else {
         return this.rpc.channel(event.pubkey).send(
-          makeUnregisterResult({
+          makeLogoutResult({
             status: Status.Error,
-            message: "Failed to unregister selected client.",
+            message: "Failed to logout selected client.",
             prev: event.id,
           }),
         )

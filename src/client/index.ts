@@ -34,7 +34,7 @@ import {
   isSetEmailFinalizeResult,
   isSetEmailRequestResult,
   isSignResult,
-  isUnregisterResult,
+  isLogoutResult,
   LoginFinalizeResult,
   LoginRequestResult,
   RecoverFinalizeResult,
@@ -49,7 +49,7 @@ import {
   makeSetEmailFinalize,
   makeSetEmailRequest,
   makeSignRequest,
-  makeUnregisterRequest,
+  makeLogoutRequest,
   parseChallenge,
   RPC,
   Schema,
@@ -57,7 +57,7 @@ import {
   SetEmailRequestResult,
   SignResult,
   Status,
-  UnregisterResult,
+  LogoutResult,
   WithEvent,
 } from "../lib/index.js"
 
@@ -401,7 +401,10 @@ export class Client {
       }),
     )
 
-    const sessionsByClient = new Map<string, z.infer<typeof Schema.sessionItem> & {peer: string}[]>()
+    const sessionsByClient = new Map<
+      string,
+      z.infer<typeof Schema.sessionItem> & {peer: string}[]
+    >()
 
     for (const message of messages) {
       if (!message) continue
@@ -417,17 +420,17 @@ export class Client {
     return sessionsByClient
   }
 
-  async unregister(client: string, peers: string[]) {
+  async logout(client: string, peers: string[]) {
     const messages = await Promise.all(
       peers.map(async (peer, i) => {
-        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.UnregisterRequest))
+        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.LogoutRequest))
 
         if (auth) {
           return this.rpc
             .channel(peer)
-            .send(makeUnregisterRequest({client, auth}))
-            .receive<WithEvent<UnregisterResult>>((message, resolve) => {
-              if (isUnregisterResult(message)) {
+            .send(makeLogoutRequest({client, auth}))
+            .receive<WithEvent<LogoutResult>>((message, resolve) => {
+              if (isLogoutResult(message)) {
                 resolve(message)
               }
             })

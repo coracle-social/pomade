@@ -63,14 +63,8 @@ export type SetEmailFinalizeResult = DefineMessage<
 >
 export type SignRequest = DefineMessage<Method.SignRequest, typeof Schema.signRequest>
 export type SignResult = DefineMessage<Method.SignResult, typeof Schema.signResult>
-export type UnregisterRequest = DefineMessage<
-  Method.UnregisterRequest,
-  typeof Schema.unregisterRequest
->
-export type UnregisterResult = DefineMessage<
-  Method.UnregisterResult,
-  typeof Schema.unregisterResult
->
+export type LogoutRequest = DefineMessage<Method.LogoutRequest, typeof Schema.logoutRequest>
+export type LogoutResult = DefineMessage<Method.LogoutResult, typeof Schema.logoutResult>
 
 export type Message =
   | SessionListRequest
@@ -96,8 +90,8 @@ export type Message =
   | SetEmailFinalizeResult
   | SignRequest
   | SignResult
-  | UnregisterRequest
-  | UnregisterResult
+  | LogoutRequest
+  | LogoutResult
 
 // Construction
 
@@ -212,12 +206,12 @@ export function makeSignResult(payload: SignResult["payload"]): SignResult {
   return {method: Method.SignResult, payload: Schema.signResult.parse(payload)}
 }
 
-export function makeUnregisterRequest(payload: UnregisterRequest["payload"]): UnregisterRequest {
-  return {method: Method.UnregisterRequest, payload: Schema.unregisterRequest.parse(payload)}
+export function makeLogoutRequest(payload: LogoutRequest["payload"]): LogoutRequest {
+  return {method: Method.LogoutRequest, payload: Schema.logoutRequest.parse(payload)}
 }
 
-export function makeUnregisterResult(payload: UnregisterResult["payload"]): UnregisterResult {
-  return {method: Method.UnregisterResult, payload: Schema.unregisterResult.parse(payload)}
+export function makeLogoutResult(payload: LogoutResult["payload"]): LogoutResult {
+  return {method: Method.LogoutResult, payload: Schema.logoutResult.parse(payload)}
 }
 
 // Parsing
@@ -247,8 +241,8 @@ export function getMessageSchema(method: Method) {
     [Method.SetEmailFinalizeResult]: Schema.setEmailFinalizeResult,
     [Method.SignRequest]: Schema.signRequest,
     [Method.SignResult]: Schema.signResult,
-    [Method.UnregisterRequest]: Schema.unregisterRequest,
-    [Method.UnregisterResult]: Schema.unregisterResult,
+    [Method.LogoutRequest]: Schema.logoutRequest,
+    [Method.LogoutResult]: Schema.logoutResult,
   })
 }
 
@@ -303,7 +297,5 @@ export const isSetEmailFinalizeResult = (m: Message): m is SetEmailFinalizeResul
   m.method === Method.SetEmailFinalizeResult
 export const isSignRequest = (m: Message): m is SignRequest => m.method === Method.SignRequest
 export const isSignResult = (m: Message): m is SignResult => m.method === Method.SignResult
-export const isUnregisterRequest = (m: Message): m is UnregisterRequest =>
-  m.method === Method.UnregisterRequest
-export const isUnregisterResult = (m: Message): m is UnregisterResult =>
-  m.method === Method.UnregisterResult
+export const isLogoutRequest = (m: Message): m is LogoutRequest => m.method === Method.LogoutRequest
+export const isLogoutResult = (m: Message): m is LogoutResult => m.method === Method.LogoutResult

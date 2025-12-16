@@ -24,8 +24,8 @@ export enum Method {
   SetEmailFinalizeResult = "setEmail/finalize/result",
   SignRequest = "sign/request",
   SignResult = "sign/result",
-  UnregisterRequest = "unregister/request",
-  UnregisterResult = "unregister/result",
+  LogoutRequest = "logout/request",
+  LogoutResult = "logout/result",
 }
 
 export enum Status {
@@ -234,11 +234,11 @@ export const Schema = {
     message: z.string(),
     prev: hex32,
   }),
-  unregisterRequest: z.object({
+  logoutRequest: z.object({
     client: hex32,
     auth: event,
   }),
-  unregisterResult: z.object({
+  logoutResult: z.object({
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,
