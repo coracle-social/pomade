@@ -6,7 +6,7 @@ import {Client} from "../src/client"
 import {Signer} from "../src/signer"
 import {Mailer} from "../src/mailer"
 
-export const signerSecrets = Array.from(range(0, 3)).map(() => makeSecret())
+export const signerSecrets = Array.from(range(0, 8)).map(() => makeSecret())
 export const signerPubkeys = signerSecrets.map(secret => getPubkey(secret))
 
 context.signerPubkeys = signerPubkeys

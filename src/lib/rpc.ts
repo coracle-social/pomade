@@ -161,7 +161,7 @@ export class RPCChannel {
       throw new Error("Attempted to subscribe to a channel that has been closed")
     }
 
-    return this.rpc.subscribe((message) => {
+    return this.rpc.subscribe(message => {
       if (message.event.pubkey === this.peer) {
         handler(message)
       }
@@ -170,7 +170,7 @@ export class RPCChannel {
 
   receive<T>(handler: MessageHandlerWithCallback<T>) {
     return new Promise<Maybe<T>>((resolve, reject) => {
-      const unsubscribe = this.subscribe(async (message) => {
+      const unsubscribe = this.subscribe(async message => {
         try {
           handler(message, done)
         } catch (e) {

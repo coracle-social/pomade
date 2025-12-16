@@ -1,9 +1,9 @@
 import {
+  Maybe,
+  pushToMapKey,
   tryCatch,
+  shuffle,
   sortBy,
-  identity,
-  groupBy,
-  ffirst,
   fromPairs,
   uniq,
   first,
@@ -16,12 +16,15 @@ import {
 import {extract} from "@noble/hashes/hkdf.js"
 import {sha256 as sha256Hash} from "@noble/hashes/sha2.js"
 import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
-import {hash, own, makeSecret} from "@welshman/util"
+import {prep, makeSecret, getPubkey, makeHttpAuth} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
-import {Schema, Lib, PackageEncoder} from "@frostr/bifrost"
-import type {GroupPackage, ECDHPackage} from "@frostr/bifrost"
+import {Schema, Lib} from "@frostr/bifrost"
+import type {SharePackage, GroupPackage, ECDHPackage} from "@frostr/bifrost"
 import {
   context,
+  Method,
+  ClientListResultMessage,
+  isClientListResult,
   isEcdhResult,
   isLoginFinalizeResult,
   isLoginRequestResult,
@@ -31,10 +34,12 @@ import {
   isSetEmailFinalizeResult,
   isSetEmailRequestResult,
   isSignResult,
+  isUnregisterResult,
   LoginFinalizeResultMessage,
   LoginRequestResultMessage,
   RecoverFinalizeResultMessage,
   RecoverRequestResultMessage,
+  makeClientListRequest,
   makeEcdhRequest,
   makeLoginFinalize,
   makeLoginRequest,
@@ -44,12 +49,14 @@ import {
   makeSetEmailFinalize,
   makeSetEmailRequest,
   makeSignRequest,
+  makeUnregisterRequest,
   parseChallenge,
   RPC,
   SetEmailFinalizeResultMessage,
   SetEmailRequestResultMessage,
   SignResultMessage,
   Status,
+  UnregisterResultMessage,
   WithEvent,
 } from "../lib/index.js"
 
@@ -63,11 +70,15 @@ export class Client {
   rpc: RPC
   peers: string[]
   group: GroupPackage
+  pubkey: string
+  userPubkey: string
 
   constructor(options: ClientOptions) {
     this.rpc = new RPC(options.secret)
     this.peers = options.peers
     this.group = options.group
+    this.pubkey = getPubkey(options.secret)
+    this.userPubkey = this.group.group_pk.slice(2)
   }
 
   static async register(threshold: number, n: number, userSecret: string) {
@@ -82,7 +93,7 @@ export class Client {
     const secret = makeSecret()
     const rpc = new RPC(secret)
     const {group, shares} = Lib.generate_dealer_pkg(threshold, n, [userSecret])
-    const remainingSignerPubkeys = Array.from(context.signerPubkeys)
+    const remainingSignerPubkeys = shuffle(context.signerPubkeys)
     const errorsByPeer = new Map<string, string>()
     const peersByIndex = new Map<number, string>()
 
@@ -175,7 +186,7 @@ export class Client {
 
     rpc.stop()
 
-    let group: GroupPackage
+    let group: Maybe<GroupPackage> = undefined
     const peers: string[] = []
 
     for (const m of messages) {
@@ -245,12 +256,12 @@ export class Client {
 
     rpc.stop()
 
-    let group: GroupPackage
+    let group: Maybe<GroupPackage> = undefined
     const peers: string[] = []
     const shares: SharePackage[] = []
 
     for (const m of messages) {
-      if (m?.payload.status !== Status.Ok || !m.payload.group) {
+      if (m?.payload.status !== Status.Ok || !m.payload.group || !m.payload.share) {
         continue
       }
 
@@ -263,7 +274,7 @@ export class Client {
       shares.push(m.payload.share)
     }
 
-    const userSecret = tryCatch(() => Lib.recover_secret_key(group, shares))
+    const userSecret = tryCatch(() => Lib.recover_secret_key(group!, shares))
 
     if (userSecret) {
       return {ok: true, secret: userSecret, messages}
@@ -326,8 +337,8 @@ export class Client {
   }
 
   async sign(stampedEvent: StampedEvent) {
-    const {group_pk, threshold, commits} = this.group
-    const event = hash(own(stampedEvent, group_pk.slice(2)))
+    const {threshold, commits} = this.group
+    const event = prep(stampedEvent, this.userPubkey)
     const members = sample(threshold, commits).map(c => c.idx)
     const template = Lib.create_session_template(members, event.id)
 
@@ -340,10 +351,10 @@ export class Client {
         const peer = this.peers[idx - 1]!
         const channel = this.rpc.channel(peer)
 
-        channel.send(makeSignRequest({session}))
+        const pub = channel.send(makeSignRequest({session}))
 
         return channel.receive<WithEvent<SignResultMessage>>((message, resolve) => {
-          if (isSignResult(message)) {
+          if (isSignResult(message) && message.payload.prev === pub.event.id) {
             resolve(message)
           }
         })
@@ -391,5 +402,57 @@ export class Client {
         ),
       )
     }
+  }
+
+  async listClients() {
+    const messages = await Promise.all(
+      context.signerPubkeys.map(async (peer, i) => {
+        const channel = this.rpc.channel(peer)
+        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.ClientListRequest))
+
+        if (auth) {
+          const pub = channel.send(makeClientListRequest({auth}))
+
+          return channel.receive<WithEvent<ClientListResultMessage>>((message, resolve) => {
+            if (isClientListResult(message) && message.payload.prev === pub.event.id) {
+              resolve(message)
+            }
+          })
+        }
+      }),
+    )
+
+    const resultsByClient = new Map<string, {peer: string; email_hash: string}[]>()
+
+    for (const message of messages) {
+      if (!message) continue
+
+      for (const {client, email_hash} of message.payload.clients) {
+        pushToMapKey(resultsByClient, client, {peer: message.event.pubkey, email_hash})
+      }
+    }
+
+    return resultsByClient
+  }
+
+  async unregister(client: string, peers: string[]) {
+    const messages = await Promise.all(
+      peers.map(async (peer, i) => {
+        const channel = this.rpc.channel(peer)
+        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.UnregisterRequest))
+
+        if (auth) {
+          const pub = channel.send(makeUnregisterRequest({client, auth}))
+
+          return channel.receive<WithEvent<UnregisterResultMessage>>((message, resolve) => {
+            if (isUnregisterResult(message) && message.payload.prev === pub.event.id) {
+              resolve(message)
+            }
+          })
+        }
+      }),
+    )
+
+    return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
   }
 }

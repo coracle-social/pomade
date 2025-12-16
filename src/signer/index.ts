@@ -1,15 +1,16 @@
-import {Lib, PackageEncoder} from "@frostr/bifrost"
+import {Lib} from "@frostr/bifrost"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
-import {tryCatch} from "@welshman/lib"
-import {getPubkey} from "@welshman/util"
+import {getPubkey, verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
 import type {TrustedEvent} from "@welshman/util"
 import {
   RPC,
   Status,
+  makeClientListResult,
   makeRegisterResult,
   makeSetEmailRequestResult,
   makeSetEmailFinalizeResult,
   makeSetEmailChallenge,
+  isClientListRequest,
   isRegisterRequest,
   isSignRequest,
   isEcdhRequest,
@@ -19,6 +20,7 @@ import {
   isRecoverFinalize,
   isSetEmailRequest,
   isSetEmailFinalize,
+  isUnregisterRequest,
   makeSignResult,
   makeEcdhResult,
   makeLoginChallenge,
@@ -27,11 +29,15 @@ import {
   makeRecoverChallenge,
   makeRecoverRequestResult,
   makeRecoverFinalizeResult,
+  makeUnregisterResult,
   generateOTP,
+  Method,
 } from "../lib/index.js"
 import type {
+  ClientListRequestMessage,
   IStorageFactory,
   IStorage,
+  ClientListResultMessage,
   RegisterRequestMessage,
   SignRequestMessage,
   SetEmailRequestMessage,
@@ -41,6 +47,7 @@ import type {
   LoginFinalizeMessage,
   RecoverRequestMessage,
   RecoverFinalizeMessage,
+  UnregisterRequestMessage,
   WithEvent,
 } from "../lib/index.js"
 
@@ -105,6 +112,8 @@ export class Signer {
       if (isRecoverFinalize(message)) this.handleRecoverFinalizeMessage(message)
       if (isSignRequest(message)) this.handleSignRequestMessage(message)
       if (isEcdhRequest(message)) this.handleEcdhRequestMessage(message)
+      if (isClientListRequest(message)) this.handleClientListRequestMessage(message)
+      if (isUnregisterRequest(message)) this.handleUnregisterRequestMessage(message)
     })
   }
 
@@ -130,7 +139,8 @@ export class Signer {
     if (indices.size !== group.commits.length)
       return cb(Status.Error, "Group contains duplicate member indices.")
     if (!commit) return cb(Status.Error, "Share index not found in group commits.")
-    if (await this.registrations.has(client)) return cb(Status.Error, "Client key has already been used.")
+    if (await this.registrations.has(client))
+      return cb(Status.Error, "Client key has already been used.")
 
     await this.registrations.set(client, {client, event, share, group})
 
@@ -148,9 +158,9 @@ export class Signer {
 
       await this.challenges.set(client, {otp, email_hash, email_service, email_ciphertext})
 
-      this.rpc.channel(email_service).send(
-        makeSetEmailChallenge({otp, total, client, email_ciphertext}),
-      )
+      this.rpc
+        .channel(email_service)
+        .send(makeSetEmailChallenge({otp, total, client, email_ciphertext}))
     }
 
     // Always show success so attackers can't get information on who is registered
@@ -168,7 +178,11 @@ export class Signer {
     const challenge = await this.challenges.get(client)
     const registration = await this.registrations.get(client)
 
-    if (registration && challenge?.email_hash === payload.email_hash && challenge?.otp === payload.otp) {
+    if (
+      registration &&
+      challenge?.email_hash === payload.email_hash &&
+      challenge?.otp === payload.otp
+    ) {
       await this.registrations.set(client, {
         ...registration,
         email_hash: challenge.email_hash,
@@ -211,10 +225,11 @@ export class Signer {
       this.rpc.channel(client).send(
         makeLoginRequestResult({
           status: Status.Pending,
-          message: "Multiple pubkeys are associated with this email. Please select one to continue.",
+          message:
+            "Multiple pubkeys are associated with this email. Please select one to continue.",
           options: Array.from(pubkeys),
           prev: event.id,
-        })
+        }),
       )
     } else if (registrations.length > 0) {
       const otp = generateOTP()
@@ -287,10 +302,11 @@ export class Signer {
       this.rpc.channel(client).send(
         makeRecoverRequestResult({
           status: Status.Pending,
-          message: "Multiple pubkeys are associated with this email. Please select one to continue.",
+          message:
+            "Multiple pubkeys are associated with this email. Please select one to continue.",
           options: Array.from(pubkeys),
           prev: event.id,
-        })
+        }),
       )
     } else if (registrations.length > 0) {
       const otp = generateOTP()
@@ -324,7 +340,11 @@ export class Signer {
     const recover = await this.recovers.get(client)
     const registration = recover ? await this.registrations.get(recover.copy_from) : undefined
 
-    if (registration && recover?.email_hash === payload.email_hash && recover?.otp === payload.otp) {
+    if (
+      registration &&
+      recover?.email_hash === payload.email_hash &&
+      recover?.otp === payload.otp
+    ) {
       await this.registrations.set(client, {...registration, event})
 
       this.rpc.channel(client).send(
@@ -400,5 +420,84 @@ export class Signer {
         prev: event.id,
       }),
     )
+  }
+
+  async handleClientListRequestMessage({payload, event}: WithEvent<ClientListRequestMessage>) {
+    const channel = this.rpc.channel(event.pubkey)
+    if (
+      !verifyEvent(payload.auth) ||
+      payload.auth.kind !== HTTP_AUTH ||
+      getTagValue("u", payload.auth.tags) !== this.pubkey ||
+      getTagValue("method", payload.auth.tags) !== Method.ClientListRequest
+    ) {
+      return channel.send(
+        makeClientListResult({
+          clients: [],
+          status: Status.Error,
+          message: "Failed to validate authentication.",
+          prev: event.id,
+        }),
+      )
+    }
+
+    const clients: ClientListResultMessage["payload"]["clients"] = []
+    for (const [_, reg] of await this.registrations.entries()) {
+      if (reg.group.group_pk.slice(2) === payload.auth.pubkey) {
+        clients.push({
+          client: reg.client,
+          email_hash: reg.email_hash,
+        })
+      }
+    }
+
+    channel.send(
+      makeClientListResult({
+        clients,
+        status: Status.Ok,
+        message: "Successfully retrieved client list.",
+        prev: event.id,
+      }),
+    )
+  }
+
+  async handleUnregisterRequestMessage({payload, event}: WithEvent<UnregisterRequestMessage>) {
+    const channel = this.rpc.channel(event.pubkey)
+
+    if (
+      !verifyEvent(payload.auth) ||
+      payload.auth.kind !== HTTP_AUTH ||
+      getTagValue("u", payload.auth.tags) !== this.pubkey ||
+      getTagValue("method", payload.auth.tags) !== Method.UnregisterRequest
+    ) {
+      return channel.send(
+        makeUnregisterResult({
+          status: Status.Error,
+          message: "Failed to unregister selected client.",
+          prev: event.id,
+        }),
+      )
+    }
+
+    const registration = await this.registrations.get(payload.client)
+
+    if (registration?.group.group_pk.slice(2) === payload.auth.pubkey) {
+      await this.registrations.delete(payload.client)
+
+      channel.send(
+        makeUnregisterResult({
+          status: Status.Ok,
+          message: "Successfully unregister selected client.",
+          prev: event.id,
+        }),
+      )
+    } else {
+      return channel.send(
+        makeUnregisterResult({
+          status: Status.Error,
+          message: "Failed to unregister selected client.",
+          prev: event.id,
+        }),
+      )
+    }
   }
 }

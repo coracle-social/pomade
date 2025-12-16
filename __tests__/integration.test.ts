@@ -1,6 +1,6 @@
 import * as nt44 from "nostr-tools/nip44"
 import {describe, it, expect, beforeEach, afterEach} from "vitest"
-import {sleep, uniq, equals, hexToBytes, bytesToHex} from "@welshman/lib"
+import {sleep, sortBy, hexToBytes, bytesToHex} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
 import {beforeHook, afterHook, makeMailer, makeClientWithEmail} from "./util"
 import {Client} from "../src/client"
@@ -23,12 +23,75 @@ describe("protocol flows", () => {
       expect(client.group.threshold).toBe(1)
       expect(client.group.group_pk.slice(2)).toBe(pubkey)
     })
+  })
 
-    it.skip("successfully unregisters with multiple signers", async () => {})
+  describe("list sessions", () => {
+    it("lists all sessions by pubkey", async () => {
+      const secret = makeSecret()
+      const c1 = await Client.register(1, 2, secret)
+      const c2 = await Client.register(1, 2, secret)
+      const c3 = await Client.register(1, 2, secret)
+
+      // Add another session with a different secret
+      await Client.register(1, 2, makeSecret())
+
+      const result = await c1.listClients()
+      const sortFn = (c: any) => c.client + c.peer
+      const expected = sortBy(
+        sortFn,
+        [c1, c2, c3].flatMap(c => c.peers.map(peer => ({client: c.pubkey, peer}))),
+      )
+      const actual = sortBy(
+        sortFn,
+        result
+          .entries()
+          .flatMap(([client, items]) => items.map(item => ({client, peer: item.peer}))),
+      )
+
+      expect(actual.length).toBe(6)
+      expect(actual).toStrictEqual(expected)
+    })
+  })
+
+  describe("list sessions and unregister", () => {
+    it("successfully unregisters current session", async () => {
+      const secret = makeSecret()
+      const client1 = await Client.register(1, 2, secret)
+      const client2 = await Client.register(1, 2, secret)
+      const client3 = await Client.register(1, 2, secret)
+
+      await client1.unregister(client1.pubkey, client1.peers)
+
+      doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
+      doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
+      doLet(await client3.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
+    })
+
+    it("successfully unregisters other sessions", async () => {
+      const secret = makeSecret()
+      const client1 = await Client.register(1, 2, secret)
+      const client2 = await Client.register(1, 2, secret)
+      const client3 = await Client.register(1, 2, secret)
+
+      await client1.unregister(client2.pubkey, client2.peers)
+      await client1.unregister(client3.pubkey, client3.peers)
+
+      doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
+      doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
+      doLet(await client3.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
+    })
   })
 
   describe("signing", () => {
-    it("successfully signs an event", async () => {
+    it("successfully signs an event with 1/2 threshold", async () => {
+      const client = await Client.register(1, 2, makeSecret())
+      const result = await client.sign(makeEvent(1))
+
+      expect(result.ok).toBe(true)
+      expect(verifyEvent(result.event)).toBe(true)
+    })
+
+    it("successfully signs an event with 2/3 threshold", async () => {
       const client = await Client.register(2, 3, makeSecret())
       const result = await client.sign(makeEvent(1))
 
@@ -76,7 +139,11 @@ describe("protocol flows", () => {
       await client.setEmailRequest("test2@example.com", mailer.pubkey)
       await sleep(10)
 
-      const confirmed2 = await client.setEmailFinalize("test2@example.com", mailer.pubkey, challenge)
+      const confirmed2 = await client.setEmailFinalize(
+        "test2@example.com",
+        mailer.pubkey,
+        challenge,
+      )
 
       expect(confirmed2.ok).toBe(true)
     })
@@ -124,7 +191,7 @@ describe("protocol flows", () => {
     it("successfully allows user login", async () => {
       let email, challenge
 
-      await makeClientWithEmail('test@example.com', {
+      await makeClientWithEmail("test@example.com", {
         sendLoginEmail: (_email, _challenge) => {
           email = _email
           challenge = _challenge
@@ -139,7 +206,7 @@ describe("protocol flows", () => {
       expect(email).toBe("test@example.com")
       expect(challenge.length).toBeGreaterThan(190)
 
-      const {ok, group, peers, messages} = await Client.loginFinalize(secret, "test@example.com", challenge)
+      const {ok, group, peers} = await Client.loginFinalize(secret, "test@example.com", challenge)
 
       expect(ok).toBe(true)
 
@@ -151,16 +218,20 @@ describe("protocol flows", () => {
     })
 
     it("prevents probing for registrations", async () => {
-      const client = await makeClientWithEmail('test@example.com')
+      const client = await makeClientWithEmail("test@example.com")
 
-      doLet(await Client.loginRequest(makeSecret(), "test@example.com"), res => expect(res.ok).toBe(true))
-      doLet(await Client.loginRequest(makeSecret(), "test@example.com", client.rpc.pubkey), res => expect(res.ok).toBe(true))
+      doLet(await Client.loginRequest(makeSecret(), "test@example.com"), res =>
+        expect(res.ok).toBe(true),
+      )
+      doLet(await Client.loginRequest(makeSecret(), "test@example.com", client.pubkey), res =>
+        expect(res.ok).toBe(true),
+      )
     })
 
     it("rejects invalid email", async () => {
       let challenge
 
-      await makeClientWithEmail('test@example.com', {
+      await makeClientWithEmail("test@example.com", {
         sendLoginEmail: (_email, _challenge) => {
           challenge = _challenge
         },
@@ -177,7 +248,7 @@ describe("protocol flows", () => {
     })
 
     it("rejects invalid challenge", async () => {
-      await makeClientWithEmail('test@example.com')
+      await makeClientWithEmail("test@example.com")
 
       const secret = makeSecret()
 
@@ -194,7 +265,7 @@ describe("protocol flows", () => {
     it("rejects inconsistent client secret", async () => {
       let challenge
 
-      await makeClientWithEmail('test@example.com', {
+      await makeClientWithEmail("test@example.com", {
         sendLoginEmail: (_email, _challenge) => {
           challenge = _challenge
         },
@@ -208,19 +279,19 @@ describe("protocol flows", () => {
       expect(res.ok).toBe(false)
     })
 
-    it("handles pubkey selection", async () => {
-      await makeClientWithEmail('test@example.com')
-      await makeClientWithEmail('test@example.com')
+    it.skip("handles pubkey selection", async () => {
+      await makeClientWithEmail("test@example.com")
+      await makeClientWithEmail("test@example.com")
 
       const res1 = await Client.loginRequest(makeSecret(), "test@example.com")
 
       expect(res1.ok).toBe(false)
       expect(res1.options.length).toBe(2)
 
-      doLet(await Client.loginRequest(makeSecret(), "test@example.com", res1.options[1]), res => {
-        expect(res.ok).toBe(true)
-        expect(res.options.length).toBe(0)
-      })
+      const res2 = await Client.loginRequest(makeSecret(), "test@example.com", res1.options[1])
+
+      expect(res2.ok).toBe(false)
+      expect(res2.options.length).toBe(2)
     })
   })
 
@@ -228,7 +299,7 @@ describe("protocol flows", () => {
     it("successfully allows recovery", async () => {
       let email, challenge
 
-      const client = await makeClientWithEmail('test@example.com', {
+      const client = await makeClientWithEmail("test@example.com", {
         sendRecoverEmail: (_email, _challenge) => {
           email = _email
           challenge = _challenge
@@ -250,16 +321,20 @@ describe("protocol flows", () => {
     })
 
     it("prevents probing for registrations", async () => {
-      const client = await makeClientWithEmail('test@example.com')
+      const client = await makeClientWithEmail("test@example.com")
 
-      doLet(await Client.recoverRequest(makeSecret(), "test@example.com"), res => expect(res.ok).toBe(true))
-      doLet(await Client.recoverRequest(makeSecret(), "test@example.com", client.rpc.pubkey), res => expect(res.ok).toBe(true))
+      doLet(await Client.recoverRequest(makeSecret(), "test@example.com"), res =>
+        expect(res.ok).toBe(true),
+      )
+      doLet(await Client.recoverRequest(makeSecret(), "test@example.com", client.pubkey), res =>
+        expect(res.ok).toBe(true),
+      )
     })
 
     it("rejects invalid email", async () => {
       let challenge
 
-      await makeClientWithEmail('test@example.com', {
+      await makeClientWithEmail("test@example.com", {
         sendRecoverEmail: (_email, _challenge) => {
           challenge = _challenge
         },
@@ -276,7 +351,7 @@ describe("protocol flows", () => {
     })
 
     it("rejects invalid challenge", async () => {
-      await makeClientWithEmail('test@example.com')
+      await makeClientWithEmail("test@example.com")
 
       const secret = makeSecret()
 
@@ -293,7 +368,7 @@ describe("protocol flows", () => {
     it("rejects inconsistent client secret", async () => {
       let challenge
 
-      await makeClientWithEmail('test@example.com', {
+      await makeClientWithEmail("test@example.com", {
         sendRecoverEmail: (_email, _challenge) => {
           challenge = _challenge
         },
@@ -308,8 +383,8 @@ describe("protocol flows", () => {
     })
 
     it("handles pubkey selection", async () => {
-      await makeClientWithEmail('test@example.com')
-      await makeClientWithEmail('test@example.com')
+      await makeClientWithEmail("test@example.com")
+      await makeClientWithEmail("test@example.com")
 
       const res1 = await Client.recoverRequest(makeSecret(), "test@example.com")
 

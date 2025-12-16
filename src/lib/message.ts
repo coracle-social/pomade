@@ -7,6 +7,14 @@ import {Schema, Method} from "./schema"
 
 type DefineMessage<M, P> = {method: M; payload: z.infer<P>}
 
+export type ClientListRequestMessage = DefineMessage<
+  Method.ClientListRequest,
+  typeof Schema.clientListRequest
+>
+export type ClientListResultMessage = DefineMessage<
+  Method.ClientListResult,
+  typeof Schema.clientListResult
+>
 export type EcdhRequestMessage = DefineMessage<Method.EcdhRequest, typeof Schema.ecdhRequest>
 export type EcdhResultMessage = DefineMessage<Method.EcdhResult, typeof Schema.ecdhResult>
 export type LoginRequestMessage = DefineMessage<Method.LoginRequest, typeof Schema.loginRequest>
@@ -83,6 +91,8 @@ export type UnregisterResultMessage = DefineMessage<
 >
 
 export type Message =
+  | ClientListRequestMessage
+  | ClientListResultMessage
   | EcdhRequestMessage
   | EcdhResultMessage
   | LoginRequestMessage
@@ -108,6 +118,18 @@ export type Message =
   | UnregisterResultMessage
 
 // Construction
+
+export function makeClientListRequest(
+  payload: ClientListRequestMessage["payload"],
+): ClientListRequestMessage {
+  return {method: Method.ClientListRequest, payload: Schema.clientListRequest.parse(payload)}
+}
+
+export function makeClientListResult(
+  payload: ClientListResultMessage["payload"],
+): ClientListResultMessage {
+  return {method: Method.ClientListResult, payload: Schema.clientListResult.parse(payload)}
+}
 
 export function makeEcdhRequest(payload: EcdhRequestMessage["payload"]): EcdhRequestMessage {
   return {method: Method.EcdhRequest, payload: Schema.ecdhRequest.parse(payload)}
@@ -170,7 +192,10 @@ export function makeRecoverFinalize(
 export function makeRecoverFinalizeResult(
   payload: RecoverFinalizeResultMessage["payload"],
 ): RecoverFinalizeResultMessage {
-  return {method: Method.RecoverFinalizeResult, payload: Schema.recoverFinalizeResult.parse(payload)}
+  return {
+    method: Method.RecoverFinalizeResult,
+    payload: Schema.recoverFinalizeResult.parse(payload),
+  }
 }
 
 export function makeRegisterRequest(
@@ -215,7 +240,10 @@ export function makeSetEmailFinalize(
 export function makeSetEmailFinalizeResult(
   payload: SetEmailFinalizeResultMessage["payload"],
 ): SetEmailFinalizeResultMessage {
-  return {method: Method.SetEmailFinalizeResult, payload: Schema.setEmailFinalizeResult.parse(payload)}
+  return {
+    method: Method.SetEmailFinalizeResult,
+    payload: Schema.setEmailFinalizeResult.parse(payload),
+  }
 }
 
 export function makeSignRequest(payload: SignRequestMessage["payload"]): SignRequestMessage {
@@ -242,6 +270,8 @@ export function makeUnregisterResult(
 
 export function getMessageSchema(method: Method) {
   return switcher(method, {
+    [Method.ClientListRequest]: Schema.clientListRequest,
+    [Method.ClientListResult]: Schema.clientListResult,
     [Method.EcdhRequest]: Schema.ecdhRequest,
     [Method.EcdhResult]: Schema.ecdhResult,
     [Method.LoginRequest]: Schema.loginRequest,
@@ -279,6 +309,10 @@ export function parseMessage(s: string): Maybe<Message> {
 
 // Type guards
 
+export const isClientListRequest = (m: Message): m is ClientListRequestMessage =>
+  m.method === Method.ClientListRequest
+export const isClientListResult = (m: Message): m is ClientListResultMessage =>
+  m.method === Method.ClientListResult
 export const isEcdhRequest = (m: Message): m is EcdhRequestMessage =>
   m.method === Method.EcdhRequest
 export const isEcdhResult = (m: Message): m is EcdhResultMessage => m.method === Method.EcdhResult

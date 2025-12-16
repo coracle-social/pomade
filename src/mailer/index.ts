@@ -1,8 +1,22 @@
 import {tryCatch} from "@welshman/lib"
 import {getPubkey} from "@welshman/util"
-import type {TrustedEvent} from "@welshman/util"
-import {RPC, Status, buildChallenge, isSetEmailChallenge, isLoginChallenge, isRecoverChallenge, Method} from "../lib/index.js"
-import type {IStorageFactory, IStorage, SetEmailChallengeMessage, LoginChallengeMessage, RecoverChallengeMessage, WithEvent} from "../lib/index.js"
+import {
+  RPC,
+  Status,
+  buildChallenge,
+  isSetEmailChallenge,
+  isLoginChallenge,
+  isRecoverChallenge,
+  Method,
+} from "../lib/index.js"
+import type {
+  IStorageFactory,
+  IStorage,
+  SetEmailChallengeMessage,
+  LoginChallengeMessage,
+  RecoverChallengeMessage,
+  WithEvent,
+} from "../lib/index.js"
 
 export type BatchState = {
   email: string
@@ -13,7 +27,8 @@ export type BatchState = {
   status: Status
 }
 
-const getBatchKey = (email: string, client: string, method: Method) => `${email}:${client}:${method}`
+const getBatchKey = (email: string, client: string, method: Method) =>
+  `${email}:${client}:${method}`
 
 export type EmailProvider = {
   sendValidationEmail: (email: string, challenge: string, callbackUrl?: string) => Promise<void>
@@ -62,7 +77,11 @@ export class Mailer {
       batch.peers.push([event.pubkey, otp])
 
       if (batch.peers.length === batch.total) {
-        await this.options.provider.sendValidationEmail(email, buildChallenge(batch.peers), callback_url)
+        await this.options.provider.sendValidationEmail(
+          email,
+          buildChallenge(batch.peers),
+          callback_url,
+        )
         await this.batches.delete(key)
       } else {
         await this.batches.set(key, batch)
@@ -112,7 +131,11 @@ export class Mailer {
       batch.peers.push([event.pubkey, otp])
 
       if (batch.peers.length === batch.total) {
-        await this.options.provider.sendRecoverEmail(email, buildChallenge(batch.peers), callback_url)
+        await this.options.provider.sendRecoverEmail(
+          email,
+          buildChallenge(batch.peers),
+          callback_url,
+        )
         await this.batches.delete(key)
       } else {
         await this.batches.set(key, batch)

@@ -1,6 +1,8 @@
 import * as z from "zod"
 
 export enum Method {
+  ClientListRequest = "client/list/request",
+  ClientListResult = "client/list/result",
   EcdhRequest = "ecdh/request",
   EcdhResult = "ecdh/result",
   LoginRequest = "login/request",
@@ -26,79 +28,94 @@ export enum Method {
   UnregisterResult = "unregister/result",
 }
 
-export enum RevokeScope {
-  All = "all",
-  Others = "others",
-  Current = "current",
-}
-
 export enum Status {
   Ok = "ok",
   Error = "error",
   Pending = "pending",
 }
 
-const hex = z.string().regex(/^[0-9a-fA-F]*$/).refine(e => e.length % 2 === 0)
-const hex32 = hex.refine((e) => e.length === 64)
-const hex33 = hex.refine((e) => e.length === 66)
+const hex = z
+  .string()
+  .regex(/^[0-9a-fA-F]*$/)
+  .refine(e => e.length % 2 === 0)
+const hex32 = hex.refine(e => e.length === 64)
+const hex33 = hex.refine(e => e.length === 66)
 
 const commit = z.object({
-  idx       : z.number(),
-  pubkey    : hex33,
-  hidden_pn : hex33,
-  binder_pn : hex33
+  idx: z.number(),
+  pubkey: hex33,
+  hidden_pn: hex33,
+  binder_pn: hex33,
 })
 
 const group = z.object({
-  commits   : z.array(commit),
-  group_pk  : hex33,
-  threshold : z.number()
+  commits: z.array(commit),
+  group_pk: hex33,
+  threshold: z.number(),
 })
 
 const share = z.object({
-  idx       : z.number(),
-  binder_sn : hex32,
-  hidden_sn : hex32,
-  seckey    : hex32
+  idx: z.number(),
+  binder_sn: hex32,
+  hidden_sn: hex32,
+  seckey: hex32,
 })
 
 const ecdh = z.object({
-  idx      : z.number(),
-  keyshare : hex,
-  members  : z.number().array(),
-  ecdh_pk  : hex
+  idx: z.number(),
+  keyshare: hex,
+  members: z.number().array(),
+  ecdh_pk: hex,
 })
 
-const member = share.extend({
-  bind_hash : hex32,
-  sid       : hex32,
-  sighash   : hex32
-})
-
-const psig_entry  = z.tuple([ hex32, hex32 ])
-const sighash_vec = z.tuple([ hex32 ]).rest(hex32)
+const psig_entry = z.tuple([hex32, hex32])
+const sighash_vec = z.tuple([hex32]).rest(hex32)
 
 const template = z.object({
-  content : z.string().nullable(),
-  hashes  : sighash_vec.array(),
-  members : z.number().array(),
-  stamp   : z.number(),
-  type    : z.string(),
+  content: z.string().nullable(),
+  hashes: sighash_vec.array(),
+  members: z.number().array(),
+  stamp: z.number(),
+  type: z.string(),
 })
 
 const session = template.extend({
-  gid : hex32,
-  sid : hex32,
+  gid: hex32,
+  sid: hex32,
 })
 
 const psig = z.object({
-  idx     : z.number(),
-  psigs   : psig_entry.array(),
-  pubkey  : hex33,
-  sid     : hex32
+  idx: z.number(),
+  psigs: psig_entry.array(),
+  pubkey: hex33,
+  sid: hex32,
+})
+
+const event = z.object({
+  sig: hex,
+  id: hex32,
+  pubkey: hex32,
+  kind: z.int().nonnegative(),
+  tags: z.string().array().array(),
+  content: z.string(),
+  created_at: z.int().positive(),
 })
 
 export const Schema = {
+  clientListRequest: z.object({
+    auth: event,
+  }),
+  clientListResult: z.object({
+    clients: z.array(
+      z.object({
+        client: hex32,
+        email_hash: z.string().optional(),
+      }),
+    ),
+    status: z.enum(Object.values(Status)),
+    message: z.string(),
+    prev: hex32,
+  }),
   ecdhRequest: z.object({
     idx: z.number(),
     members: z.number().array(),
@@ -216,7 +233,8 @@ export const Schema = {
     prev: hex32,
   }),
   unregisterRequest: z.object({
-    revoke: z.enum(Object.values(RevokeScope)),
+    client: hex32,
+    auth: event,
   }),
   unregisterResult: z.object({
     status: z.enum(Object.values(Status)),
