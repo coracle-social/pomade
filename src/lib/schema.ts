@@ -1,8 +1,8 @@
 import * as z from "zod"
 
 export enum Method {
-  ClientListRequest = "client/list/request",
-  ClientListResult = "client/list/result",
+  SessionListRequest = "session/list/request",
+  SessionListResult = "session/list/result",
   EcdhRequest = "ecdh/request",
   EcdhResult = "ecdh/result",
   LoginRequest = "login/request",
@@ -101,7 +101,7 @@ const event = z.object({
   created_at: z.int().positive(),
 })
 
-const clientItem = z.object({
+const sessionItem = z.object({
   client: hex32,
   email: z.string().optional(),
   created_at: z.int().positive(),
@@ -109,12 +109,12 @@ const clientItem = z.object({
 })
 
 export const Schema = {
-  clientItem,
-  clientListRequest: z.object({
+  sessionItem,
+  sessionListRequest: z.object({
     auth: event,
   }),
-  clientListResult: z.object({
-    clients: z.array(clientItem),
+  sessionListResult: z.object({
+    sessions: z.array(sessionItem),
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,

@@ -35,7 +35,7 @@ describe("protocol flows", () => {
       // Add another session with a different secret
       await Client.register(1, 2, makeSecret())
 
-      const result = await c1.listClients()
+      const result = await c1.listSessions()
       const sortFn = (c: any) => c.client + c.peer
       const expected = sortBy(
         sortFn,
@@ -217,7 +217,7 @@ describe("protocol flows", () => {
       expect(verifyEvent(result.event)).toBe(true)
     })
 
-    it("prevents probing for registrations", async () => {
+    it("prevents probing for session", async () => {
       const client = await makeClientWithEmail("test@example.com")
 
       doLet(await Client.loginRequest(makeSecret(), "test@example.com"), res =>
@@ -320,7 +320,7 @@ describe("protocol flows", () => {
       expect(getPubkey(res.secret)).toBe(client.group.group_pk.slice(2))
     })
 
-    it("prevents probing for registrations", async () => {
+    it("prevents probing for session", async () => {
       const client = await makeClientWithEmail("test@example.com")
 
       doLet(await Client.recoverRequest(makeSecret(), "test@example.com"), res =>

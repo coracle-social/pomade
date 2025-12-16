@@ -7,13 +7,13 @@ import {Schema, Method} from "./schema"
 
 type DefineMessage<M, P> = {method: M; payload: z.infer<P>}
 
-export type ClientListRequest = DefineMessage<
-  Method.ClientListRequest,
-  typeof Schema.clientListRequest
+export type SessionListRequest = DefineMessage<
+  Method.SessionListRequest,
+  typeof Schema.sessionListRequest
 >
-export type ClientListResult = DefineMessage<
-  Method.ClientListResult,
-  typeof Schema.clientListResult
+export type SessionListResult = DefineMessage<
+  Method.SessionListResult,
+  typeof Schema.sessionListResult
 >
 export type EcdhRequest = DefineMessage<Method.EcdhRequest, typeof Schema.ecdhRequest>
 export type EcdhResult = DefineMessage<Method.EcdhResult, typeof Schema.ecdhResult>
@@ -73,8 +73,8 @@ export type UnregisterResult = DefineMessage<
 >
 
 export type Message =
-  | ClientListRequest
-  | ClientListResult
+  | SessionListRequest
+  | SessionListResult
   | EcdhRequest
   | EcdhResult
   | LoginRequest
@@ -101,12 +101,12 @@ export type Message =
 
 // Construction
 
-export function makeClientListRequest(payload: ClientListRequest["payload"]): ClientListRequest {
-  return {method: Method.ClientListRequest, payload: Schema.clientListRequest.parse(payload)}
+export function makeSessionListRequest(payload: SessionListRequest["payload"]): SessionListRequest {
+  return {method: Method.SessionListRequest, payload: Schema.sessionListRequest.parse(payload)}
 }
 
-export function makeClientListResult(payload: ClientListResult["payload"]): ClientListResult {
-  return {method: Method.ClientListResult, payload: Schema.clientListResult.parse(payload)}
+export function makeSessionListResult(payload: SessionListResult["payload"]): SessionListResult {
+  return {method: Method.SessionListResult, payload: Schema.sessionListResult.parse(payload)}
 }
 
 export function makeEcdhRequest(payload: EcdhRequest["payload"]): EcdhRequest {
@@ -224,8 +224,8 @@ export function makeUnregisterResult(payload: UnregisterResult["payload"]): Unre
 
 export function getMessageSchema(method: Method) {
   return switcher(method, {
-    [Method.ClientListRequest]: Schema.clientListRequest,
-    [Method.ClientListResult]: Schema.clientListResult,
+    [Method.SessionListRequest]: Schema.sessionListRequest,
+    [Method.SessionListResult]: Schema.sessionListResult,
     [Method.EcdhRequest]: Schema.ecdhRequest,
     [Method.EcdhResult]: Schema.ecdhResult,
     [Method.LoginRequest]: Schema.loginRequest,
@@ -263,10 +263,10 @@ export function parseMessage(s: string): Maybe<Message> {
 
 // Type guards
 
-export const isClientListRequest = (m: Message): m is ClientListRequest =>
-  m.method === Method.ClientListRequest
-export const isClientListResult = (m: Message): m is ClientListResult =>
-  m.method === Method.ClientListResult
+export const isSessionListRequest = (m: Message): m is SessionListRequest =>
+  m.method === Method.SessionListRequest
+export const isSessionListResult = (m: Message): m is SessionListResult =>
+  m.method === Method.SessionListResult
 export const isEcdhRequest = (m: Message): m is EcdhRequest => m.method === Method.EcdhRequest
 export const isEcdhResult = (m: Message): m is EcdhResult => m.method === Method.EcdhResult
 export const isLoginRequest = (m: Message): m is LoginRequest => m.method === Method.LoginRequest

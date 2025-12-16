@@ -23,8 +23,8 @@ import type {SharePackage, GroupPackage, ECDHPackage} from "@frostr/bifrost"
 import {
   context,
   Method,
-  ClientListResult,
-  isClientListResult,
+  SessionListResult,
+  isSessionListResult,
   isEcdhResult,
   isLoginFinalizeResult,
   isLoginRequestResult,
@@ -39,7 +39,7 @@ import {
   LoginRequestResult,
   RecoverFinalizeResult,
   RecoverRequestResult,
-  makeClientListRequest,
+  makeSessionListRequest,
   makeEcdhRequest,
   makeLoginFinalize,
   makeLoginRequest,
@@ -383,17 +383,17 @@ export class Client {
     }
   }
 
-  async listClients() {
+  async listSessions() {
     const messages = await Promise.all(
       context.signerPubkeys.map(async (peer, i) => {
-        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.ClientListRequest))
+        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.SessionListRequest))
 
         if (auth) {
           return this.rpc
             .channel(peer)
-            .send(makeClientListRequest({auth}))
-            .receive<WithEvent<ClientListResult>>((message, resolve) => {
-              if (isClientListResult(message)) {
+            .send(makeSessionListRequest({auth}))
+            .receive<WithEvent<SessionListResult>>((message, resolve) => {
+              if (isSessionListResult(message)) {
                 resolve(message)
               }
             })
@@ -401,20 +401,20 @@ export class Client {
       }),
     )
 
-    const resultsByClient = new Map<string, z.infer<typeof Schema.clientItem> & {peer: string}[]>()
+    const sessionsByClient = new Map<string, z.infer<typeof Schema.sessionItem> & {peer: string}[]>()
 
     for (const message of messages) {
       if (!message) continue
 
-      for (const clientItem of message.payload.clients) {
-        pushToMapKey(resultsByClient, clientItem.client, {
+      for (const sessionItem of message.payload.sessions) {
+        pushToMapKey(sessionsByClient, sessionItem.client, {
           peer: message.event.pubkey,
-          ...clientItem,
+          ...sessionItem,
         })
       }
     }
 
-    return resultsByClient
+    return sessionsByClient
   }
 
   async unregister(client: string, peers: string[]) {

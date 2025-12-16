@@ -6,12 +6,12 @@ import type {TrustedEvent, SignedEvent} from "@welshman/util"
 import {
   RPC,
   Status,
-  makeClientListResult,
+  makeSessionListResult,
   makeRegisterResult,
   makeSetEmailRequestResult,
   makeSetEmailFinalizeResult,
   makeSetEmailChallenge,
-  isClientListRequest,
+  isSessionListRequest,
   isRegisterRequest,
   isSignRequest,
   isEcdhRequest,
@@ -35,10 +35,10 @@ import {
   Method,
 } from "../lib/index.js"
 import type {
-  ClientListRequest,
+  SessionListRequest,
   IStorageFactory,
   IStorage,
-  ClientListResult,
+  SessionListResult,
   RegisterRequest,
   SignRequest,
   SetEmailRequest,
@@ -52,7 +52,7 @@ import type {
   WithEvent,
 } from "../lib/index.js"
 
-export type SignerRegistration = {
+export type Session = {
   client: string
   share: SharePackage
   group: GroupPackage
@@ -92,7 +92,7 @@ export type SignerOptions = {
 export class Signer {
   rpc: RPC
   pubkey: string
-  registrations: IStorage<SignerRegistration>
+  sessions: IStorage<Session>
   validations: IStorage<Validation>
   logins: IStorage<Login>
   recovers: IStorage<Recover>
@@ -101,7 +101,7 @@ export class Signer {
 
   constructor(private options: SignerOptions) {
     this.pubkey = getPubkey(options.secret)
-    this.registrations = options.storage("registrations")
+    this.sessions = options.storage("sessions")
     this.validations = options.storage("validations")
     this.logins = options.storage("logins")
     this.recovers = options.storage("recovers")
@@ -116,7 +116,7 @@ export class Signer {
       if (isRecoverFinalize(message)) this.handleRecoverFinalize(message)
       if (isSignRequest(message)) this.handleSignRequest(message)
       if (isEcdhRequest(message)) this.handleEcdhRequest(message)
-      if (isClientListRequest(message)) this.handleClientListRequest(message)
+      if (isSessionListRequest(message)) this.handleSessionListRequest(message)
       if (isUnregisterRequest(message)) this.handleUnregisterRequest(message)
     })
 
@@ -136,10 +136,10 @@ export class Signer {
       ) as unknown as number,
     ]
 
-    // Immediately clean up old registrations/validations
+    // Immediately clean up old sessions/validations
     call(async () => {
-      for (const [k, registration] of await this.registrations.entries()) {
-        if (registration.last_activity < ago(YEAR)) await this.registrations.delete(k)
+      for (const [k, session] of await this.sessions.entries()) {
+        if (session.last_activity < ago(YEAR)) await this.sessions.delete(k)
       }
 
       for (const [k, validation] of await this.validations.entries()) {
@@ -164,6 +164,18 @@ export class Signer {
     )
   }
 
+  async _listSessionsByEmail(email: string, pubkey?: string) {
+    const sessions: Session[] = []
+    for (const [_, session] of await this.sessions.entries()) {
+      if (session.email !== email) continue
+      if (pubkey && session.group.group_pk !== pubkey) continue
+
+      sessions.push(session)
+    }
+
+    return sessions
+  }
+
   async handleRegisterRequest({payload, event}: WithEvent<RegisterRequest>) {
     const client = event.pubkey
     const {group, share} = payload
@@ -185,43 +197,43 @@ export class Signer {
     if (indices.size !== group.commits.length)
       return cb(Status.Error, "Group contains duplicate member indices.")
     if (!commit) return cb(Status.Error, "Share index not found in group commits.")
-    if (await this.registrations.has(client))
+    if (await this.sessions.has(client))
       return cb(Status.Error, "Client is already registered.")
 
-    await this.registrations.set(client, {client, event, share, group, last_activity: now()})
+    await this.sessions.set(client, {client, event, share, group, last_activity: now()})
 
     return cb(Status.Ok, "Your key has been registered")
   }
 
   async handleSetEmailRequest({payload, event}: WithEvent<SetEmailRequest>) {
     const client = event.pubkey
-    const registration = await this.registrations.get(client)
+    const session = await this.sessions.get(client)
     const {email, email_service} = payload
 
-    if (!registration) {
+    if (!session) {
       return this.rpc.channel(client).send(
         makeSetEmailRequestResult({
           status: Status.Error,
-          message: "No registration found for client.",
+          message: "No session found for client.",
           prev: event.id,
         }),
       )
     }
 
-    // email has to be bound at (or shorly after) registration, otherwise an attacker with access
+    // email has to be bound at (or shorly after) session, otherwise an attacker with access
     // to any session could escalate permissions by recovering the secret key to their own email
-    if (registration.event.created_at < ago(5, MINUTE)) {
+    if (session.event.created_at < ago(5, MINUTE)) {
       return this.rpc.channel(client).send(
         makeSetEmailRequestResult({
           status: Status.Error,
-          message: "Email must be set within 5 minutes of registration.",
+          message: "Email must be set within 5 minutes of session.",
           prev: event.id,
         }),
       )
     }
 
     const otp = generateOTP()
-    const total = registration.group.commits.length
+    const total = session.group.commits.length
 
     await this.validations.set(client, {otp, email, email_service, event})
 
@@ -237,14 +249,14 @@ export class Signer {
   }
 
   async handleSetEmailFinalize({payload, event}: WithEvent<SetEmailFinalize>) {
-    return this.registrations.tx(async registrations => {
+    return this.sessions.tx(async sessions => {
       const client = event.pubkey
       const challenge = await this.validations.get(client)
-      const registration = await registrations.get(client)
+      const session = await sessions.get(client)
 
-      if (registration && challenge?.otp === payload.otp && challenge?.email === payload.email) {
-        await registrations.set(client, {
-          ...registration,
+      if (session && challenge?.otp === payload.otp && challenge?.email === payload.email) {
+        await sessions.set(client, {
+          ...session,
           last_activity: now(),
           email: challenge.email,
           email_service: challenge.email_service,
@@ -272,15 +284,8 @@ export class Signer {
   async handleLoginRequest({payload, event}: WithEvent<LoginRequest>) {
     const client = event.pubkey
     const {email, pubkey} = payload
-    const pubkeys = new Set<string>()
-    const registrations: SignerRegistration[] = []
-    for (const [_, reg] of await this.registrations.entries()) {
-      if (reg.email !== email) continue
-      if (pubkey && reg.group.group_pk !== pubkey) continue
-
-      registrations.push(reg)
-      pubkeys.add(reg.group.group_pk.slice(2))
-    }
+    const sessions = await this._listSessionsByEmail(email, pubkey)
+    const pubkeys = new Set(sessions.map(s => s.group.group_pk.slice(2)))
 
     if (pubkeys.size > 1) {
       this.rpc.channel(client).send(
@@ -292,16 +297,16 @@ export class Signer {
           prev: event.id,
         }),
       )
-    } else if (registrations.length > 0) {
+    } else if (sessions.length > 0) {
       const otp = generateOTP()
-      const [registration] = registrations
-      const total = registration.group.commits.length
+      const [session] = sessions
+      const total = session.group.commits.length
 
-      await this.logins.set(client, {otp, email, copy_from: registration.client, event})
+      await this.logins.set(client, {otp, email, copy_from: session.client, event})
 
       this.rpc
-        .channel(registration.email_service!)
-        .send(makeLoginChallenge({otp, total, client, email: registration.email!}))
+        .channel(session.email_service!)
+        .send(makeLoginChallenge({otp, total, client, email: session.email!}))
     }
 
     // Always show success (if we can) so attackers can't get information on who is registered
@@ -315,19 +320,19 @@ export class Signer {
   }
 
   async handleLoginFinalize({payload, event}: WithEvent<LoginFinalize>) {
-    return this.registrations.tx(async registrations => {
+    return this.sessions.tx(async sessions => {
       const client = event.pubkey
       const login = await this.logins.get(client)
-      const registration = login ? await registrations.get(login.copy_from) : undefined
+      const session = login ? await sessions.get(login.copy_from) : undefined
 
-      if (registration && login?.email === payload.email && login?.otp === payload.otp) {
-        await registrations.set(client, {...registration, event, last_activity: now()})
+      if (session && login?.email === payload.email && login?.otp === payload.otp) {
+        await sessions.set(client, {...session, event, last_activity: now()})
 
         this.rpc.channel(client).send(
           makeLoginFinalizeResult({
             status: Status.Ok,
             message: "Login successfully completed.",
-            group: registration.group,
+            group: session.group,
             prev: event.id,
           }),
         )
@@ -346,15 +351,8 @@ export class Signer {
   async handleRecoverRequest({payload, event}: WithEvent<RecoverRequest>) {
     const client = event.pubkey
     const {email, pubkey} = payload
-    const pubkeys = new Set<string>()
-    const registrations: SignerRegistration[] = []
-    for (const [_, reg] of await this.registrations.entries()) {
-      if (reg.email !== email) continue
-      if (pubkey && reg.group.group_pk !== pubkey) continue
-
-      registrations.push(reg)
-      pubkeys.add(reg.group.group_pk.slice(2))
-    }
+    const sessions = await this._listSessionsByEmail(email, pubkey)
+    const pubkeys = new Set(sessions.map(s => s.group.group_pk.slice(2)))
 
     if (pubkeys.size > 1) {
       this.rpc.channel(client).send(
@@ -366,16 +364,16 @@ export class Signer {
           prev: event.id,
         }),
       )
-    } else if (registrations.length > 0) {
+    } else if (sessions.length > 0) {
       const otp = generateOTP()
-      const [registration] = registrations
-      const total = registration.group.commits.length
+      const [session] = sessions
+      const total = session.group.commits.length
 
-      await this.recovers.set(client, {otp, email, copy_from: registration.client, event})
+      await this.recovers.set(client, {otp, email, copy_from: session.client, event})
 
       this.rpc
-        .channel(registration.email_service!)
-        .send(makeRecoverChallenge({otp, total, client, email: registration.email!}))
+        .channel(session.email_service!)
+        .send(makeRecoverChallenge({otp, total, client, email: session.email!}))
     }
 
     // Always show success (if we can) so attackers can't get information on who is registered
@@ -389,20 +387,20 @@ export class Signer {
   }
 
   async handleRecoverFinalize({payload, event}: WithEvent<RecoverFinalize>) {
-    return this.registrations.tx(async registrations => {
+    return this.sessions.tx(async sessions => {
       const client = event.pubkey
       const recover = await this.recovers.get(client)
-      const registration = recover ? await registrations.get(recover.copy_from) : undefined
+      const session = recover ? await sessions.get(recover.copy_from) : undefined
 
-      if (registration && recover?.otp === payload.otp && recover?.email === payload.email) {
-        await registrations.set(client, {...registration, event, last_activity: now()})
+      if (session && recover?.otp === payload.otp && recover?.email === payload.email) {
+        await sessions.set(client, {...session, event, last_activity: now()})
 
         this.rpc.channel(client).send(
           makeRecoverFinalizeResult({
             status: Status.Ok,
             message: "Recovery successfully completed.",
-            group: registration.group,
-            share: registration.share,
+            group: session.group,
+            share: session.share,
             prev: event.id,
           }),
         )
@@ -419,24 +417,23 @@ export class Signer {
   }
 
   async handleSignRequest({payload, event}: WithEvent<SignRequest>) {
-    return this.registrations.tx(async registrations => {
-      const registration = await registrations.get(event.pubkey)
+    return this.sessions.tx(async sessions => {
+      const session = await sessions.get(event.pubkey)
 
-      if (!registration) {
+      if (!session) {
         return this.rpc.channel(event.pubkey).send(
           makeSignResult({
             status: Status.Error,
-            message: "No registration found for client",
+            message: "No session found for client",
             prev: event.id,
           }),
         )
       }
 
-      const {session} = payload
-      const ctx = Lib.get_session_ctx(registration.group, session)
-      const partialSignature = Lib.create_psig_pkg(ctx, registration.share)
+      const ctx = Lib.get_session_ctx(session.group, payload.session)
+      const partialSignature = Lib.create_psig_pkg(ctx, session.share)
 
-      await registrations.set(event.pubkey, {...registration, last_activity: now()})
+      await sessions.set(event.pubkey, {...session, last_activity: now()})
 
       this.rpc.channel(event.pubkey).send(
         makeSignResult({
@@ -450,23 +447,23 @@ export class Signer {
   }
 
   async handleEcdhRequest({payload, event}: WithEvent<EcdhRequest>) {
-    return this.registrations.tx(async registrations => {
-      const registration = await registrations.get(event.pubkey)
+    return this.sessions.tx(async sessions => {
+      const session = await sessions.get(event.pubkey)
 
-      if (!registration) {
+      if (!session) {
         return this.rpc.channel(event.pubkey).send(
           makeSignResult({
             status: Status.Error,
-            message: "No registration found for client",
+            message: "No session found for client",
             prev: event.id,
           }),
         )
       }
 
       const {members, ecdh_pk} = payload
-      const ecdhPackage = Lib.create_ecdh_pkg(members, ecdh_pk, registration.share)
+      const ecdhPackage = Lib.create_ecdh_pkg(members, ecdh_pk, session.share)
 
-      await registrations.set(event.pubkey, {...registration, last_activity: now()})
+      await sessions.set(event.pubkey, {...session, last_activity: now()})
 
       this.rpc.channel(event.pubkey).send(
         makeEcdhResult({
@@ -479,11 +476,11 @@ export class Signer {
     })
   }
 
-  async handleClientListRequest({payload, event}: WithEvent<ClientListRequest>) {
-    if (!this._isAuthValid(payload.auth, Method.ClientListRequest)) {
+  async handleSessionListRequest({payload, event}: WithEvent<SessionListRequest>) {
+    if (!this._isAuthValid(payload.auth, Method.SessionListRequest)) {
       return this.rpc.channel(event.pubkey).send(
-        makeClientListResult({
-          clients: [],
+        makeSessionListResult({
+          sessions: [],
           status: Status.Error,
           message: "Failed to validate authentication.",
           prev: event.id,
@@ -491,21 +488,21 @@ export class Signer {
       )
     }
 
-    const clients: ClientListResult["payload"]["clients"] = []
-    for (const [_, reg] of await this.registrations.entries()) {
-      if (reg.group.group_pk.slice(2) === payload.auth.pubkey) {
-        clients.push({
-          email: reg.email,
-          client: reg.client,
-          created_at: reg.event.created_at,
-          last_activity: reg.last_activity,
+    const sessions: SessionListResult["payload"]["sessions"] = []
+    for (const [_, session] of await this.sessions.entries()) {
+      if (session.group.group_pk.slice(2) === payload.auth.pubkey) {
+        sessions.push({
+          email: session.email,
+          client: session.client,
+          created_at: session.event.created_at,
+          last_activity: session.last_activity,
         })
       }
     }
 
     this.rpc.channel(event.pubkey).send(
-      makeClientListResult({
-        clients,
+      makeSessionListResult({
+        sessions,
         status: Status.Ok,
         message: "Successfully retrieved client list.",
         prev: event.id,
@@ -524,11 +521,11 @@ export class Signer {
       )
     }
 
-    return this.registrations.tx(async registrations => {
-      const registration = await registrations.get(payload.client)
+    return this.sessions.tx(async sessions => {
+      const session = await sessions.get(payload.client)
 
-      if (registration?.group.group_pk.slice(2) === payload.auth.pubkey) {
-        await registrations.delete(payload.client)
+      if (session?.group.group_pk.slice(2) === payload.auth.pubkey) {
+        await sessions.delete(payload.client)
 
         this.rpc.channel(event.pubkey).send(
           makeUnregisterResult({
