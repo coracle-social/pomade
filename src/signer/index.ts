@@ -34,20 +34,20 @@ import {
   Method,
 } from "../lib/index.js"
 import type {
-  ClientListRequestMessage,
+  ClientListRequest,
   IStorageFactory,
   IStorage,
-  ClientListResultMessage,
-  RegisterRequestMessage,
-  SignRequestMessage,
-  SetEmailRequestMessage,
-  SetEmailFinalizeMessage,
-  EcdhRequestMessage,
-  LoginRequestMessage,
-  LoginFinalizeMessage,
-  RecoverRequestMessage,
-  RecoverFinalizeMessage,
-  UnregisterRequestMessage,
+  ClientListResult,
+  RegisterRequest,
+  SignRequest,
+  SetEmailRequest,
+  SetEmailFinalize,
+  EcdhRequest,
+  LoginRequest,
+  LoginFinalize,
+  RecoverRequest,
+  RecoverFinalize,
+  UnregisterRequest,
   WithEvent,
 } from "../lib/index.js"
 
@@ -67,13 +67,13 @@ export type EmailChallenge = {
   email_service: string
 }
 
-export type LoginRequest = {
+export type Login = {
   otp: string
   email: string
   copy_from: string
 }
 
-export type RecoverRequest = {
+export type Recover = {
   otp: string
   email: string
   copy_from: string
@@ -90,8 +90,8 @@ export class Signer {
   pubkey: string
   registrations: IStorage<SignerRegistration>
   challenges: IStorage<EmailChallenge>
-  logins: IStorage<LoginRequest>
-  recovers: IStorage<RecoverRequest>
+  logins: IStorage<Login>
+  recovers: IStorage<Recover>
   stop: () => void
 
   constructor(private options: SignerOptions) {
@@ -103,20 +103,20 @@ export class Signer {
     this.rpc = new RPC(options.secret, options.relays)
     this.stop = this.rpc.subscribe(message => {
       if (isRegisterRequest(message)) this.handleRegisterRequest(message)
-      if (isSetEmailRequest(message)) this.handleSetEmailRequestMessage(message)
-      if (isSetEmailFinalize(message)) this.handleSetEmailFinalizeMessage(message)
-      if (isLoginRequest(message)) this.handleLoginRequestMessage(message)
-      if (isLoginFinalize(message)) this.handleLoginFinalizeMessage(message)
-      if (isRecoverRequest(message)) this.handleRecoverRequestMessage(message)
-      if (isRecoverFinalize(message)) this.handleRecoverFinalizeMessage(message)
-      if (isSignRequest(message)) this.handleSignRequestMessage(message)
-      if (isEcdhRequest(message)) this.handleEcdhRequestMessage(message)
-      if (isClientListRequest(message)) this.handleClientListRequestMessage(message)
-      if (isUnregisterRequest(message)) this.handleUnregisterRequestMessage(message)
+      if (isSetEmailRequest(message)) this.handleSetEmailRequest(message)
+      if (isSetEmailFinalize(message)) this.handleSetEmailFinalize(message)
+      if (isLoginRequest(message)) this.handleLoginRequest(message)
+      if (isLoginFinalize(message)) this.handleLoginFinalize(message)
+      if (isRecoverRequest(message)) this.handleRecoverRequest(message)
+      if (isRecoverFinalize(message)) this.handleRecoverFinalize(message)
+      if (isSignRequest(message)) this.handleSignRequest(message)
+      if (isEcdhRequest(message)) this.handleEcdhRequest(message)
+      if (isClientListRequest(message)) this.handleClientListRequest(message)
+      if (isUnregisterRequest(message)) this.handleUnregisterRequest(message)
     })
   }
 
-  async handleRegisterRequest({payload, event}: WithEvent<RegisterRequestMessage>) {
+  async handleRegisterRequest({payload, event}: WithEvent<RegisterRequest>) {
     const client = event.pubkey
     const {group, share} = payload
     const channel = this.rpc.channel(client)
@@ -146,7 +146,7 @@ export class Signer {
     return cb(Status.Ok, "Your key has been registered")
   }
 
-  async handleSetEmailRequestMessage({payload, event}: WithEvent<SetEmailRequestMessage>) {
+  async handleSetEmailRequest({payload, event}: WithEvent<SetEmailRequest>) {
     const client = event.pubkey
     const registration = await this.registrations.get(client)
     const {email, email_service} = payload
@@ -157,9 +157,7 @@ export class Signer {
 
       await this.challenges.set(client, {otp, email, email_service})
 
-      this.rpc
-        .channel(email_service)
-        .send(makeSetEmailChallenge({otp, total, email, client}))
+      this.rpc.channel(email_service).send(makeSetEmailChallenge({otp, total, email, client}))
     }
 
     // Always show success so attackers can't get information on who is registered
@@ -172,16 +170,12 @@ export class Signer {
     )
   }
 
-  async handleSetEmailFinalizeMessage({payload, event}: WithEvent<SetEmailFinalizeMessage>) {
+  async handleSetEmailFinalize({payload, event}: WithEvent<SetEmailFinalize>) {
     const client = event.pubkey
     const challenge = await this.challenges.get(client)
     const registration = await this.registrations.get(client)
 
-    if (
-      registration &&
-      challenge?.otp === payload.otp &&
-      challenge?.email === payload.email
-    ) {
+    if (registration && challenge?.otp === payload.otp && challenge?.email === payload.email) {
       await this.registrations.set(client, {
         ...registration,
         email: challenge.email,
@@ -206,7 +200,7 @@ export class Signer {
     }
   }
 
-  async handleLoginRequestMessage({payload, event}: WithEvent<LoginRequestMessage>) {
+  async handleLoginRequest({payload, event}: WithEvent<LoginRequest>) {
     const client = event.pubkey
     const {email, pubkey} = payload
     const pubkeys = new Set<string>()
@@ -236,9 +230,9 @@ export class Signer {
 
       await this.logins.set(client, {otp, email, copy_from: registration.client})
 
-      this.rpc.channel(registration.email_service!).send(
-        makeLoginChallenge({otp, total, client, email: registration.email!}),
-      )
+      this.rpc
+        .channel(registration.email_service!)
+        .send(makeLoginChallenge({otp, total, client, email: registration.email!}))
     }
 
     // Always show success (if we can) so attackers can't get information on who is registered
@@ -251,7 +245,7 @@ export class Signer {
     )
   }
 
-  async handleLoginFinalizeMessage({payload, event}: WithEvent<LoginFinalizeMessage>) {
+  async handleLoginFinalize({payload, event}: WithEvent<LoginFinalize>) {
     const client = event.pubkey
     const login = await this.logins.get(client)
     const registration = login ? await this.registrations.get(login.copy_from) : undefined
@@ -278,7 +272,7 @@ export class Signer {
     }
   }
 
-  async handleRecoverRequestMessage({payload, event}: WithEvent<RecoverRequestMessage>) {
+  async handleRecoverRequest({payload, event}: WithEvent<RecoverRequest>) {
     const client = event.pubkey
     const {email, pubkey} = payload
     const pubkeys = new Set<string>()
@@ -308,9 +302,9 @@ export class Signer {
 
       await this.recovers.set(client, {otp, email, copy_from: registration.client})
 
-      this.rpc.channel(registration.email_service!).send(
-        makeRecoverChallenge({otp, total, client, email: registration.email!}),
-      )
+      this.rpc
+        .channel(registration.email_service!)
+        .send(makeRecoverChallenge({otp, total, client, email: registration.email!}))
     }
 
     // Always show success (if we can) so attackers can't get information on who is registered
@@ -323,16 +317,12 @@ export class Signer {
     )
   }
 
-  async handleRecoverFinalizeMessage({payload, event}: WithEvent<RecoverFinalizeMessage>) {
+  async handleRecoverFinalize({payload, event}: WithEvent<RecoverFinalize>) {
     const client = event.pubkey
     const recover = await this.recovers.get(client)
     const registration = recover ? await this.registrations.get(recover.copy_from) : undefined
 
-    if (
-      registration &&
-      recover?.otp === payload.otp &&
-      recover?.email === payload.email
-    ) {
+    if (registration && recover?.otp === payload.otp && recover?.email === payload.email) {
       await this.registrations.set(client, {...registration, event})
 
       this.rpc.channel(client).send(
@@ -355,7 +345,7 @@ export class Signer {
     }
   }
 
-  async handleSignRequestMessage({payload, event}: WithEvent<SignRequestMessage>) {
+  async handleSignRequest({payload, event}: WithEvent<SignRequest>) {
     const channel = this.rpc.channel(event.pubkey)
     const registration = await this.registrations.get(event.pubkey)
 
@@ -383,7 +373,7 @@ export class Signer {
     )
   }
 
-  async handleEcdhRequestMessage({payload, event}: WithEvent<EcdhRequestMessage>) {
+  async handleEcdhRequest({payload, event}: WithEvent<EcdhRequest>) {
     const channel = this.rpc.channel(event.pubkey)
     const registration = await this.registrations.get(event.pubkey)
 
@@ -410,7 +400,7 @@ export class Signer {
     )
   }
 
-  async handleClientListRequestMessage({payload, event}: WithEvent<ClientListRequestMessage>) {
+  async handleClientListRequest({payload, event}: WithEvent<ClientListRequest>) {
     const channel = this.rpc.channel(event.pubkey)
     if (
       !verifyEvent(payload.auth) ||
@@ -428,7 +418,7 @@ export class Signer {
       )
     }
 
-    const clients: ClientListResultMessage["payload"]["clients"] = []
+    const clients: ClientListResult["payload"]["clients"] = []
     for (const [_, reg] of await this.registrations.entries()) {
       if (reg.group.group_pk.slice(2) === payload.auth.pubkey) {
         clients.push({
@@ -450,7 +440,7 @@ export class Signer {
     )
   }
 
-  async handleUnregisterRequestMessage({payload, event}: WithEvent<UnregisterRequestMessage>) {
+  async handleUnregisterRequest({payload, event}: WithEvent<UnregisterRequest>) {
     const channel = this.rpc.channel(event.pubkey)
 
     if (

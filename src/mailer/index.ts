@@ -1,4 +1,3 @@
-import {tryCatch} from "@welshman/lib"
 import {getPubkey} from "@welshman/util"
 import {
   RPC,
@@ -12,9 +11,9 @@ import {
 import type {
   IStorageFactory,
   IStorage,
-  SetEmailChallengeMessage,
-  LoginChallengeMessage,
-  RecoverChallengeMessage,
+  SetEmailChallenge,
+  LoginChallenge,
+  RecoverChallenge,
   WithEvent,
 } from "../lib/index.js"
 
@@ -60,7 +59,7 @@ export class Mailer {
     })
   }
 
-  async handleSetEmailChallenge({method, payload, event}: WithEvent<SetEmailChallengeMessage>) {
+  async handleSetEmailChallenge({method, payload, event}: WithEvent<SetEmailChallenge>) {
     const {total, client, otp, email, callback_url} = payload
     const key = getBatchKey(email, client, method)
 
@@ -85,7 +84,7 @@ export class Mailer {
     })
   }
 
-  async handleLoginChallenge({method, payload, event}: WithEvent<LoginChallengeMessage>) {
+  async handleLoginChallenge({method, payload, event}: WithEvent<LoginChallenge>) {
     const {total, client, otp, email, callback_url} = payload
     const key = getBatchKey(email, client, method)
 
@@ -106,7 +105,7 @@ export class Mailer {
     })
   }
 
-  async handleRecoverChallenge({method, payload, event}: WithEvent<RecoverChallengeMessage>) {
+  async handleRecoverChallenge({method, payload, event}: WithEvent<RecoverChallenge>) {
     const {total, client, otp, email, callback_url} = payload
     const key = getBatchKey(email, client, method)
 

@@ -1,4 +1,4 @@
-import * as z from 'zod'
+import * as z from "zod"
 import {
   Maybe,
   pushToMapKey,
@@ -10,12 +10,11 @@ import {
   first,
   last,
   isDefined,
-  sha256,
   sample,
   textEncoder,
 } from "@welshman/lib"
 import {extract} from "@noble/hashes/hkdf.js"
-import {sha256 as sha256Hash} from "@noble/hashes/sha2.js"
+import {sha256} from "@noble/hashes/sha2.js"
 import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
 import {prep, makeSecret, getPubkey, makeHttpAuth} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
@@ -24,7 +23,7 @@ import type {SharePackage, GroupPackage, ECDHPackage} from "@frostr/bifrost"
 import {
   context,
   Method,
-  ClientListResultMessage,
+  ClientListResult,
   isClientListResult,
   isEcdhResult,
   isLoginFinalizeResult,
@@ -36,10 +35,10 @@ import {
   isSetEmailRequestResult,
   isSignResult,
   isUnregisterResult,
-  LoginFinalizeResultMessage,
-  LoginRequestResultMessage,
-  RecoverFinalizeResultMessage,
-  RecoverRequestResultMessage,
+  LoginFinalizeResult,
+  LoginRequestResult,
+  RecoverFinalizeResult,
+  RecoverRequestResult,
   makeClientListRequest,
   makeEcdhRequest,
   makeLoginFinalize,
@@ -54,11 +53,11 @@ import {
   parseChallenge,
   RPC,
   Schema,
-  SetEmailFinalizeResultMessage,
-  SetEmailRequestResultMessage,
-  SignResultMessage,
+  SetEmailFinalizeResult,
+  SetEmailRequestResult,
+  SignResult,
   Status,
-  UnregisterResultMessage,
+  UnregisterResult,
   WithEvent,
 } from "../lib/index.js"
 
@@ -148,7 +147,7 @@ export class Client {
         return rpc
           .channel(peer)
           .send(makeLoginRequest({email, pubkey}))
-          .receive<LoginRequestResultMessage>((message, resolve) => {
+          .receive<LoginRequestResult>((message, resolve) => {
             if (isLoginRequestResult(message)) {
               resolve(message)
             }
@@ -173,7 +172,7 @@ export class Client {
         return rpc
           .channel(peer)
           .send(makeLoginFinalize({otp, email}))
-          .receive<WithEvent<LoginFinalizeResultMessage>>((message, resolve) => {
+          .receive<WithEvent<LoginFinalizeResult>>((message, resolve) => {
             if (isLoginFinalizeResult(message)) {
               resolve(message)
             }
@@ -214,7 +213,7 @@ export class Client {
         return rpc
           .channel(peer)
           .send(makeRecoverRequest({email, pubkey}))
-          .receive<RecoverRequestResultMessage>((message, resolve) => {
+          .receive<RecoverRequestResult>((message, resolve) => {
             if (isRecoverRequestResult(message)) {
               resolve(message)
             }
@@ -239,7 +238,7 @@ export class Client {
         return rpc
           .channel(peer)
           .send(makeRecoverFinalize({otp, email}))
-          .receive<WithEvent<RecoverFinalizeResultMessage>>((message, resolve) => {
+          .receive<WithEvent<RecoverFinalizeResult>>((message, resolve) => {
             if (isRecoverFinalizeResult(message)) {
               resolve(message)
             }
@@ -279,11 +278,10 @@ export class Client {
   async setEmailRequest(email: string, email_service: string) {
     const messages = await Promise.all(
       this.peers.map((peer, i) => {
-        return this
-          .rpc
+        return this.rpc
           .channel(peer)
           .send(makeSetEmailRequest({email, email_service}))
-          .receive<WithEvent<SetEmailRequestResultMessage>>((message, resolve) => {
+          .receive<WithEvent<SetEmailRequestResult>>((message, resolve) => {
             if (isSetEmailRequestResult(message)) {
               resolve(message)
             }
@@ -302,11 +300,10 @@ export class Client {
         const otp = otpsByPeer[peer] || ""
 
         if (otp) {
-          return this
-            .rpc
+          return this.rpc
             .channel(peer)
             .send(makeSetEmailFinalize({email, otp}))
-            .receive<WithEvent<SetEmailFinalizeResultMessage>>((message, resolve) => {
+            .receive<WithEvent<SetEmailFinalizeResult>>((message, resolve) => {
               if (isSetEmailFinalizeResult(message)) {
                 resolve(message)
               }
@@ -332,9 +329,10 @@ export class Client {
       members.map(idx => {
         const peer = this.peers[idx - 1]!
 
-        return this.rpc.channel(peer)
+        return this.rpc
+          .channel(peer)
           .send(makeSignRequest({session}))
-          .receive<WithEvent<SignResultMessage>>((message, resolve) => {
+          .receive<WithEvent<SignResult>>((message, resolve) => {
             if (isSignResult(message)) {
               resolve(message)
             }
@@ -377,7 +375,7 @@ export class Client {
     if (results.every(isDefined)) {
       return bytesToHex(
         extract(
-          sha256Hash,
+          sha256,
           hexToBytes(Lib.combine_ecdh_pkgs(results).slice(2)),
           textEncoder.encode("nip44-v2"),
         ),
@@ -391,9 +389,10 @@ export class Client {
         const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.ClientListRequest))
 
         if (auth) {
-          return this.rpc.channel(peer)
+          return this.rpc
+            .channel(peer)
             .send(makeClientListRequest({auth}))
-            .receive<WithEvent<ClientListResultMessage>>((message, resolve) => {
+            .receive<WithEvent<ClientListResult>>((message, resolve) => {
               if (isClientListResult(message)) {
                 resolve(message)
               }
@@ -408,7 +407,10 @@ export class Client {
       if (!message) continue
 
       for (const clientItem of message.payload.clients) {
-        pushToMapKey(resultsByClient, clientItem.client, {peer: message.event.pubkey, ...clientItem})
+        pushToMapKey(resultsByClient, clientItem.client, {
+          peer: message.event.pubkey,
+          ...clientItem,
+        })
       }
     }
 
@@ -421,9 +423,10 @@ export class Client {
         const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.UnregisterRequest))
 
         if (auth) {
-          return this.rpc.channel(peer)
+          return this.rpc
+            .channel(peer)
             .send(makeUnregisterRequest({client, auth}))
-            .receive<WithEvent<UnregisterResultMessage>>((message, resolve) => {
+            .receive<WithEvent<UnregisterResult>>((message, resolve) => {
               if (isUnregisterResult(message)) {
                 resolve(message)
               }

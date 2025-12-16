@@ -7,262 +7,216 @@ import {Schema, Method} from "./schema"
 
 type DefineMessage<M, P> = {method: M; payload: z.infer<P>}
 
-export type ClientListRequestMessage = DefineMessage<
+export type ClientListRequest = DefineMessage<
   Method.ClientListRequest,
   typeof Schema.clientListRequest
 >
-export type ClientListResultMessage = DefineMessage<
+export type ClientListResult = DefineMessage<
   Method.ClientListResult,
   typeof Schema.clientListResult
 >
-export type EcdhRequestMessage = DefineMessage<Method.EcdhRequest, typeof Schema.ecdhRequest>
-export type EcdhResultMessage = DefineMessage<Method.EcdhResult, typeof Schema.ecdhResult>
-export type LoginRequestMessage = DefineMessage<Method.LoginRequest, typeof Schema.loginRequest>
-export type LoginRequestResultMessage = DefineMessage<
+export type EcdhRequest = DefineMessage<Method.EcdhRequest, typeof Schema.ecdhRequest>
+export type EcdhResult = DefineMessage<Method.EcdhResult, typeof Schema.ecdhResult>
+export type LoginRequest = DefineMessage<Method.LoginRequest, typeof Schema.loginRequest>
+export type LoginRequestResult = DefineMessage<
   Method.LoginRequestResult,
   typeof Schema.loginRequestResult
 >
-export type LoginChallengeMessage = DefineMessage<
-  Method.LoginChallenge,
-  typeof Schema.loginChallenge
->
-export type LoginFinalizeMessage = DefineMessage<Method.LoginFinalize, typeof Schema.loginFinalize>
-export type LoginFinalizeResultMessage = DefineMessage<
+export type LoginChallenge = DefineMessage<Method.LoginChallenge, typeof Schema.loginChallenge>
+export type LoginFinalize = DefineMessage<Method.LoginFinalize, typeof Schema.loginFinalize>
+export type LoginFinalizeResult = DefineMessage<
   Method.LoginFinalizeResult,
   typeof Schema.loginFinalizeResult
 >
-export type RecoverRequestMessage = DefineMessage<
-  Method.RecoverRequest,
-  typeof Schema.recoverRequest
->
-export type RecoverRequestResultMessage = DefineMessage<
+export type RecoverRequest = DefineMessage<Method.RecoverRequest, typeof Schema.recoverRequest>
+export type RecoverRequestResult = DefineMessage<
   Method.RecoverRequestResult,
   typeof Schema.recoverRequestResult
 >
-export type RecoverChallengeMessage = DefineMessage<
+export type RecoverChallenge = DefineMessage<
   Method.RecoverChallenge,
   typeof Schema.recoverChallenge
 >
-export type RecoverFinalizeMessage = DefineMessage<
-  Method.RecoverFinalize,
-  typeof Schema.recoverFinalize
->
-export type RecoverFinalizeResultMessage = DefineMessage<
+export type RecoverFinalize = DefineMessage<Method.RecoverFinalize, typeof Schema.recoverFinalize>
+export type RecoverFinalizeResult = DefineMessage<
   Method.RecoverFinalizeResult,
   typeof Schema.recoverFinalizeResult
 >
-export type RegisterRequestMessage = DefineMessage<
-  Method.RegisterRequest,
-  typeof Schema.registerRequest
->
-export type RegisterResultMessage = DefineMessage<
-  Method.RegisterResult,
-  typeof Schema.registerResult
->
-export type SetEmailRequestMessage = DefineMessage<
-  Method.SetEmailRequest,
-  typeof Schema.setEmailRequest
->
-export type SetEmailRequestResultMessage = DefineMessage<
+export type RegisterRequest = DefineMessage<Method.RegisterRequest, typeof Schema.registerRequest>
+export type RegisterResult = DefineMessage<Method.RegisterResult, typeof Schema.registerResult>
+export type SetEmailRequest = DefineMessage<Method.SetEmailRequest, typeof Schema.setEmailRequest>
+export type SetEmailRequestResult = DefineMessage<
   Method.SetEmailRequestResult,
   typeof Schema.setEmailRequestResult
 >
-export type SetEmailChallengeMessage = DefineMessage<
+export type SetEmailChallenge = DefineMessage<
   Method.SetEmailChallenge,
   typeof Schema.setEmailChallenge
 >
-export type SetEmailFinalizeMessage = DefineMessage<
+export type SetEmailFinalize = DefineMessage<
   Method.SetEmailFinalize,
   typeof Schema.setEmailFinalize
 >
-export type SetEmailFinalizeResultMessage = DefineMessage<
+export type SetEmailFinalizeResult = DefineMessage<
   Method.SetEmailFinalizeResult,
   typeof Schema.setEmailFinalizeResult
 >
-export type SignRequestMessage = DefineMessage<Method.SignRequest, typeof Schema.signRequest>
-export type SignResultMessage = DefineMessage<Method.SignResult, typeof Schema.signResult>
-export type UnregisterRequestMessage = DefineMessage<
+export type SignRequest = DefineMessage<Method.SignRequest, typeof Schema.signRequest>
+export type SignResult = DefineMessage<Method.SignResult, typeof Schema.signResult>
+export type UnregisterRequest = DefineMessage<
   Method.UnregisterRequest,
   typeof Schema.unregisterRequest
 >
-export type UnregisterResultMessage = DefineMessage<
+export type UnregisterResult = DefineMessage<
   Method.UnregisterResult,
   typeof Schema.unregisterResult
 >
 
 export type Message =
-  | ClientListRequestMessage
-  | ClientListResultMessage
-  | EcdhRequestMessage
-  | EcdhResultMessage
-  | LoginRequestMessage
-  | LoginRequestResultMessage
-  | LoginChallengeMessage
-  | LoginFinalizeMessage
-  | LoginFinalizeResultMessage
-  | RecoverRequestMessage
-  | RecoverRequestResultMessage
-  | RecoverChallengeMessage
-  | RecoverFinalizeMessage
-  | RecoverFinalizeResultMessage
-  | RegisterRequestMessage
-  | RegisterResultMessage
-  | SetEmailRequestMessage
-  | SetEmailRequestResultMessage
-  | SetEmailChallengeMessage
-  | SetEmailFinalizeMessage
-  | SetEmailFinalizeResultMessage
-  | SignRequestMessage
-  | SignResultMessage
-  | UnregisterRequestMessage
-  | UnregisterResultMessage
+  | ClientListRequest
+  | ClientListResult
+  | EcdhRequest
+  | EcdhResult
+  | LoginRequest
+  | LoginRequestResult
+  | LoginChallenge
+  | LoginFinalize
+  | LoginFinalizeResult
+  | RecoverRequest
+  | RecoverRequestResult
+  | RecoverChallenge
+  | RecoverFinalize
+  | RecoverFinalizeResult
+  | RegisterRequest
+  | RegisterResult
+  | SetEmailRequest
+  | SetEmailRequestResult
+  | SetEmailChallenge
+  | SetEmailFinalize
+  | SetEmailFinalizeResult
+  | SignRequest
+  | SignResult
+  | UnregisterRequest
+  | UnregisterResult
 
 // Construction
 
-export function makeClientListRequest(
-  payload: ClientListRequestMessage["payload"],
-): ClientListRequestMessage {
+export function makeClientListRequest(payload: ClientListRequest["payload"]): ClientListRequest {
   return {method: Method.ClientListRequest, payload: Schema.clientListRequest.parse(payload)}
 }
 
-export function makeClientListResult(
-  payload: ClientListResultMessage["payload"],
-): ClientListResultMessage {
+export function makeClientListResult(payload: ClientListResult["payload"]): ClientListResult {
   return {method: Method.ClientListResult, payload: Schema.clientListResult.parse(payload)}
 }
 
-export function makeEcdhRequest(payload: EcdhRequestMessage["payload"]): EcdhRequestMessage {
+export function makeEcdhRequest(payload: EcdhRequest["payload"]): EcdhRequest {
   return {method: Method.EcdhRequest, payload: Schema.ecdhRequest.parse(payload)}
 }
 
-export function makeEcdhResult(payload: EcdhResultMessage["payload"]): EcdhResultMessage {
+export function makeEcdhResult(payload: EcdhResult["payload"]): EcdhResult {
   return {method: Method.EcdhResult, payload: Schema.ecdhResult.parse(payload)}
 }
 
-export function makeLoginRequest(payload: LoginRequestMessage["payload"]): LoginRequestMessage {
+export function makeLoginRequest(payload: LoginRequest["payload"]): LoginRequest {
   return {method: Method.LoginRequest, payload: Schema.loginRequest.parse(payload)}
 }
 
-export function makeLoginRequestResult(
-  payload: LoginRequestResultMessage["payload"],
-): LoginRequestResultMessage {
+export function makeLoginRequestResult(payload: LoginRequestResult["payload"]): LoginRequestResult {
   return {method: Method.LoginRequestResult, payload: Schema.loginRequestResult.parse(payload)}
 }
 
-export function makeLoginChallenge(
-  payload: LoginChallengeMessage["payload"],
-): LoginChallengeMessage {
+export function makeLoginChallenge(payload: LoginChallenge["payload"]): LoginChallenge {
   return {method: Method.LoginChallenge, payload: Schema.loginChallenge.parse(payload)}
 }
 
-export function makeLoginFinalize(payload: LoginFinalizeMessage["payload"]): LoginFinalizeMessage {
+export function makeLoginFinalize(payload: LoginFinalize["payload"]): LoginFinalize {
   return {method: Method.LoginFinalize, payload: Schema.loginFinalize.parse(payload)}
 }
 
 export function makeLoginFinalizeResult(
-  payload: LoginFinalizeResultMessage["payload"],
-): LoginFinalizeResultMessage {
+  payload: LoginFinalizeResult["payload"],
+): LoginFinalizeResult {
   return {method: Method.LoginFinalizeResult, payload: Schema.loginFinalizeResult.parse(payload)}
 }
 
-export function makeRecoverRequest(
-  payload: RecoverRequestMessage["payload"],
-): RecoverRequestMessage {
+export function makeRecoverRequest(payload: RecoverRequest["payload"]): RecoverRequest {
   return {method: Method.RecoverRequest, payload: Schema.recoverRequest.parse(payload)}
 }
 
 export function makeRecoverRequestResult(
-  payload: RecoverRequestResultMessage["payload"],
-): RecoverRequestResultMessage {
+  payload: RecoverRequestResult["payload"],
+): RecoverRequestResult {
   return {method: Method.RecoverRequestResult, payload: Schema.recoverRequestResult.parse(payload)}
 }
 
-export function makeRecoverChallenge(
-  payload: RecoverChallengeMessage["payload"],
-): RecoverChallengeMessage {
+export function makeRecoverChallenge(payload: RecoverChallenge["payload"]): RecoverChallenge {
   return {method: Method.RecoverChallenge, payload: Schema.recoverChallenge.parse(payload)}
 }
 
-export function makeRecoverFinalize(
-  payload: RecoverFinalizeMessage["payload"],
-): RecoverFinalizeMessage {
+export function makeRecoverFinalize(payload: RecoverFinalize["payload"]): RecoverFinalize {
   return {method: Method.RecoverFinalize, payload: Schema.recoverFinalize.parse(payload)}
 }
 
 export function makeRecoverFinalizeResult(
-  payload: RecoverFinalizeResultMessage["payload"],
-): RecoverFinalizeResultMessage {
+  payload: RecoverFinalizeResult["payload"],
+): RecoverFinalizeResult {
   return {
     method: Method.RecoverFinalizeResult,
     payload: Schema.recoverFinalizeResult.parse(payload),
   }
 }
 
-export function makeRegisterRequest(
-  payload: RegisterRequestMessage["payload"],
-): RegisterRequestMessage {
+export function makeRegisterRequest(payload: RegisterRequest["payload"]): RegisterRequest {
   return {method: Method.RegisterRequest, payload: Schema.registerRequest.parse(payload)}
 }
 
-export function makeRegisterResult(
-  payload: RegisterResultMessage["payload"],
-): RegisterResultMessage {
+export function makeRegisterResult(payload: RegisterResult["payload"]): RegisterResult {
   return {method: Method.RegisterResult, payload: Schema.registerResult.parse(payload)}
 }
 
-export function makeSetEmailRequest(
-  payload: SetEmailRequestMessage["payload"],
-): SetEmailRequestMessage {
+export function makeSetEmailRequest(payload: SetEmailRequest["payload"]): SetEmailRequest {
   return {method: Method.SetEmailRequest, payload: Schema.setEmailRequest.parse(payload)}
 }
 
 export function makeSetEmailRequestResult(
-  payload: SetEmailRequestResultMessage["payload"],
-): SetEmailRequestResultMessage {
+  payload: SetEmailRequestResult["payload"],
+): SetEmailRequestResult {
   return {
     method: Method.SetEmailRequestResult,
     payload: Schema.setEmailRequestResult.parse(payload),
   }
 }
 
-export function makeSetEmailChallenge(
-  payload: SetEmailChallengeMessage["payload"],
-): SetEmailChallengeMessage {
+export function makeSetEmailChallenge(payload: SetEmailChallenge["payload"]): SetEmailChallenge {
   return {method: Method.SetEmailChallenge, payload: Schema.setEmailChallenge.parse(payload)}
 }
 
-export function makeSetEmailFinalize(
-  payload: SetEmailFinalizeMessage["payload"],
-): SetEmailFinalizeMessage {
+export function makeSetEmailFinalize(payload: SetEmailFinalize["payload"]): SetEmailFinalize {
   return {method: Method.SetEmailFinalize, payload: Schema.setEmailFinalize.parse(payload)}
 }
 
 export function makeSetEmailFinalizeResult(
-  payload: SetEmailFinalizeResultMessage["payload"],
-): SetEmailFinalizeResultMessage {
+  payload: SetEmailFinalizeResult["payload"],
+): SetEmailFinalizeResult {
   return {
     method: Method.SetEmailFinalizeResult,
     payload: Schema.setEmailFinalizeResult.parse(payload),
   }
 }
 
-export function makeSignRequest(payload: SignRequestMessage["payload"]): SignRequestMessage {
+export function makeSignRequest(payload: SignRequest["payload"]): SignRequest {
   return {method: Method.SignRequest, payload: Schema.signRequest.parse(payload)}
 }
 
-export function makeSignResult(payload: SignResultMessage["payload"]): SignResultMessage {
+export function makeSignResult(payload: SignResult["payload"]): SignResult {
   return {method: Method.SignResult, payload: Schema.signResult.parse(payload)}
 }
 
-export function makeUnregisterRequest(
-  payload: UnregisterRequestMessage["payload"],
-): UnregisterRequestMessage {
+export function makeUnregisterRequest(payload: UnregisterRequest["payload"]): UnregisterRequest {
   return {method: Method.UnregisterRequest, payload: Schema.unregisterRequest.parse(payload)}
 }
 
-export function makeUnregisterResult(
-  payload: UnregisterResultMessage["payload"],
-): UnregisterResultMessage {
+export function makeUnregisterResult(payload: UnregisterResult["payload"]): UnregisterResult {
   return {method: Method.UnregisterResult, payload: Schema.unregisterResult.parse(payload)}
 }
 
@@ -309,51 +263,47 @@ export function parseMessage(s: string): Maybe<Message> {
 
 // Type guards
 
-export const isClientListRequest = (m: Message): m is ClientListRequestMessage =>
+export const isClientListRequest = (m: Message): m is ClientListRequest =>
   m.method === Method.ClientListRequest
-export const isClientListResult = (m: Message): m is ClientListResultMessage =>
+export const isClientListResult = (m: Message): m is ClientListResult =>
   m.method === Method.ClientListResult
-export const isEcdhRequest = (m: Message): m is EcdhRequestMessage =>
-  m.method === Method.EcdhRequest
-export const isEcdhResult = (m: Message): m is EcdhResultMessage => m.method === Method.EcdhResult
-export const isLoginRequest = (m: Message): m is LoginRequestMessage =>
-  m.method === Method.LoginRequest
-export const isLoginRequestResult = (m: Message): m is LoginRequestResultMessage =>
+export const isEcdhRequest = (m: Message): m is EcdhRequest => m.method === Method.EcdhRequest
+export const isEcdhResult = (m: Message): m is EcdhResult => m.method === Method.EcdhResult
+export const isLoginRequest = (m: Message): m is LoginRequest => m.method === Method.LoginRequest
+export const isLoginRequestResult = (m: Message): m is LoginRequestResult =>
   m.method === Method.LoginRequestResult
-export const isLoginChallenge = (m: Message): m is LoginChallengeMessage =>
+export const isLoginChallenge = (m: Message): m is LoginChallenge =>
   m.method === Method.LoginChallenge
-export const isLoginFinalize = (m: Message): m is LoginFinalizeMessage =>
-  m.method === Method.LoginFinalize
-export const isLoginFinalizeResult = (m: Message): m is LoginFinalizeResultMessage =>
+export const isLoginFinalize = (m: Message): m is LoginFinalize => m.method === Method.LoginFinalize
+export const isLoginFinalizeResult = (m: Message): m is LoginFinalizeResult =>
   m.method === Method.LoginFinalizeResult
-export const isRecoverRequest = (m: Message): m is RecoverRequestMessage =>
+export const isRecoverRequest = (m: Message): m is RecoverRequest =>
   m.method === Method.RecoverRequest
-export const isRecoverRequestResult = (m: Message): m is RecoverRequestResultMessage =>
+export const isRecoverRequestResult = (m: Message): m is RecoverRequestResult =>
   m.method === Method.RecoverRequestResult
-export const isRecoverChallenge = (m: Message): m is RecoverChallengeMessage =>
+export const isRecoverChallenge = (m: Message): m is RecoverChallenge =>
   m.method === Method.RecoverChallenge
-export const isRecoverFinalize = (m: Message): m is RecoverFinalizeMessage =>
+export const isRecoverFinalize = (m: Message): m is RecoverFinalize =>
   m.method === Method.RecoverFinalize
-export const isRecoverFinalizeResult = (m: Message): m is RecoverFinalizeResultMessage =>
+export const isRecoverFinalizeResult = (m: Message): m is RecoverFinalizeResult =>
   m.method === Method.RecoverFinalizeResult
-export const isRegisterRequest = (m: Message): m is RegisterRequestMessage =>
+export const isRegisterRequest = (m: Message): m is RegisterRequest =>
   m.method === Method.RegisterRequest
-export const isRegisterResult = (m: Message): m is RegisterResultMessage =>
+export const isRegisterResult = (m: Message): m is RegisterResult =>
   m.method === Method.RegisterResult
-export const isSetEmailRequest = (m: Message): m is SetEmailRequestMessage =>
+export const isSetEmailRequest = (m: Message): m is SetEmailRequest =>
   m.method === Method.SetEmailRequest
-export const isSetEmailRequestResult = (m: Message): m is SetEmailRequestResultMessage =>
+export const isSetEmailRequestResult = (m: Message): m is SetEmailRequestResult =>
   m.method === Method.SetEmailRequestResult
-export const isSetEmailChallenge = (m: Message): m is SetEmailChallengeMessage =>
+export const isSetEmailChallenge = (m: Message): m is SetEmailChallenge =>
   m.method === Method.SetEmailChallenge
-export const isSetEmailFinalize = (m: Message): m is SetEmailFinalizeMessage =>
+export const isSetEmailFinalize = (m: Message): m is SetEmailFinalize =>
   m.method === Method.SetEmailFinalize
-export const isSetEmailFinalizeResult = (m: Message): m is SetEmailFinalizeResultMessage =>
+export const isSetEmailFinalizeResult = (m: Message): m is SetEmailFinalizeResult =>
   m.method === Method.SetEmailFinalizeResult
-export const isSignRequest = (m: Message): m is SignRequestMessage =>
-  m.method === Method.SignRequest
-export const isSignResult = (m: Message): m is SignResultMessage => m.method === Method.SignResult
-export const isUnregisterRequest = (m: Message): m is UnregisterRequestMessage =>
+export const isSignRequest = (m: Message): m is SignRequest => m.method === Method.SignRequest
+export const isSignResult = (m: Message): m is SignResult => m.method === Method.SignResult
+export const isUnregisterRequest = (m: Message): m is UnregisterRequest =>
   m.method === Method.UnregisterRequest
-export const isUnregisterResult = (m: Message): m is UnregisterResultMessage =>
+export const isUnregisterResult = (m: Message): m is UnregisterResult =>
   m.method === Method.UnregisterResult
