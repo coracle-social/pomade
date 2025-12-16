@@ -167,9 +167,8 @@ export class Signer {
   async handleRegisterRequest({payload, event}: WithEvent<RegisterRequest>) {
     const client = event.pubkey
     const {group, share} = payload
-    const channel = this.rpc.channel(client)
     const cb = (status: Status, message: string) =>
-      channel.send(makeRegisterResult({status, message, prev: event.id}))
+      this.rpc.channel(client).send(makeRegisterResult({status, message, prev: event.id}))
 
     if (!share) return cb(Status.Error, `Failed to deserialize share package.`)
     if (!group) return cb(Status.Error, `Failed to deserialize group package.`)
@@ -238,33 +237,36 @@ export class Signer {
   }
 
   async handleSetEmailFinalize({payload, event}: WithEvent<SetEmailFinalize>) {
-    const client = event.pubkey
-    const challenge = await this.validations.get(client)
-    const registration = await this.registrations.get(client)
+    return this.registrations.tx(async registrations => {
+      const client = event.pubkey
+      const challenge = await this.validations.get(client)
+      const registration = await registrations.get(client)
 
-    if (registration && challenge?.otp === payload.otp && challenge?.email === payload.email) {
-      await this.registrations.set(client, {
-        ...registration,
-        email: challenge.email,
-        email_service: challenge.email_service,
-      })
+      if (registration && challenge?.otp === payload.otp && challenge?.email === payload.email) {
+        await registrations.set(client, {
+          ...registration,
+          last_activity: now(),
+          email: challenge.email,
+          email_service: challenge.email_service,
+        })
 
-      this.rpc.channel(client).send(
-        makeSetEmailFinalizeResult({
-          status: Status.Ok,
-          message: "Email successfully verified and associated with your account",
-          prev: event.id,
-        }),
-      )
-    } else {
-      this.rpc.channel(client).send(
-        makeSetEmailFinalizeResult({
-          status: Status.Error,
-          message: `Failed to validate challenge. Please request a new one to try again.`,
-          prev: event.id,
-        }),
-      )
-    }
+        this.rpc.channel(client).send(
+          makeSetEmailFinalizeResult({
+            status: Status.Ok,
+            message: "Email successfully verified and associated with your account",
+            prev: event.id,
+          }),
+        )
+      } else {
+        this.rpc.channel(client).send(
+          makeSetEmailFinalizeResult({
+            status: Status.Error,
+            message: `Failed to validate challenge. Please request a new one to try again.`,
+            prev: event.id,
+          }),
+        )
+      }
+    })
   }
 
   async handleLoginRequest({payload, event}: WithEvent<LoginRequest>) {
@@ -313,30 +315,32 @@ export class Signer {
   }
 
   async handleLoginFinalize({payload, event}: WithEvent<LoginFinalize>) {
-    const client = event.pubkey
-    const login = await this.logins.get(client)
-    const registration = login ? await this.registrations.get(login.copy_from) : undefined
+    return this.registrations.tx(async registrations => {
+      const client = event.pubkey
+      const login = await this.logins.get(client)
+      const registration = login ? await registrations.get(login.copy_from) : undefined
 
-    if (registration && login?.email === payload.email && login?.otp === payload.otp) {
-      await this.registrations.set(client, {...registration, event, last_activity: now()})
+      if (registration && login?.email === payload.email && login?.otp === payload.otp) {
+        await registrations.set(client, {...registration, event, last_activity: now()})
 
-      this.rpc.channel(client).send(
-        makeLoginFinalizeResult({
-          status: Status.Ok,
-          message: "Login successfully completed.",
-          group: registration.group,
-          prev: event.id,
-        }),
-      )
-    } else {
-      this.rpc.channel(client).send(
-        makeLoginFinalizeResult({
-          status: Status.Error,
-          message: `Failed to validate challenge. Please request a new one to try again.`,
-          prev: event.id,
-        }),
-      )
-    }
+        this.rpc.channel(client).send(
+          makeLoginFinalizeResult({
+            status: Status.Ok,
+            message: "Login successfully completed.",
+            group: registration.group,
+            prev: event.id,
+          }),
+        )
+      } else {
+        this.rpc.channel(client).send(
+          makeLoginFinalizeResult({
+            status: Status.Error,
+            message: `Failed to validate challenge. Please request a new one to try again.`,
+            prev: event.id,
+          }),
+        )
+      }
+    })
   }
 
   async handleRecoverRequest({payload, event}: WithEvent<RecoverRequest>) {
@@ -385,93 +389,99 @@ export class Signer {
   }
 
   async handleRecoverFinalize({payload, event}: WithEvent<RecoverFinalize>) {
-    const client = event.pubkey
-    const recover = await this.recovers.get(client)
-    const registration = recover ? await this.registrations.get(recover.copy_from) : undefined
+    return this.registrations.tx(async registrations => {
+      const client = event.pubkey
+      const recover = await this.recovers.get(client)
+      const registration = recover ? await registrations.get(recover.copy_from) : undefined
 
-    if (registration && recover?.otp === payload.otp && recover?.email === payload.email) {
-      await this.registrations.set(client, {...registration, event, last_activity: now()})
+      if (registration && recover?.otp === payload.otp && recover?.email === payload.email) {
+        await registrations.set(client, {...registration, event, last_activity: now()})
 
-      this.rpc.channel(client).send(
-        makeRecoverFinalizeResult({
-          status: Status.Ok,
-          message: "Recovery successfully completed.",
-          group: registration.group,
-          share: registration.share,
-          prev: event.id,
-        }),
-      )
-    } else {
-      this.rpc.channel(client).send(
-        makeRecoverFinalizeResult({
-          status: Status.Error,
-          message: `Failed to validate challenge. Please request a new one to try again.`,
-          prev: event.id,
-        }),
-      )
-    }
+        this.rpc.channel(client).send(
+          makeRecoverFinalizeResult({
+            status: Status.Ok,
+            message: "Recovery successfully completed.",
+            group: registration.group,
+            share: registration.share,
+            prev: event.id,
+          }),
+        )
+      } else {
+        this.rpc.channel(client).send(
+          makeRecoverFinalizeResult({
+            status: Status.Error,
+            message: `Failed to validate challenge. Please request a new one to try again.`,
+            prev: event.id,
+          }),
+        )
+      }
+    })
   }
 
   async handleSignRequest({payload, event}: WithEvent<SignRequest>) {
-    const channel = this.rpc.channel(event.pubkey)
-    const registration = await this.registrations.get(event.pubkey)
+    return this.registrations.tx(async registrations => {
+      const registration = await registrations.get(event.pubkey)
 
-    if (!registration) {
-      return channel.send(
+      if (!registration) {
+        return this.rpc.channel(event.pubkey).send(
+          makeSignResult({
+            status: Status.Error,
+            message: "No registration found for client",
+            prev: event.id,
+          }),
+        )
+      }
+
+      const {session} = payload
+      const ctx = Lib.get_session_ctx(registration.group, session)
+      const partialSignature = Lib.create_psig_pkg(ctx, registration.share)
+
+      await registrations.set(event.pubkey, {...registration, last_activity: now()})
+
+      this.rpc.channel(event.pubkey).send(
         makeSignResult({
-          status: Status.Error,
-          message: "No registration found for client",
+          result: partialSignature,
+          status: Status.Ok,
+          message: "Successfully signed event",
           prev: event.id,
         }),
       )
-    }
-
-    const {session} = payload
-    const ctx = Lib.get_session_ctx(registration.group, session)
-    const partialSignature = Lib.create_psig_pkg(ctx, registration.share)
-
-    channel.send(
-      makeSignResult({
-        result: partialSignature,
-        status: Status.Ok,
-        message: "Successfully signed event",
-        prev: event.id,
-      }),
-    )
+    })
   }
 
   async handleEcdhRequest({payload, event}: WithEvent<EcdhRequest>) {
-    const channel = this.rpc.channel(event.pubkey)
-    const registration = await this.registrations.get(event.pubkey)
+    return this.registrations.tx(async registrations => {
+      const registration = await registrations.get(event.pubkey)
 
-    if (!registration) {
-      return channel.send(
-        makeSignResult({
-          status: Status.Error,
-          message: "No registration found for client",
+      if (!registration) {
+        return this.rpc.channel(event.pubkey).send(
+          makeSignResult({
+            status: Status.Error,
+            message: "No registration found for client",
+            prev: event.id,
+          }),
+        )
+      }
+
+      const {members, ecdh_pk} = payload
+      const ecdhPackage = Lib.create_ecdh_pkg(members, ecdh_pk, registration.share)
+
+      await registrations.set(event.pubkey, {...registration, last_activity: now()})
+
+      this.rpc.channel(event.pubkey).send(
+        makeEcdhResult({
+          result: ecdhPackage,
+          status: Status.Ok,
+          message: "Successfully signed event",
           prev: event.id,
         }),
       )
-    }
-
-    const {members, ecdh_pk} = payload
-    const ecdhPackage = Lib.create_ecdh_pkg(members, ecdh_pk, registration.share)
-
-    channel.send(
-      makeEcdhResult({
-        result: ecdhPackage,
-        status: Status.Ok,
-        message: "Successfully signed event",
-        prev: event.id,
-      }),
-    )
+    })
   }
 
   async handleClientListRequest({payload, event}: WithEvent<ClientListRequest>) {
-    const channel = this.rpc.channel(event.pubkey)
-
     if (!this._isAuthValid(payload.auth, Method.ClientListRequest)) {
-      return channel.send(
+      return this.rpc.channel(event.pubkey).send(
         makeClientListResult({
           clients: [],
           status: Status.Error,
@@ -493,7 +503,7 @@ export class Signer {
       }
     }
 
-    channel.send(
+    this.rpc.channel(event.pubkey).send(
       makeClientListResult({
         clients,
         status: Status.Ok,
@@ -504,10 +514,8 @@ export class Signer {
   }
 
   async handleUnregisterRequest({payload, event}: WithEvent<UnregisterRequest>) {
-    const channel = this.rpc.channel(event.pubkey)
-
     if (!this._isAuthValid(payload.auth, Method.UnregisterRequest)) {
-      return channel.send(
+      return this.rpc.channel(event.pubkey).send(
         makeUnregisterResult({
           status: Status.Error,
           message: "Failed to unregister selected client.",
@@ -516,26 +524,28 @@ export class Signer {
       )
     }
 
-    const registration = await this.registrations.get(payload.client)
+    return this.registrations.tx(async registrations => {
+      const registration = await registrations.get(payload.client)
 
-    if (registration?.group.group_pk.slice(2) === payload.auth.pubkey) {
-      await this.registrations.delete(payload.client)
+      if (registration?.group.group_pk.slice(2) === payload.auth.pubkey) {
+        await registrations.delete(payload.client)
 
-      channel.send(
-        makeUnregisterResult({
-          status: Status.Ok,
-          message: "Successfully unregister selected client.",
-          prev: event.id,
-        }),
-      )
-    } else {
-      return channel.send(
-        makeUnregisterResult({
-          status: Status.Error,
-          message: "Failed to unregister selected client.",
-          prev: event.id,
-        }),
-      )
-    }
+        this.rpc.channel(event.pubkey).send(
+          makeUnregisterResult({
+            status: Status.Ok,
+            message: "Successfully unregister selected client.",
+            prev: event.id,
+          }),
+        )
+      } else {
+        return this.rpc.channel(event.pubkey).send(
+          makeUnregisterResult({
+            status: Status.Error,
+            message: "Failed to unregister selected client.",
+            prev: event.id,
+          }),
+        )
+      }
+    })
   }
 }
