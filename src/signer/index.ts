@@ -56,27 +56,26 @@ export type SignerRegistration = {
   share: SharePackage
   group: GroupPackage
   event: TrustedEvent
-  email_hash?: string
+  // last_activity: number
+  email?: string
   email_service?: string
-  email_ciphertext?: string
 }
 
 export type EmailChallenge = {
   otp: string
-  email_hash: string
+  email: string
   email_service: string
-  email_ciphertext: string
 }
 
 export type LoginRequest = {
   otp: string
-  email_hash: string
+  email: string
   copy_from: string
 }
 
 export type RecoverRequest = {
   otp: string
-  email_hash: string
+  email: string
   copy_from: string
 }
 
@@ -150,17 +149,17 @@ export class Signer {
   async handleSetEmailRequestMessage({payload, event}: WithEvent<SetEmailRequestMessage>) {
     const client = event.pubkey
     const registration = await this.registrations.get(client)
-    const {email_hash, email_service, email_ciphertext} = payload
+    const {email, email_service} = payload
 
     if (registration) {
       const otp = generateOTP()
       const total = registration.group.commits.length
 
-      await this.challenges.set(client, {otp, email_hash, email_service, email_ciphertext})
+      await this.challenges.set(client, {otp, email, email_service})
 
       this.rpc
         .channel(email_service)
-        .send(makeSetEmailChallenge({otp, total, client, email_ciphertext}))
+        .send(makeSetEmailChallenge({otp, total, email, client}))
     }
 
     // Always show success so attackers can't get information on who is registered
@@ -180,14 +179,13 @@ export class Signer {
 
     if (
       registration &&
-      challenge?.email_hash === payload.email_hash &&
-      challenge?.otp === payload.otp
+      challenge?.otp === payload.otp &&
+      challenge?.email === payload.email
     ) {
       await this.registrations.set(client, {
         ...registration,
-        email_hash: challenge.email_hash,
+        email: challenge.email,
         email_service: challenge.email_service,
-        email_ciphertext: challenge.email_ciphertext,
       })
 
       this.rpc.channel(client).send(
@@ -210,11 +208,11 @@ export class Signer {
 
   async handleLoginRequestMessage({payload, event}: WithEvent<LoginRequestMessage>) {
     const client = event.pubkey
-    const {email_hash, pubkey} = payload
+    const {email, pubkey} = payload
     const pubkeys = new Set<string>()
     const registrations: SignerRegistration[] = []
     for (const [_, reg] of await this.registrations.entries()) {
-      if (reg.email_hash !== email_hash) continue
+      if (reg.email !== email) continue
       if (pubkey && reg.group.group_pk !== pubkey) continue
 
       registrations.push(reg)
@@ -236,15 +234,10 @@ export class Signer {
       const [registration] = registrations
       const total = registration.group.commits.length
 
-      await this.logins.set(client, {otp, email_hash, copy_from: registration.client})
+      await this.logins.set(client, {otp, email, copy_from: registration.client})
 
       this.rpc.channel(registration.email_service!).send(
-        makeLoginChallenge({
-          otp,
-          total,
-          client: registration.client,
-          email_ciphertext: registration.email_ciphertext!,
-        }),
+        makeLoginChallenge({otp, total, client, email: registration.email!}),
       )
     }
 
@@ -263,7 +256,7 @@ export class Signer {
     const login = await this.logins.get(client)
     const registration = login ? await this.registrations.get(login.copy_from) : undefined
 
-    if (registration && login?.email_hash === payload.email_hash && login?.otp === payload.otp) {
+    if (registration && login?.email === payload.email && login?.otp === payload.otp) {
       await this.registrations.set(client, {...registration, event})
 
       this.rpc.channel(client).send(
@@ -287,11 +280,11 @@ export class Signer {
 
   async handleRecoverRequestMessage({payload, event}: WithEvent<RecoverRequestMessage>) {
     const client = event.pubkey
-    const {email_hash, pubkey} = payload
+    const {email, pubkey} = payload
     const pubkeys = new Set<string>()
     const registrations: SignerRegistration[] = []
     for (const [_, reg] of await this.registrations.entries()) {
-      if (reg.email_hash !== email_hash) continue
+      if (reg.email !== email) continue
       if (pubkey && reg.group.group_pk !== pubkey) continue
 
       registrations.push(reg)
@@ -313,15 +306,10 @@ export class Signer {
       const [registration] = registrations
       const total = registration.group.commits.length
 
-      await this.recovers.set(client, {otp, email_hash, copy_from: registration.client})
+      await this.recovers.set(client, {otp, email, copy_from: registration.client})
 
       this.rpc.channel(registration.email_service!).send(
-        makeRecoverChallenge({
-          otp,
-          total,
-          client: registration.client,
-          email_ciphertext: registration.email_ciphertext!,
-        }),
+        makeRecoverChallenge({otp, total, client, email: registration.email!}),
       )
     }
 
@@ -342,8 +330,8 @@ export class Signer {
 
     if (
       registration &&
-      recover?.email_hash === payload.email_hash &&
-      recover?.otp === payload.otp
+      recover?.otp === payload.otp &&
+      recover?.email === payload.email
     ) {
       await this.registrations.set(client, {...registration, event})
 
@@ -444,8 +432,10 @@ export class Signer {
     for (const [_, reg] of await this.registrations.entries()) {
       if (reg.group.group_pk.slice(2) === payload.auth.pubkey) {
         clients.push({
+          email: reg.email,
           client: reg.client,
-          email_hash: reg.email_hash,
+          created_at: reg.event.created_at,
+          // last_activity: reg.last_activity,
         })
       }
     }

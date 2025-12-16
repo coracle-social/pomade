@@ -1,3 +1,4 @@
+import * as z from 'zod'
 import {
   Maybe,
   pushToMapKey,
@@ -18,7 +19,7 @@ import {sha256 as sha256Hash} from "@noble/hashes/sha2.js"
 import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
 import {prep, makeSecret, getPubkey, makeHttpAuth} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
-import {Schema, Lib} from "@frostr/bifrost"
+import {Lib} from "@frostr/bifrost"
 import type {SharePackage, GroupPackage, ECDHPackage} from "@frostr/bifrost"
 import {
   context,
@@ -52,6 +53,7 @@ import {
   makeUnregisterRequest,
   parseChallenge,
   RPC,
+  Schema,
   SetEmailFinalizeResultMessage,
   SetEmailRequestResultMessage,
   SignResultMessage,
@@ -140,13 +142,12 @@ export class Client {
 
   static async loginRequest(secret: string, email: string, pubkey?: string) {
     const rpc = new RPC(secret)
-    const email_hash = await sha256(textEncoder.encode(email))
 
     const messages = await Promise.all(
       context.signerPubkeys.map((peer, i) => {
         return rpc
           .channel(peer)
-          .send(makeLoginRequest({email_hash, pubkey}))
+          .send(makeLoginRequest({email, pubkey}))
           .receive<LoginRequestResultMessage>((message, resolve) => {
             if (isLoginRequestResult(message)) {
               resolve(message)
@@ -166,13 +167,12 @@ export class Client {
 
   static async loginFinalize(secret: string, email: string, challenge: string) {
     const rpc = new RPC(secret)
-    const email_hash = await sha256(textEncoder.encode(email))
 
     const messages = await Promise.all(
       parseChallenge(challenge).map(([peer, otp]) => {
         return rpc
           .channel(peer)
-          .send(makeLoginFinalize({otp, email_hash}))
+          .send(makeLoginFinalize({otp, email}))
           .receive<WithEvent<LoginFinalizeResultMessage>>((message, resolve) => {
             if (isLoginFinalizeResult(message)) {
               resolve(message)
@@ -208,13 +208,12 @@ export class Client {
 
   static async recoverRequest(secret: string, email: string, pubkey?: string) {
     const rpc = new RPC(secret)
-    const email_hash = await sha256(textEncoder.encode(email))
 
     const messages = await Promise.all(
       context.signerPubkeys.map((peer, i) => {
         return rpc
           .channel(peer)
-          .send(makeRecoverRequest({email_hash, pubkey}))
+          .send(makeRecoverRequest({email, pubkey}))
           .receive<RecoverRequestResultMessage>((message, resolve) => {
             if (isRecoverRequestResult(message)) {
               resolve(message)
@@ -234,13 +233,12 @@ export class Client {
 
   static async recoverFinalize(secret: string, email: string, challenge: string) {
     const rpc = new RPC(secret)
-    const email_hash = await sha256(textEncoder.encode(email))
 
     const messages = await Promise.all(
       parseChallenge(challenge).map(([peer, otp]) => {
         return rpc
           .channel(peer)
-          .send(makeRecoverFinalize({otp, email_hash}))
+          .send(makeRecoverFinalize({otp, email}))
           .receive<WithEvent<RecoverFinalizeResultMessage>>((message, resolve) => {
             if (isRecoverFinalizeResult(message)) {
               resolve(message)
@@ -278,22 +276,13 @@ export class Client {
     return {ok: false, messages}
   }
 
-  async setEmailRequest(email: string, emailService: string) {
-    const emailHash = await sha256(textEncoder.encode(email))
-    const emailCiphertext = this.rpc.encrypt(emailService, email)
-
+  async setEmailRequest(email: string, email_service: string) {
     const messages = await Promise.all(
       this.peers.map((peer, i) => {
         return this
           .rpc
           .channel(peer)
-          .send(
-            makeSetEmailRequest({
-              email_hash: emailHash,
-              email_service: emailService,
-              email_ciphertext: emailCiphertext,
-            }),
-          )
+          .send(makeSetEmailRequest({email, email_service}))
           .receive<WithEvent<SetEmailRequestResultMessage>>((message, resolve) => {
             if (isSetEmailRequestResult(message)) {
               resolve(message)
@@ -306,25 +295,23 @@ export class Client {
   }
 
   async setEmailFinalize(email: string, emailService: string, challenge: string) {
-    const emailHash = await sha256(textEncoder.encode(email))
     const otpsByPeer = fromPairs(parseChallenge(challenge))
 
     const messages = await Promise.all(
       this.peers.map((peer, i) => {
-        return this
-          .rpc
-          .channel(peer)
-          .send(
-            makeSetEmailFinalize({
-              email_hash: emailHash,
-              otp: otpsByPeer[peer] || "",
-            }),
-          )
-          .receive<WithEvent<SetEmailFinalizeResultMessage>>((message, resolve) => {
-            if (isSetEmailFinalizeResult(message)) {
-              resolve(message)
-            }
-          })
+        const otp = otpsByPeer[peer] || ""
+
+        if (otp) {
+          return this
+            .rpc
+            .channel(peer)
+            .send(makeSetEmailFinalize({email, otp}))
+            .receive<WithEvent<SetEmailFinalizeResultMessage>>((message, resolve) => {
+              if (isSetEmailFinalizeResult(message)) {
+                resolve(message)
+              }
+            })
+        }
       }),
     )
 
@@ -357,7 +344,7 @@ export class Client {
 
     if (messages.every(m => m?.payload.status === Status.Ok)) {
       const ctx = Lib.get_session_ctx(this.group, session)
-      const pkgs = messages.map(m => Schema.sign.psig_pkg.parse(m!.payload.result))
+      const pkgs = messages.map(m => m!.payload.result!)
       const sig = Lib.combine_signature_pkgs(ctx, pkgs)[0]?.[2]
 
       if (sig) {
@@ -415,13 +402,13 @@ export class Client {
       }),
     )
 
-    const resultsByClient = new Map<string, {peer: string; email_hash: string}[]>()
+    const resultsByClient = new Map<string, z.infer<typeof Schema.clientItem> & {peer: string}[]>()
 
     for (const message of messages) {
       if (!message) continue
 
-      for (const {client, email_hash} of message.payload.clients) {
-        pushToMapKey(resultsByClient, client, {peer: message.event.pubkey, email_hash})
+      for (const clientItem of message.payload.clients) {
+        pushToMapKey(resultsByClient, clientItem.client, {peer: message.event.pubkey, ...clientItem})
       }
     }
 

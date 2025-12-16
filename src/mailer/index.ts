@@ -61,11 +61,7 @@ export class Mailer {
   }
 
   async handleSetEmailChallenge({method, payload, event}: WithEvent<SetEmailChallengeMessage>) {
-    const {total, client, otp, email_ciphertext, callback_url} = payload
-    const email = tryCatch(() => this.rpc.decrypt(client, email_ciphertext))
-
-    if (!email) return
-
+    const {total, client, otp, email, callback_url} = payload
     const key = getBatchKey(email, client, method)
 
     await this.batches.tx(async () => {
@@ -90,11 +86,7 @@ export class Mailer {
   }
 
   async handleLoginChallenge({method, payload, event}: WithEvent<LoginChallengeMessage>) {
-    const {total, client, otp, email_ciphertext, callback_url} = payload
-    const email = tryCatch(() => this.rpc.decrypt(client, email_ciphertext))
-
-    if (!email) return
-
+    const {total, client, otp, email, callback_url} = payload
     const key = getBatchKey(email, client, method)
 
     await this.batches.tx(async () => {
@@ -115,11 +107,7 @@ export class Mailer {
   }
 
   async handleRecoverChallenge({method, payload, event}: WithEvent<RecoverChallengeMessage>) {
-    const {total, client, otp, email_ciphertext, callback_url} = payload
-    const email = tryCatch(() => this.rpc.decrypt(client, email_ciphertext))
-
-    if (!email) return
-
+    const {total, client, otp, email, callback_url} = payload
     const key = getBatchKey(email, client, method)
 
     await this.batches.tx(async () => {

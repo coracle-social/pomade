@@ -21,3 +21,4 @@ The initial email validation provides no security, because the user is the one s
 - email has to be bound at registration, otherwise an attacker with access to any session could recover to their own email
 - add last_activity timestamps and add created at from event to list endpoint
 - pubkey selection isn't going to work, since it leaks info to someone with an email, and signers also don't know about all sessions. Maybe we have to restrict emails to a single pubkey? Or put pubkey selection in the email?
+- Check auth created_at for replay attacks

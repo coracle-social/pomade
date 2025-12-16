@@ -101,17 +101,20 @@ const event = z.object({
   created_at: z.int().positive(),
 })
 
+const clientItem = z.object({
+  client: hex32,
+  email: z.string().optional(),
+  created_at: z.int().positive(),
+  // last_activity: z.int().positive(),
+})
+
 export const Schema = {
+  clientItem,
   clientListRequest: z.object({
     auth: event,
   }),
   clientListResult: z.object({
-    clients: z.array(
-      z.object({
-        client: hex32,
-        email_hash: z.string().optional(),
-      }),
-    ),
+    clients: z.array(clientItem),
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,
@@ -128,7 +131,7 @@ export const Schema = {
     prev: hex32,
   }),
   loginRequest: z.object({
-    email_hash: z.string(),
+    email: z.string(),
     callback_url: z.string().optional(),
     pubkey: hex32.optional(),
   }),
@@ -141,12 +144,12 @@ export const Schema = {
   loginChallenge: z.object({
     otp: z.string(),
     total: z.number(),
+    email: z.string(),
     client: hex32,
-    email_ciphertext: z.string(),
     callback_url: z.string().optional(),
   }),
   loginFinalize: z.object({
-    email_hash: z.string(),
+    email: z.string(),
     otp: z.string(),
   }),
   loginFinalizeResult: z.object({
@@ -156,7 +159,7 @@ export const Schema = {
     prev: hex32,
   }),
   recoverRequest: z.object({
-    email_hash: z.string(),
+    email: z.string(),
     callback_url: z.string().optional(),
     pubkey: hex32.optional(),
   }),
@@ -169,12 +172,12 @@ export const Schema = {
   recoverChallenge: z.object({
     otp: z.string(),
     total: z.number(),
+    email: z.string(),
     client: hex32,
-    email_ciphertext: z.string(),
     callback_url: z.string().optional(),
   }),
   recoverFinalize: z.object({
-    email_hash: z.string(),
+    email: z.string(),
     otp: z.string(),
   }),
   recoverFinalizeResult: z.object({
@@ -195,9 +198,8 @@ export const Schema = {
     prev: hex32,
   }),
   setEmailRequest: z.object({
-    email_hash: z.string(),
-    email_service: z.string().length(64),
-    email_ciphertext: z.string(),
+    email: z.string(),
+    email_service: hex32,
     callback_url: z.string().optional(),
     pubkey: hex32.optional(),
   }),
@@ -210,12 +212,12 @@ export const Schema = {
   setEmailChallenge: z.object({
     otp: z.string(),
     total: z.number(),
+    email: z.string(),
     client: hex32,
-    email_ciphertext: z.string(),
     callback_url: z.string().optional(),
   }),
   setEmailFinalize: z.object({
-    email_hash: z.string(),
+    email: z.string(),
     otp: z.string(),
   }),
   setEmailFinalizeResult: z.object({
