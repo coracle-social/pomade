@@ -11,7 +11,8 @@ New plan: adapt bifrost signer stuff so that it supports email recovery and logi
 
 The initial email validation provides no security, because the user is the one specifying the email service. It must be done with a valid registration, where the user has already proved they have access to the key, or access to the email using a past email service. The OTP flow is still valuable to give users a familiar experience, and to ensure they don't associate the wrong email with their key.
 
-- update readme, include a disclaimer that it's alpha
 - optimize sign/ecdh so that all signers are asked, but only the fastest results get used
-- switch status to ok
 - recovery/re-register is going to trigger a re-validation, especially if new signers are used. Build a way to re-use previous signers? Or bring back login?
+- just in case, invalidate otps immediately, just in case of replay attacks
+- Add login again. Use the same events for the otp challenge, just specify a type somewhere. Probably early to lock it in, and so that the mailer can swap templates up
+- rename logout to session/delete

@@ -5,7 +5,6 @@ import {getPubkey, verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
 import type {TrustedEvent, SignedEvent} from "@welshman/util"
 import {
   RPC,
-  Status,
   makeSessionListResult,
   makeRegisterResult,
   makeSetRecoveryMethodRequestResult,
@@ -151,29 +150,29 @@ export class Signer {
   async handleRegisterRequest({payload, event}: WithEvent<RegisterRequest>) {
     const client = event.pubkey
     const {group, share} = payload
-    const cb = (status: Status, message: string) =>
-      this.rpc.channel(client).send(makeRegisterResult({status, message, prev: event.id}))
+    const cb = (ok: boolean, message: string) =>
+      this.rpc.channel(client).send(makeRegisterResult({ok, message, prev: event.id}))
 
-    if (!share) return cb(Status.Error, `Failed to deserialize share package.`)
-    if (!group) return cb(Status.Error, `Failed to deserialize group package.`)
+    if (!share) return cb(false, `Failed to deserialize share package.`)
+    if (!group) return cb(false, `Failed to deserialize group package.`)
 
     const isMember = Lib.is_group_member(group, share)
 
-    if (!isMember) return cb(Status.Error, "Share does not belong to the provided group.")
-    if (group.threshold <= 0) return cb(Status.Error, "Group threshold must be greater than zero.")
-    if (group.threshold > group.commits.length) return cb(Status.Error, "Invalid group threshold.")
+    if (!isMember) return cb(false, "Share does not belong to the provided group.")
+    if (group.threshold <= 0) return cb(false, "Group threshold must be greater than zero.")
+    if (group.threshold > group.commits.length) return cb(false, "Invalid group threshold.")
 
     const indices = new Set(group.commits.map(c => c.idx))
     const commit = group.commits.find(c => c.idx === share.idx)
 
     if (indices.size !== group.commits.length)
-      return cb(Status.Error, "Group contains duplicate member indices.")
-    if (!commit) return cb(Status.Error, "Share index not found in group commits.")
-    if (await this.sessions.has(client)) return cb(Status.Error, "Client is already registered.")
+      return cb(false, "Group contains duplicate member indices.")
+    if (!commit) return cb(false, "Share index not found in group commits.")
+    if (await this.sessions.has(client)) return cb(false, "Client is already registered.")
 
     await this.sessions.set(client, {client, event, share, group, last_activity: now()})
 
-    return cb(Status.Ok, "Your key has been registered")
+    return cb(true, "Your key has been registered")
   }
 
   async handleSetRecoveryMethodRequest({payload, event}: WithEvent<SetRecoveryMethodRequest>) {
@@ -184,7 +183,7 @@ export class Signer {
     if (!session) {
       return this.rpc.channel(client).send(
         makeSetRecoveryMethodRequestResult({
-          status: Status.Error,
+          ok: false,
           message: "No session found for client.",
           prev: event.id,
         }),
@@ -196,7 +195,7 @@ export class Signer {
     if (session.event.created_at < ago(5, MINUTE)) {
       return this.rpc.channel(client).send(
         makeSetRecoveryMethodRequestResult({
-          status: Status.Error,
+          ok: false,
           message: "Recovery method must be set within 5 minutes of session.",
           prev: event.id,
         }),
@@ -215,7 +214,7 @@ export class Signer {
 
     this.rpc.channel(client).send(
       makeSetRecoveryMethodRequestResult({
-        status: Status.Ok,
+        ok: true,
         message: "Verification sent. Please check your recovery method to continue.",
         prev: event.id,
       }),
@@ -238,7 +237,7 @@ export class Signer {
 
         this.rpc.channel(client).send(
           makeSetRecoveryMethodFinalizeResult({
-            status: Status.Ok,
+            ok: true,
             message: "Recovery method successfully verified and associated with your account",
             prev: event.id,
           }),
@@ -246,7 +245,7 @@ export class Signer {
       } else {
         this.rpc.channel(client).send(
           makeSetRecoveryMethodFinalizeResult({
-            status: Status.Error,
+            ok: false,
             message: `Failed to validate challenge. Please request a new one to try again.`,
             prev: event.id,
           }),
@@ -286,7 +285,7 @@ export class Signer {
     // Always show success so attackers can't get information on who is registered
     this.rpc.channel(event.pubkey).send(
       makeRecoverRequestResult({
-        status: Status.Ok,
+        ok: true,
         message: "Verification sent. Please check your inbox to continue.",
         prev: event.id,
       }),
@@ -305,7 +304,7 @@ export class Signer {
         if (session) {
           return this.rpc.channel(event.pubkey).send(
             makeRecoverFinalizeResult({
-              status: Status.Ok,
+              ok: true,
               message: "Recovery successfully completed.",
               group: session.group,
               share: session.share,
@@ -317,7 +316,7 @@ export class Signer {
 
       this.rpc.channel(event.pubkey).send(
         makeRecoverFinalizeResult({
-          status: Status.Error,
+          ok: false,
           message: `Failed to validate your request. Please try again.`,
           prev: event.id,
         }),
@@ -332,7 +331,7 @@ export class Signer {
       if (!session) {
         return this.rpc.channel(event.pubkey).send(
           makeSignResult({
-            status: Status.Error,
+            ok: false,
             message: "No session found for client",
             prev: event.id,
           }),
@@ -347,7 +346,7 @@ export class Signer {
       this.rpc.channel(event.pubkey).send(
         makeSignResult({
           result: partialSignature,
-          status: Status.Ok,
+          ok: true,
           message: "Successfully signed event",
           prev: event.id,
         }),
@@ -362,7 +361,7 @@ export class Signer {
       if (!session) {
         return this.rpc.channel(event.pubkey).send(
           makeSignResult({
-            status: Status.Error,
+            ok: false,
             message: "No session found for client",
             prev: event.id,
           }),
@@ -377,7 +376,7 @@ export class Signer {
       this.rpc.channel(event.pubkey).send(
         makeEcdhResult({
           result: ecdhPackage,
-          status: Status.Ok,
+          ok: true,
           message: "Successfully signed event",
           prev: event.id,
         }),
@@ -390,7 +389,7 @@ export class Signer {
       return this.rpc.channel(event.pubkey).send(
         makeSessionListResult({
           sessions: [],
-          status: Status.Error,
+          ok: false,
           message: "Failed to validate authentication.",
           prev: event.id,
         }),
@@ -412,7 +411,7 @@ export class Signer {
     this.rpc.channel(event.pubkey).send(
       makeSessionListResult({
         sessions,
-        status: Status.Ok,
+        ok: true,
         message: "Successfully retrieved client list.",
         prev: event.id,
       }),
@@ -423,7 +422,7 @@ export class Signer {
     if (!this._isAuthValid(payload.auth, Method.LogoutRequest)) {
       return this.rpc.channel(event.pubkey).send(
         makeLogoutResult({
-          status: Status.Error,
+          ok: false,
           message: "Failed to logout selected client.",
           prev: event.id,
         }),
@@ -438,7 +437,7 @@ export class Signer {
 
         this.rpc.channel(event.pubkey).send(
           makeLogoutResult({
-            status: Status.Ok,
+            ok: true,
             message: "Successfully logout selected client.",
             prev: event.id,
           }),
@@ -446,7 +445,7 @@ export class Signer {
       } else {
         return this.rpc.channel(event.pubkey).send(
           makeLogoutResult({
-            status: Status.Error,
+            ok: false,
             message: "Failed to logout selected client.",
             prev: event.id,
           }),

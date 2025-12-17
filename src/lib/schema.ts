@@ -23,11 +23,6 @@ export enum Method {
   LogoutResult = "logout/result",
 }
 
-export enum Status {
-  Ok = "ok",
-  Error = "error",
-}
-
 const hex = z
   .string()
   .regex(/^[0-9a-fA-F]*$/)
@@ -75,12 +70,6 @@ const sessionItem = z.object({
   last_activity: z.int().positive(),
 })
 
-const recoverItem = z.object({
-  otp: z.string(),
-  client: hex32,
-  threshold: z.int().positive(),
-})
-
 export const Schema = {
   sessionItem,
   sessionListRequest: z.object({
@@ -88,7 +77,7 @@ export const Schema = {
   }),
   sessionListResult: z.object({
     sessions: z.array(sessionItem),
-    status: z.enum(Object.values(Status)),
+    ok: z.boolean(),
     message: z.string(),
     prev: hex32,
   }),
@@ -106,7 +95,7 @@ export const Schema = {
         ecdh_pk: hex,
       }),
     ),
-    status: z.enum(Object.values(Status)),
+    ok: z.boolean(),
     message: z.string(),
     prev: hex32,
   }),
@@ -116,15 +105,20 @@ export const Schema = {
     callback_url: z.string().optional(),
   }),
   recoverRequestResult: z.object({
-    status: z.enum(Object.values(Status)),
+    ok: z.boolean(),
     message: z.string(),
     prev: hex32,
   }),
-  recoverItem,
   recoverChallenge: z.object({
     inbox: z.string(),
     pubkey: hex32,
-    items: recoverItem.array(),
+    items: z.array(
+      z.object({
+        otp: z.string(),
+        client: hex32,
+        threshold: z.int().positive(),
+      }),
+    ),
     callback_url: z.string().optional(),
   }),
   recoverFinalize: z.object({
@@ -133,7 +127,7 @@ export const Schema = {
   recoverFinalizeResult: z.object({
     group: group.optional(),
     share: share.optional(),
-    status: z.enum(Object.values(Status)),
+    ok: z.boolean(),
     message: z.string(),
     prev: hex32,
   }),
@@ -142,7 +136,7 @@ export const Schema = {
     group: group,
   }),
   registerResult: z.object({
-    status: z.enum(Object.values(Status)),
+    ok: z.boolean(),
     message: z.string(),
     prev: hex32,
   }),
@@ -152,7 +146,7 @@ export const Schema = {
     callback_url: z.string().optional(),
   }),
   setRecoveryMethodRequestResult: z.object({
-    status: z.enum(Object.values(Status)),
+    ok: z.boolean(),
     message: z.string(),
     prev: hex32,
   }),
@@ -168,7 +162,7 @@ export const Schema = {
     otp: z.string(),
   }),
   setRecoveryMethodFinalizeResult: z.object({
-    status: z.enum(Object.values(Status)),
+    ok: z.boolean(),
     message: z.string(),
     prev: hex32,
   }),
@@ -192,7 +186,7 @@ export const Schema = {
         sid: hex32,
       }),
     ),
-    status: z.enum(Object.values(Status)),
+    ok: z.boolean(),
     message: z.string(),
     prev: hex32,
   }),
@@ -201,7 +195,7 @@ export const Schema = {
     auth: event,
   }),
   logoutResult: z.object({
-    status: z.enum(Object.values(Status)),
+    ok: z.boolean(),
     message: z.string(),
     prev: hex32,
   }),

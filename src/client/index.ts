@@ -49,7 +49,6 @@ import {
   SetRecoveryMethodFinalizeResult,
   SetRecoveryMethodRequestResult,
   SignResult,
-  Status,
   LogoutResult,
   WithEvent,
 } from "../lib/index.js"
@@ -99,15 +98,13 @@ export class Client {
             .send(makeRegisterRequest({share, group}))
             .receive((message, resolve) => {
               if (isRegisterResult(message)) {
-                if (message.payload.status === Status.Ok) {
+                if (message.payload.ok) {
                   peersByIndex.set(i, message.event.pubkey)
-                  resolve()
+                } else {
+                  errorsByPeer.set(message.event.pubkey, message.payload.message)
                 }
 
-                if (message.payload.status === Status.Error) {
-                  errorsByPeer.set(message.event.pubkey, message.payload.message)
-                  resolve()
-                }
+                resolve()
               }
             })
         }
@@ -150,7 +147,7 @@ export class Client {
 
     rpc.stop()
 
-    return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
+    return {ok: messages.every(m => m?.payload.ok), messages}
   }
 
   static async recoverFinalize(secret: string, challenge: string) {
@@ -176,7 +173,7 @@ export class Client {
     const shares: SharePackage[] = []
 
     for (const m of messages) {
-      if (m?.payload.status !== Status.Ok || !m.payload.group || !m.payload.share) {
+      if (!m?.payload.ok || !m.payload.group || !m.payload.share) {
         continue
       }
 
@@ -212,7 +209,7 @@ export class Client {
       }),
     )
 
-    return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
+    return {ok: messages.every(m => m?.payload.ok), messages}
   }
 
   async setRecoveryMethodFinalize(challenge: string) {
@@ -235,7 +232,7 @@ export class Client {
       }),
     )
 
-    return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
+    return {ok: messages.every(m => m?.payload.ok), messages}
   }
 
   async sign(stampedEvent: StampedEvent) {
@@ -263,7 +260,7 @@ export class Client {
       }),
     )
 
-    if (messages.every(m => m?.payload.status === Status.Ok)) {
+    if (messages.every(m => m?.payload.ok)) {
       const ctx = Lib.get_session_ctx(this.group, request)
       const pkgs = messages.map(m => m!.payload.result!)
       const sig = Lib.combine_signature_pkgs(ctx, pkgs)[0]?.[2]
@@ -361,6 +358,6 @@ export class Client {
       }),
     )
 
-    return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
+    return {ok: messages.every(m => m?.payload.ok), messages}
   }
 }
