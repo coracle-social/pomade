@@ -7,88 +7,83 @@ import {Schema, Method} from "./schema"
 
 type DefineMessage<M, P> = {method: M; payload: z.infer<P>}
 
-export type SessionListRequest = DefineMessage<
-  Method.SessionListRequest,
-  typeof Schema.sessionListRequest
+export type EcdhRequest = DefineMessage<Method.EcdhRequest, typeof Schema.ecdhRequest>
+export type EcdhResult = DefineMessage<Method.EcdhResult, typeof Schema.ecdhResult>
+export type RecoveryChallenge = DefineMessage<
+  Method.RecoveryChallenge,
+  typeof Schema.recoveryChallenge
 >
+export type RecoveryFinalize = DefineMessage<
+  Method.RecoveryFinalize,
+  typeof Schema.recoveryFinalize
+>
+export type RecoveryFinalizeResult = DefineMessage<
+  Method.RecoveryFinalizeResult,
+  typeof Schema.recoveryFinalizeResult
+>
+export type RecoveryMethodChallenge = DefineMessage<
+  Method.RecoveryMethodChallenge,
+  typeof Schema.recoveryMethodChallenge
+>
+export type RecoveryMethodFinalize = DefineMessage<
+  Method.RecoveryMethodFinalize,
+  typeof Schema.recoveryMethodFinalize
+>
+export type RecoveryMethodFinalizeResult = DefineMessage<
+  Method.RecoveryMethodFinalizeResult,
+  typeof Schema.recoveryMethodFinalizeResult
+>
+export type RecoveryMethodSet = DefineMessage<
+  Method.RecoveryMethodSet,
+  typeof Schema.recoveryMethodSet
+>
+export type RecoveryMethodSetResult = DefineMessage<
+  Method.RecoveryMethodSetResult,
+  typeof Schema.recoveryMethodSetResult
+>
+export type RecoveryStart = DefineMessage<Method.RecoveryStart, typeof Schema.recoveryStart>
+export type RecoveryStartResult = DefineMessage<
+  Method.RecoveryStartResult,
+  typeof Schema.recoveryStartResult
+>
+export type RegisterRequest = DefineMessage<Method.RegisterRequest, typeof Schema.registerRequest>
+export type RegisterResult = DefineMessage<Method.RegisterResult, typeof Schema.registerResult>
+export type SessionDelete = DefineMessage<Method.SessionDelete, typeof Schema.sessionDelete>
+export type SessionDeleteResult = DefineMessage<
+  Method.SessionDeleteResult,
+  typeof Schema.sessionDeleteResult
+>
+export type SessionList = DefineMessage<Method.SessionList, typeof Schema.sessionList>
 export type SessionListResult = DefineMessage<
   Method.SessionListResult,
   typeof Schema.sessionListResult
 >
-export type EcdhRequest = DefineMessage<Method.EcdhRequest, typeof Schema.ecdhRequest>
-export type EcdhResult = DefineMessage<Method.EcdhResult, typeof Schema.ecdhResult>
-export type RecoverRequest = DefineMessage<Method.RecoverRequest, typeof Schema.recoverRequest>
-export type RecoverRequestResult = DefineMessage<
-  Method.RecoverRequestResult,
-  typeof Schema.recoverRequestResult
->
-export type RecoverChallenge = DefineMessage<
-  Method.RecoverChallenge,
-  typeof Schema.recoverChallenge
->
-export type RecoverFinalize = DefineMessage<Method.RecoverFinalize, typeof Schema.recoverFinalize>
-export type RecoverFinalizeResult = DefineMessage<
-  Method.RecoverFinalizeResult,
-  typeof Schema.recoverFinalizeResult
->
-export type RegisterRequest = DefineMessage<Method.RegisterRequest, typeof Schema.registerRequest>
-export type RegisterResult = DefineMessage<Method.RegisterResult, typeof Schema.registerResult>
-export type SetRecoveryMethodRequest = DefineMessage<
-  Method.SetRecoveryMethodRequest,
-  typeof Schema.setRecoveryMethodRequest
->
-export type SetRecoveryMethodRequestResult = DefineMessage<
-  Method.SetRecoveryMethodRequestResult,
-  typeof Schema.setRecoveryMethodRequestResult
->
-export type SetRecoveryMethodChallenge = DefineMessage<
-  Method.SetRecoveryMethodChallenge,
-  typeof Schema.setRecoveryMethodChallenge
->
-export type SetRecoveryMethodFinalize = DefineMessage<
-  Method.SetRecoveryMethodFinalize,
-  typeof Schema.setRecoveryMethodFinalize
->
-export type SetRecoveryMethodFinalizeResult = DefineMessage<
-  Method.SetRecoveryMethodFinalizeResult,
-  typeof Schema.setRecoveryMethodFinalizeResult
->
 export type SignRequest = DefineMessage<Method.SignRequest, typeof Schema.signRequest>
 export type SignResult = DefineMessage<Method.SignResult, typeof Schema.signResult>
-export type LogoutRequest = DefineMessage<Method.LogoutRequest, typeof Schema.logoutRequest>
-export type LogoutResult = DefineMessage<Method.LogoutResult, typeof Schema.logoutResult>
 
 export type Message =
-  | SessionListRequest
-  | SessionListResult
   | EcdhRequest
   | EcdhResult
-  | RecoverRequest
-  | RecoverRequestResult
-  | RecoverChallenge
-  | RecoverFinalize
-  | RecoverFinalizeResult
+  | RecoveryChallenge
+  | RecoveryFinalize
+  | RecoveryFinalizeResult
+  | RecoveryMethodChallenge
+  | RecoveryMethodFinalize
+  | RecoveryMethodFinalizeResult
+  | RecoveryMethodSet
+  | RecoveryMethodSetResult
+  | RecoveryStart
+  | RecoveryStartResult
   | RegisterRequest
   | RegisterResult
-  | SetRecoveryMethodRequest
-  | SetRecoveryMethodRequestResult
-  | SetRecoveryMethodChallenge
-  | SetRecoveryMethodFinalize
-  | SetRecoveryMethodFinalizeResult
+  | SessionDelete
+  | SessionDeleteResult
+  | SessionList
+  | SessionListResult
   | SignRequest
   | SignResult
-  | LogoutRequest
-  | LogoutResult
 
 // Construction
-
-export function makeSessionListRequest(payload: SessionListRequest["payload"]): SessionListRequest {
-  return {method: Method.SessionListRequest, payload: Schema.sessionListRequest.parse(payload)}
-}
-
-export function makeSessionListResult(payload: SessionListResult["payload"]): SessionListResult {
-  return {method: Method.SessionListResult, payload: Schema.sessionListResult.parse(payload)}
-}
 
 export function makeEcdhRequest(payload: EcdhRequest["payload"]): EcdhRequest {
   return {method: Method.EcdhRequest, payload: Schema.ecdhRequest.parse(payload)}
@@ -98,31 +93,74 @@ export function makeEcdhResult(payload: EcdhResult["payload"]): EcdhResult {
   return {method: Method.EcdhResult, payload: Schema.ecdhResult.parse(payload)}
 }
 
-export function makeRecoverRequest(payload: RecoverRequest["payload"]): RecoverRequest {
-  return {method: Method.RecoverRequest, payload: Schema.recoverRequest.parse(payload)}
+export function makeRecoveryChallenge(payload: RecoveryChallenge["payload"]): RecoveryChallenge {
+  return {method: Method.RecoveryChallenge, payload: Schema.recoveryChallenge.parse(payload)}
 }
 
-export function makeRecoverRequestResult(
-  payload: RecoverRequestResult["payload"],
-): RecoverRequestResult {
-  return {method: Method.RecoverRequestResult, payload: Schema.recoverRequestResult.parse(payload)}
+export function makeRecoveryFinalize(payload: RecoveryFinalize["payload"]): RecoveryFinalize {
+  return {method: Method.RecoveryFinalize, payload: Schema.recoveryFinalize.parse(payload)}
 }
 
-export function makeRecoverChallenge(payload: RecoverChallenge["payload"]): RecoverChallenge {
-  return {method: Method.RecoverChallenge, payload: Schema.recoverChallenge.parse(payload)}
-}
-
-export function makeRecoverFinalize(payload: RecoverFinalize["payload"]): RecoverFinalize {
-  return {method: Method.RecoverFinalize, payload: Schema.recoverFinalize.parse(payload)}
-}
-
-export function makeRecoverFinalizeResult(
-  payload: RecoverFinalizeResult["payload"],
-): RecoverFinalizeResult {
+export function makeRecoveryFinalizeResult(
+  payload: RecoveryFinalizeResult["payload"],
+): RecoveryFinalizeResult {
   return {
-    method: Method.RecoverFinalizeResult,
-    payload: Schema.recoverFinalizeResult.parse(payload),
+    method: Method.RecoveryFinalizeResult,
+    payload: Schema.recoveryFinalizeResult.parse(payload),
   }
+}
+
+export function makeRecoveryMethodChallenge(
+  payload: RecoveryMethodChallenge["payload"],
+): RecoveryMethodChallenge {
+  return {
+    method: Method.RecoveryMethodChallenge,
+    payload: Schema.recoveryMethodChallenge.parse(payload),
+  }
+}
+
+export function makeRecoveryMethodFinalize(
+  payload: RecoveryMethodFinalize["payload"],
+): RecoveryMethodFinalize {
+  return {
+    method: Method.RecoveryMethodFinalize,
+    payload: Schema.recoveryMethodFinalize.parse(payload),
+  }
+}
+
+export function makeRecoveryMethodFinalizeResult(
+  payload: RecoveryMethodFinalizeResult["payload"],
+): RecoveryMethodFinalizeResult {
+  return {
+    method: Method.RecoveryMethodFinalizeResult,
+    payload: Schema.recoveryMethodFinalizeResult.parse(payload),
+  }
+}
+
+export function makeRecoveryMethodSet(payload: RecoveryMethodSet["payload"]): RecoveryMethodSet {
+  return {
+    method: Method.RecoveryMethodSet,
+    payload: Schema.recoveryMethodSet.parse(payload),
+  }
+}
+
+export function makeRecoveryMethodSetResult(
+  payload: RecoveryMethodSetResult["payload"],
+): RecoveryMethodSetResult {
+  return {
+    method: Method.RecoveryMethodSetResult,
+    payload: Schema.recoveryMethodSetResult.parse(payload),
+  }
+}
+
+export function makeRecoveryStart(payload: RecoveryStart["payload"]): RecoveryStart {
+  return {method: Method.RecoveryStart, payload: Schema.recoveryStart.parse(payload)}
+}
+
+export function makeRecoveryStartResult(
+  payload: RecoveryStartResult["payload"],
+): RecoveryStartResult {
+  return {method: Method.RecoveryStartResult, payload: Schema.recoveryStartResult.parse(payload)}
 }
 
 export function makeRegisterRequest(payload: RegisterRequest["payload"]): RegisterRequest {
@@ -133,49 +171,22 @@ export function makeRegisterResult(payload: RegisterResult["payload"]): Register
   return {method: Method.RegisterResult, payload: Schema.registerResult.parse(payload)}
 }
 
-export function makeSetRecoveryMethodRequest(
-  payload: SetRecoveryMethodRequest["payload"],
-): SetRecoveryMethodRequest {
-  return {
-    method: Method.SetRecoveryMethodRequest,
-    payload: Schema.setRecoveryMethodRequest.parse(payload),
-  }
+export function makeSessionDelete(payload: SessionDelete["payload"]): SessionDelete {
+  return {method: Method.SessionDelete, payload: Schema.sessionDelete.parse(payload)}
 }
 
-export function makeSetRecoveryMethodRequestResult(
-  payload: SetRecoveryMethodRequestResult["payload"],
-): SetRecoveryMethodRequestResult {
-  return {
-    method: Method.SetRecoveryMethodRequestResult,
-    payload: Schema.setRecoveryMethodRequestResult.parse(payload),
-  }
+export function makeSessionDeleteResult(
+  payload: SessionDeleteResult["payload"],
+): SessionDeleteResult {
+  return {method: Method.SessionDeleteResult, payload: Schema.sessionDeleteResult.parse(payload)}
 }
 
-export function makeSetRecoveryMethodChallenge(
-  payload: SetRecoveryMethodChallenge["payload"],
-): SetRecoveryMethodChallenge {
-  return {
-    method: Method.SetRecoveryMethodChallenge,
-    payload: Schema.setRecoveryMethodChallenge.parse(payload),
-  }
+export function makeSessionList(payload: SessionList["payload"]): SessionList {
+  return {method: Method.SessionList, payload: Schema.sessionList.parse(payload)}
 }
 
-export function makeSetRecoveryMethodFinalize(
-  payload: SetRecoveryMethodFinalize["payload"],
-): SetRecoveryMethodFinalize {
-  return {
-    method: Method.SetRecoveryMethodFinalize,
-    payload: Schema.setRecoveryMethodFinalize.parse(payload),
-  }
-}
-
-export function makeSetRecoveryMethodFinalizeResult(
-  payload: SetRecoveryMethodFinalizeResult["payload"],
-): SetRecoveryMethodFinalizeResult {
-  return {
-    method: Method.SetRecoveryMethodFinalizeResult,
-    payload: Schema.setRecoveryMethodFinalizeResult.parse(payload),
-  }
+export function makeSessionListResult(payload: SessionListResult["payload"]): SessionListResult {
+  return {method: Method.SessionListResult, payload: Schema.sessionListResult.parse(payload)}
 }
 
 export function makeSignRequest(payload: SignRequest["payload"]): SignRequest {
@@ -186,38 +197,30 @@ export function makeSignResult(payload: SignResult["payload"]): SignResult {
   return {method: Method.SignResult, payload: Schema.signResult.parse(payload)}
 }
 
-export function makeLogoutRequest(payload: LogoutRequest["payload"]): LogoutRequest {
-  return {method: Method.LogoutRequest, payload: Schema.logoutRequest.parse(payload)}
-}
-
-export function makeLogoutResult(payload: LogoutResult["payload"]): LogoutResult {
-  return {method: Method.LogoutResult, payload: Schema.logoutResult.parse(payload)}
-}
-
 // Parsing
 
 export function getMessageSchema(method: Method) {
   return switcher(method, {
-    [Method.SessionListRequest]: Schema.sessionListRequest,
-    [Method.SessionListResult]: Schema.sessionListResult,
     [Method.EcdhRequest]: Schema.ecdhRequest,
     [Method.EcdhResult]: Schema.ecdhResult,
-    [Method.RecoverRequest]: Schema.recoverRequest,
-    [Method.RecoverRequestResult]: Schema.recoverRequestResult,
-    [Method.RecoverChallenge]: Schema.recoverChallenge,
-    [Method.RecoverFinalize]: Schema.recoverFinalize,
-    [Method.RecoverFinalizeResult]: Schema.recoverFinalizeResult,
+    [Method.RecoveryChallenge]: Schema.recoveryChallenge,
+    [Method.RecoveryFinalize]: Schema.recoveryFinalize,
+    [Method.RecoveryFinalizeResult]: Schema.recoveryFinalizeResult,
+    [Method.RecoveryMethodChallenge]: Schema.recoveryMethodChallenge,
+    [Method.RecoveryMethodFinalize]: Schema.recoveryMethodFinalize,
+    [Method.RecoveryMethodFinalizeResult]: Schema.recoveryMethodFinalizeResult,
+    [Method.RecoveryMethodSet]: Schema.recoveryMethodSet,
+    [Method.RecoveryMethodSetResult]: Schema.recoveryMethodSetResult,
+    [Method.RecoveryStart]: Schema.recoveryStart,
+    [Method.RecoveryStartResult]: Schema.recoveryStartResult,
     [Method.RegisterRequest]: Schema.registerRequest,
     [Method.RegisterResult]: Schema.registerResult,
-    [Method.SetRecoveryMethodRequest]: Schema.setRecoveryMethodRequest,
-    [Method.SetRecoveryMethodRequestResult]: Schema.setRecoveryMethodRequestResult,
-    [Method.SetRecoveryMethodChallenge]: Schema.setRecoveryMethodChallenge,
-    [Method.SetRecoveryMethodFinalize]: Schema.setRecoveryMethodFinalize,
-    [Method.SetRecoveryMethodFinalizeResult]: Schema.setRecoveryMethodFinalizeResult,
+    [Method.SessionDelete]: Schema.sessionDelete,
+    [Method.SessionDeleteResult]: Schema.sessionDeleteResult,
+    [Method.SessionList]: Schema.sessionList,
+    [Method.SessionListResult]: Schema.sessionListResult,
     [Method.SignRequest]: Schema.signRequest,
     [Method.SignResult]: Schema.signResult,
-    [Method.LogoutRequest]: Schema.logoutRequest,
-    [Method.LogoutResult]: Schema.logoutResult,
   })
 }
 
@@ -232,38 +235,36 @@ export function parseMessage(s: string): Maybe<Message> {
 
 // Type guards
 
-export const isSessionListRequest = (m: Message): m is SessionListRequest =>
-  m.method === Method.SessionListRequest
-export const isSessionListResult = (m: Message): m is SessionListResult =>
-  m.method === Method.SessionListResult
 export const isEcdhRequest = (m: Message): m is EcdhRequest => m.method === Method.EcdhRequest
 export const isEcdhResult = (m: Message): m is EcdhResult => m.method === Method.EcdhResult
-export const isRecoverRequest = (m: Message): m is RecoverRequest =>
-  m.method === Method.RecoverRequest
-export const isRecoverRequestResult = (m: Message): m is RecoverRequestResult =>
-  m.method === Method.RecoverRequestResult
-export const isRecoverChallenge = (m: Message): m is RecoverChallenge =>
-  m.method === Method.RecoverChallenge
-export const isRecoverFinalize = (m: Message): m is RecoverFinalize =>
-  m.method === Method.RecoverFinalize
-export const isRecoverFinalizeResult = (m: Message): m is RecoverFinalizeResult =>
-  m.method === Method.RecoverFinalizeResult
+export const isRecoveryChallenge = (m: Message): m is RecoveryChallenge =>
+  m.method === Method.RecoveryChallenge
+export const isRecoveryFinalize = (m: Message): m is RecoveryFinalize =>
+  m.method === Method.RecoveryFinalize
+export const isRecoveryFinalizeResult = (m: Message): m is RecoveryFinalizeResult =>
+  m.method === Method.RecoveryFinalizeResult
+export const isRecoveryMethodChallenge = (m: Message): m is RecoveryMethodChallenge =>
+  m.method === Method.RecoveryMethodChallenge
+export const isRecoveryMethodFinalize = (m: Message): m is RecoveryMethodFinalize =>
+  m.method === Method.RecoveryMethodFinalize
+export const isRecoveryMethodFinalizeResult = (m: Message): m is RecoveryMethodFinalizeResult =>
+  m.method === Method.RecoveryMethodFinalizeResult
+export const isRecoveryMethodSet = (m: Message): m is RecoveryMethodSet =>
+  m.method === Method.RecoveryMethodSet
+export const isRecoveryMethodSetResult = (m: Message): m is RecoveryMethodSetResult =>
+  m.method === Method.RecoveryMethodSetResult
+export const isRecoveryStart = (m: Message): m is RecoveryStart => m.method === Method.RecoveryStart
+export const isRecoveryStartResult = (m: Message): m is RecoveryStartResult =>
+  m.method === Method.RecoveryStartResult
 export const isRegisterRequest = (m: Message): m is RegisterRequest =>
   m.method === Method.RegisterRequest
 export const isRegisterResult = (m: Message): m is RegisterResult =>
   m.method === Method.RegisterResult
-export const isSetRecoveryMethodRequest = (m: Message): m is SetRecoveryMethodRequest =>
-  m.method === Method.SetRecoveryMethodRequest
-export const isSetRecoveryMethodRequestResult = (m: Message): m is SetRecoveryMethodRequestResult =>
-  m.method === Method.SetRecoveryMethodRequestResult
-export const isSetRecoveryMethodChallenge = (m: Message): m is SetRecoveryMethodChallenge =>
-  m.method === Method.SetRecoveryMethodChallenge
-export const isSetRecoveryMethodFinalize = (m: Message): m is SetRecoveryMethodFinalize =>
-  m.method === Method.SetRecoveryMethodFinalize
-export const isSetRecoveryMethodFinalizeResult = (
-  m: Message,
-): m is SetRecoveryMethodFinalizeResult => m.method === Method.SetRecoveryMethodFinalizeResult
+export const isSessionDelete = (m: Message): m is SessionDelete => m.method === Method.SessionDelete
+export const isSessionDeleteResult = (m: Message): m is SessionDeleteResult =>
+  m.method === Method.SessionDeleteResult
+export const isSessionList = (m: Message): m is SessionList => m.method === Method.SessionList
+export const isSessionListResult = (m: Message): m is SessionListResult =>
+  m.method === Method.SessionListResult
 export const isSignRequest = (m: Message): m is SignRequest => m.method === Method.SignRequest
 export const isSignResult = (m: Message): m is SignResult => m.method === Method.SignResult
-export const isLogoutRequest = (m: Message): m is LogoutRequest => m.method === Method.LogoutRequest
-export const isLogoutResult = (m: Message): m is LogoutResult => m.method === Method.LogoutResult

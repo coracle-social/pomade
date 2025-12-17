@@ -1,26 +1,26 @@
 import * as z from "zod"
 
 export enum Method {
-  SessionListRequest = "session/list/request",
-  SessionListResult = "session/list/result",
   EcdhRequest = "ecdh/request",
   EcdhResult = "ecdh/result",
-  RecoverRequest = "recover/request",
-  RecoverRequestResult = "recover/request/result",
-  RecoverChallenge = "recover/challenge",
-  RecoverFinalize = "recover/finalize",
-  RecoverFinalizeResult = "recover/finalize/result",
+  RecoveryChallenge = "recovery/challenge",
+  RecoveryFinalize = "recovery/finalize",
+  RecoveryFinalizeResult = "recovery/finalize/result",
+  RecoveryMethodChallenge = "recoveryMethod/challenge",
+  RecoveryMethodFinalize = "recoveryMethod/finalize",
+  RecoveryMethodFinalizeResult = "recoveryMethod/finalize/result",
+  RecoveryMethodSet = "recoveryMethod/set",
+  RecoveryMethodSetResult = "recoveryMethod/set/result",
+  RecoveryStart = "recovery/start",
+  RecoveryStartResult = "recovery/start/result",
   RegisterRequest = "register/request",
   RegisterResult = "register/result",
-  SetRecoveryMethodRequest = "setRecoveryMethod/request",
-  SetRecoveryMethodRequestResult = "setRecoveryMethod/request/result",
-  SetRecoveryMethodChallenge = "setRecoveryMethod/challenge",
-  SetRecoveryMethodFinalize = "setRecoveryMethod/finalize",
-  SetRecoveryMethodFinalizeResult = "setRecoveryMethod/finalize/result",
+  SessionDelete = "session/delete",
+  SessionDeleteResult = "session/delete/result",
+  SessionList = "session/list",
+  SessionListResult = "session/list/result",
   SignRequest = "sign/request",
   SignResult = "sign/result",
-  LogoutRequest = "logout/request",
-  LogoutResult = "logout/result",
 }
 
 const hex = z
@@ -72,15 +72,6 @@ const sessionItem = z.object({
 
 export const Schema = {
   sessionItem,
-  sessionListRequest: z.object({
-    auth: event,
-  }),
-  sessionListResult: z.object({
-    sessions: z.array(sessionItem),
-    ok: z.boolean(),
-    message: z.string(),
-    prev: hex32,
-  }),
   ecdhRequest: z.object({
     idx: z.number(),
     members: z.number().array(),
@@ -99,17 +90,7 @@ export const Schema = {
     message: z.string(),
     prev: hex32,
   }),
-  recoverRequest: z.object({
-    inbox: z.string(),
-    pubkey: hex32.optional(),
-    callback_url: z.string().optional(),
-  }),
-  recoverRequestResult: z.object({
-    ok: z.boolean(),
-    message: z.string(),
-    prev: hex32,
-  }),
-  recoverChallenge: z.object({
+  recoveryChallenge: z.object({
     inbox: z.string(),
     pubkey: hex32,
     items: z.array(
@@ -121,12 +102,48 @@ export const Schema = {
     ),
     callback_url: z.string().optional(),
   }),
-  recoverFinalize: z.object({
+  recoveryFinalize: z.object({
     otp: z.string(),
   }),
-  recoverFinalizeResult: z.object({
+  recoveryFinalizeResult: z.object({
     group: group.optional(),
     share: share.optional(),
+    ok: z.boolean(),
+    message: z.string(),
+    prev: hex32,
+  }),
+  recoveryMethodChallenge: z.object({
+    otp: z.string(),
+    client: hex32,
+    inbox: z.string(),
+    pubkey: hex32,
+    threshold: z.number(),
+    callback_url: z.string().optional(),
+  }),
+  recoveryMethodFinalize: z.object({
+    otp: z.string(),
+  }),
+  recoveryMethodFinalizeResult: z.object({
+    ok: z.boolean(),
+    message: z.string(),
+    prev: hex32,
+  }),
+  recoveryMethodSet: z.object({
+    mailer: hex32,
+    inbox: z.string(),
+    callback_url: z.string().optional(),
+  }),
+  recoveryMethodSetResult: z.object({
+    ok: z.boolean(),
+    message: z.string(),
+    prev: hex32,
+  }),
+  recoveryStart: z.object({
+    inbox: z.string(),
+    pubkey: hex32.optional(),
+    callback_url: z.string().optional(),
+  }),
+  recoveryStartResult: z.object({
     ok: z.boolean(),
     message: z.string(),
     prev: hex32,
@@ -141,28 +158,20 @@ export const Schema = {
     message: z.string(),
     prev: hex32,
   }),
-  setRecoveryMethodRequest: z.object({
-    mailer: hex32,
-    inbox: z.string(),
-    callback_url: z.string().optional(),
+  sessionDelete: z.object({
+    client: hex32,
+    auth: event,
   }),
-  setRecoveryMethodRequestResult: z.object({
+  sessionDeleteResult: z.object({
     ok: z.boolean(),
     message: z.string(),
     prev: hex32,
   }),
-  setRecoveryMethodChallenge: z.object({
-    otp: z.string(),
-    client: hex32,
-    inbox: z.string(),
-    pubkey: hex32,
-    threshold: z.number(),
-    callback_url: z.string().optional(),
+  sessionList: z.object({
+    auth: event,
   }),
-  setRecoveryMethodFinalize: z.object({
-    otp: z.string(),
-  }),
-  setRecoveryMethodFinalizeResult: z.object({
+  sessionListResult: z.object({
+    sessions: z.array(sessionItem),
     ok: z.boolean(),
     message: z.string(),
     prev: hex32,
@@ -187,15 +196,6 @@ export const Schema = {
         sid: hex32,
       }),
     ),
-    ok: z.boolean(),
-    message: z.string(),
-    prev: hex32,
-  }),
-  logoutRequest: z.object({
-    client: hex32,
-    auth: event,
-  }),
-  logoutResult: z.object({
     ok: z.boolean(),
     message: z.string(),
     prev: hex32,

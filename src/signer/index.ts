@@ -7,41 +7,41 @@ import {
   RPC,
   makeSessionListResult,
   makeRegisterResult,
-  makeSetRecoveryMethodRequestResult,
-  makeSetRecoveryMethodFinalizeResult,
-  makeSetRecoveryMethodChallenge,
-  isSessionListRequest,
+  makeRecoveryMethodSetResult,
+  makeRecoveryMethodFinalizeResult,
+  makeRecoveryMethodChallenge,
+  isSessionList,
   isRegisterRequest,
   isSignRequest,
   isEcdhRequest,
-  isRecoverRequest,
-  isRecoverFinalize,
-  isSetRecoveryMethodRequest,
-  isSetRecoveryMethodFinalize,
-  isLogoutRequest,
+  isRecoveryStart,
+  isRecoveryFinalize,
+  isRecoveryMethodSet,
+  isRecoveryMethodFinalize,
+  isSessionDelete,
   makeSignResult,
   makeEcdhResult,
-  makeRecoverChallenge,
-  makeRecoverRequestResult,
-  makeRecoverFinalizeResult,
-  makeLogoutResult,
+  makeRecoveryChallenge,
+  makeRecoveryStartResult,
+  makeRecoveryFinalizeResult,
+  makeSessionDeleteResult,
   generateOTP,
   Method,
 } from "../lib/index.js"
 import type {
-  SessionListRequest,
+  SessionList,
   IStorageFactory,
   IStorage,
   SessionListResult,
-  RecoverChallenge,
+  RecoveryChallenge,
   RegisterRequest,
   SignRequest,
-  SetRecoveryMethodRequest,
-  SetRecoveryMethodFinalize,
+  RecoveryMethodSet,
+  RecoveryMethodFinalize,
   EcdhRequest,
-  RecoverRequest,
-  RecoverFinalize,
-  LogoutRequest,
+  RecoveryStart,
+  RecoveryFinalize,
+  SessionDelete,
   WithEvent,
 } from "../lib/index.js"
 
@@ -98,14 +98,14 @@ export class Signer {
     this.rpc = new RPC(options.secret, options.relays)
     this.unsubscribe = this.rpc.subscribe(message => {
       if (isRegisterRequest(message)) this.handleRegisterRequest(message)
-      if (isSetRecoveryMethodRequest(message)) this.handleSetRecoveryMethodRequest(message)
-      if (isSetRecoveryMethodFinalize(message)) this.handleSetRecoveryMethodFinalize(message)
-      if (isRecoverRequest(message)) this.handleRecoverRequest(message)
-      if (isRecoverFinalize(message)) this.handleRecoverFinalize(message)
+      if (isRecoveryMethodSet(message)) this.handleRecoveryMethodSet(message)
+      if (isRecoveryMethodFinalize(message)) this.handleRecoveryMethodFinalize(message)
+      if (isRecoveryStart(message)) this.handleRecoveryStart(message)
+      if (isRecoveryFinalize(message)) this.handleRecoveryFinalize(message)
       if (isSignRequest(message)) this.handleSignRequest(message)
       if (isEcdhRequest(message)) this.handleEcdhRequest(message)
-      if (isSessionListRequest(message)) this.handleSessionListRequest(message)
-      if (isLogoutRequest(message)) this.handleLogoutRequest(message)
+      if (isSessionList(message)) this.handleSessionList(message)
+      if (isSessionDelete(message)) this.handleSessionDelete(message)
     })
 
     // Periodically clean up recover requests
@@ -176,14 +176,14 @@ export class Signer {
     return cb(true, "Your key has been registered")
   }
 
-  async handleSetRecoveryMethodRequest({payload, event}: WithEvent<SetRecoveryMethodRequest>) {
+  async handleRecoveryMethodSet({payload, event}: WithEvent<RecoveryMethodSet>) {
     const client = event.pubkey
     const session = await this.sessions.get(client)
     const {inbox, mailer, callback_url} = payload
 
     if (!session) {
       return this.rpc.channel(client).send(
-        makeSetRecoveryMethodRequestResult({
+        makeRecoveryMethodSetResult({
           ok: false,
           message: "No session found for client.",
           prev: event.id,
@@ -193,7 +193,7 @@ export class Signer {
 
     if (!session.recovery) {
       return this.rpc.channel(client).send(
-        makeSetRecoveryMethodRequestResult({
+        makeRecoveryMethodSetResult({
           ok: false,
           message: "Recovery is disabled on this session.",
           prev: event.id,
@@ -205,7 +205,7 @@ export class Signer {
     // to any session could escalate permissions by setting up their own recovery method
     if (session.event.created_at < ago(5, MINUTE)) {
       return this.rpc.channel(client).send(
-        makeSetRecoveryMethodRequestResult({
+        makeRecoveryMethodSetResult({
           ok: false,
           message: "Recovery method must be set within 5 minutes of session.",
           prev: event.id,
@@ -221,10 +221,10 @@ export class Signer {
 
     this.rpc
       .channel(mailer)
-      .send(makeSetRecoveryMethodChallenge({otp, client, inbox, pubkey, threshold, callback_url}))
+      .send(makeRecoveryMethodChallenge({otp, client, inbox, pubkey, threshold, callback_url}))
 
     this.rpc.channel(client).send(
-      makeSetRecoveryMethodRequestResult({
+      makeRecoveryMethodSetResult({
         ok: true,
         message: "Verification sent. Please check your recovery method to continue.",
         prev: event.id,
@@ -232,7 +232,7 @@ export class Signer {
     )
   }
 
-  async handleSetRecoveryMethodFinalize({payload, event}: WithEvent<SetRecoveryMethodFinalize>) {
+  async handleRecoveryMethodFinalize({payload, event}: WithEvent<RecoveryMethodFinalize>) {
     return this.sessions.tx(async sessions => {
       const session = await sessions.get(event.pubkey)
       const challenge = await this.validations.get(event.pubkey)
@@ -246,7 +246,7 @@ export class Signer {
         })
 
         this.rpc.channel(event.pubkey).send(
-          makeSetRecoveryMethodFinalizeResult({
+          makeRecoveryMethodFinalizeResult({
             ok: true,
             message: "Recovery method successfully verified and associated with your account",
             prev: event.id,
@@ -254,7 +254,7 @@ export class Signer {
         )
       } else {
         this.rpc.channel(event.pubkey).send(
-          makeSetRecoveryMethodFinalizeResult({
+          makeRecoveryMethodFinalizeResult({
             ok: false,
             message: `Failed to validate challenge. Please request a new one to try again.`,
             prev: event.id,
@@ -266,7 +266,7 @@ export class Signer {
     })
   }
 
-  async handleRecoverRequest({payload, event}: WithEvent<RecoverRequest>) {
+  async handleRecoveryStart({payload, event}: WithEvent<RecoveryStart>) {
     const {inbox, pubkey, callback_url} = payload
 
     const sessions = map(s => s[1], await this.sessions.entries()).filter(
@@ -275,7 +275,7 @@ export class Signer {
 
     const sessionsByPubkey = groupBy(s => s.group.group_pk.slice(2), sessions)
 
-    const allItems: RecoverChallenge["payload"]["items"] = []
+    const allItems: RecoveryChallenge["payload"]["items"] = []
     for (const [pubkey, pubkeySessions] of sessionsByPubkey) {
       const sessionsByMailer = groupBy(s => s.mailer, pubkeySessions)
 
@@ -288,7 +288,7 @@ export class Signer {
 
         allItems.push(...items)
 
-        this.rpc.channel(mailer!).send(makeRecoverChallenge({inbox, pubkey, items, callback_url}))
+        this.rpc.channel(mailer!).send(makeRecoveryChallenge({inbox, pubkey, items, callback_url}))
       }
     }
 
@@ -296,7 +296,7 @@ export class Signer {
 
     // Always show success so attackers can't get information on who is registered
     this.rpc.channel(event.pubkey).send(
-      makeRecoverRequestResult({
+      makeRecoveryStartResult({
         ok: true,
         message: "Verification sent. Please check your inbox to continue.",
         prev: event.id,
@@ -304,7 +304,7 @@ export class Signer {
     )
   }
 
-  async handleRecoverFinalize({payload, event}: WithEvent<RecoverFinalize>) {
+  async handleRecoveryFinalize({payload, event}: WithEvent<RecoveryFinalize>) {
     return this.sessions.tx(async sessions => {
       const recover = await this.recovers.get(event.pubkey)
 
@@ -315,7 +315,7 @@ export class Signer {
 
         if (session) {
           return this.rpc.channel(event.pubkey).send(
-            makeRecoverFinalizeResult({
+            makeRecoveryFinalizeResult({
               ok: true,
               message: "Recovery successfully completed.",
               group: session.group,
@@ -327,7 +327,7 @@ export class Signer {
       }
 
       this.rpc.channel(event.pubkey).send(
-        makeRecoverFinalizeResult({
+        makeRecoveryFinalizeResult({
           ok: false,
           message: `Failed to validate your request. Please try again.`,
           prev: event.id,
@@ -398,8 +398,8 @@ export class Signer {
     })
   }
 
-  async handleSessionListRequest({payload, event}: WithEvent<SessionListRequest>) {
-    if (!this._isAuthValid(payload.auth, Method.SessionListRequest)) {
+  async handleSessionList({payload, event}: WithEvent<SessionList>) {
+    if (!this._isAuthValid(payload.auth, Method.SessionList)) {
       return this.rpc.channel(event.pubkey).send(
         makeSessionListResult({
           sessions: [],
@@ -432,10 +432,10 @@ export class Signer {
     )
   }
 
-  async handleLogoutRequest({payload, event}: WithEvent<LogoutRequest>) {
-    if (!this._isAuthValid(payload.auth, Method.LogoutRequest)) {
+  async handleSessionDelete({payload, event}: WithEvent<SessionDelete>) {
+    if (!this._isAuthValid(payload.auth, Method.SessionDelete)) {
       return this.rpc.channel(event.pubkey).send(
-        makeLogoutResult({
+        makeSessionDeleteResult({
           ok: false,
           message: "Failed to logout selected client.",
           prev: event.id,
@@ -450,7 +450,7 @@ export class Signer {
         await sessions.delete(payload.client)
 
         this.rpc.channel(event.pubkey).send(
-          makeLogoutResult({
+          makeSessionDeleteResult({
             ok: true,
             message: "Successfully logout selected client.",
             prev: event.id,
@@ -458,7 +458,7 @@ export class Signer {
         )
       } else {
         return this.rpc.channel(event.pubkey).send(
-          makeLogoutResult({
+          makeSessionDeleteResult({
             ok: false,
             message: "Failed to logout selected client.",
             prev: event.id,

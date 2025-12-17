@@ -25,31 +25,31 @@ import {
   SessionListResult,
   isSessionListResult,
   isEcdhResult,
-  isRecoverFinalizeResult,
-  isRecoverRequestResult,
+  isRecoveryFinalizeResult,
+  isRecoveryStartResult,
   isRegisterResult,
-  isSetRecoveryMethodFinalizeResult,
-  isSetRecoveryMethodRequestResult,
+  isRecoveryMethodFinalizeResult,
+  isRecoveryMethodSetResult,
   isSignResult,
-  isLogoutResult,
-  RecoverFinalizeResult,
-  RecoverRequestResult,
-  makeSessionListRequest,
+  isSessionDeleteResult,
+  RecoveryFinalizeResult,
+  RecoveryStartResult,
+  makeSessionList,
   makeEcdhRequest,
-  makeRecoverFinalize,
-  makeRecoverRequest,
+  makeRecoveryFinalize,
+  makeRecoveryStart,
   makeRegisterRequest,
-  makeSetRecoveryMethodFinalize,
-  makeSetRecoveryMethodRequest,
+  makeRecoveryMethodFinalize,
+  makeRecoveryMethodSet,
   makeSignRequest,
-  makeLogoutRequest,
+  makeSessionDelete,
   parseChallenge,
   RPC,
   Schema,
-  SetRecoveryMethodFinalizeResult,
-  SetRecoveryMethodRequestResult,
+  RecoveryMethodFinalizeResult,
+  RecoveryMethodSetResult,
   SignResult,
-  LogoutResult,
+  SessionDeleteResult,
   WithEvent,
 } from "../lib/index.js"
 
@@ -136,9 +136,9 @@ export class Client {
       context.signerPubkeys.map((peer, i) => {
         return rpc
           .channel(peer)
-          .send(makeRecoverRequest({inbox, pubkey}))
-          .receive<RecoverRequestResult>((message, resolve) => {
-            if (isRecoverRequestResult(message)) {
+          .send(makeRecoveryStart({inbox, pubkey}))
+          .receive<RecoveryStartResult>((message, resolve) => {
+            if (isRecoveryStartResult(message)) {
               resolve(message)
             }
           })
@@ -157,9 +157,9 @@ export class Client {
       parseChallenge(challenge).map(([peer, otp]) => {
         return rpc
           .channel(peer)
-          .send(makeRecoverFinalize({otp}))
-          .receive<WithEvent<RecoverFinalizeResult>>((message, resolve) => {
-            if (isRecoverFinalizeResult(message)) {
+          .send(makeRecoveryFinalize({otp}))
+          .receive<WithEvent<RecoveryFinalizeResult>>((message, resolve) => {
+            if (isRecoveryFinalizeResult(message)) {
               resolve(message)
             }
           })
@@ -200,9 +200,9 @@ export class Client {
       this.peers.map((peer, i) => {
         return this.rpc
           .channel(peer)
-          .send(makeSetRecoveryMethodRequest({inbox, mailer}))
-          .receive<WithEvent<SetRecoveryMethodRequestResult>>((message, resolve) => {
-            if (isSetRecoveryMethodRequestResult(message)) {
+          .send(makeRecoveryMethodSet({inbox, mailer}))
+          .receive<WithEvent<RecoveryMethodSetResult>>((message, resolve) => {
+            if (isRecoveryMethodSetResult(message)) {
               resolve(message)
             }
           })
@@ -222,9 +222,9 @@ export class Client {
         if (otp) {
           return this.rpc
             .channel(peer)
-            .send(makeSetRecoveryMethodFinalize({otp}))
-            .receive<WithEvent<SetRecoveryMethodFinalizeResult>>((message, resolve) => {
-              if (isSetRecoveryMethodFinalizeResult(message)) {
+            .send(makeRecoveryMethodFinalize({otp}))
+            .receive<WithEvent<RecoveryMethodFinalizeResult>>((message, resolve) => {
+              if (isRecoveryMethodFinalizeResult(message)) {
                 resolve(message)
               }
             })
@@ -306,12 +306,12 @@ export class Client {
   async listSessions() {
     const messages = await Promise.all(
       context.signerPubkeys.map(async (peer, i) => {
-        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.SessionListRequest))
+        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.SessionList))
 
         if (auth) {
           return this.rpc
             .channel(peer)
-            .send(makeSessionListRequest({auth}))
+            .send(makeSessionList({auth}))
             .receive<WithEvent<SessionListResult>>((message, resolve) => {
               if (isSessionListResult(message)) {
                 resolve(message)
@@ -343,14 +343,14 @@ export class Client {
   async logout(client: string, peers: string[]) {
     const messages = await Promise.all(
       peers.map(async (peer, i) => {
-        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.LogoutRequest))
+        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.SessionDelete))
 
         if (auth) {
           return this.rpc
             .channel(peer)
-            .send(makeLogoutRequest({client, auth}))
-            .receive<WithEvent<LogoutResult>>((message, resolve) => {
-              if (isLogoutResult(message)) {
+            .send(makeSessionDelete({client, auth}))
+            .receive<WithEvent<SessionDeleteResult>>((message, resolve) => {
+              if (isSessionDeleteResult(message)) {
                 resolve(message)
               }
             })

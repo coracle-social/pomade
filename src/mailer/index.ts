@@ -1,16 +1,11 @@
 import {int, now, groupBy, ago, MINUTE} from "@welshman/lib"
 import {getPubkey} from "@welshman/util"
-import {
-  RPC,
-  buildChallenge,
-  isSetRecoveryMethodChallenge,
-  isRecoverChallenge,
-} from "../lib/index.js"
+import {RPC, buildChallenge, isRecoveryMethodChallenge, isRecoveryChallenge} from "../lib/index.js"
 import type {
   IStorageFactory,
   IStorage,
-  SetRecoveryMethodChallenge,
-  RecoverChallenge,
+  RecoveryMethodChallenge,
+  RecoveryChallenge,
   WithEvent,
 } from "../lib/index.js"
 
@@ -81,8 +76,8 @@ export class Mailer {
     this.recovers = options.storage("recovers")
     this.rpc = new RPC(options.secret, options.relays)
     this.unsubscribe = this.rpc.subscribe(message => {
-      if (isSetRecoveryMethodChallenge(message)) this.handleSetRecoveryMethodChallenge(message)
-      if (isRecoverChallenge(message)) this.handleRecoverChallenge(message)
+      if (isRecoveryMethodChallenge(message)) this.handleRecoveryMethodChallenge(message)
+      if (isRecoveryChallenge(message)) this.handleRecoveryChallenge(message)
     })
 
     // Periodically clean up data
@@ -107,7 +102,7 @@ export class Mailer {
     this.intervals.forEach(clearInterval)
   }
 
-  async handleSetRecoveryMethodChallenge({payload, event}: WithEvent<SetRecoveryMethodChallenge>) {
+  async handleRecoveryMethodChallenge({payload, event}: WithEvent<RecoveryMethodChallenge>) {
     const {otp, client, inbox, pubkey, threshold, callback_url} = payload
     const key = `${client}:${pubkey}:${inbox}`
 
@@ -135,7 +130,7 @@ export class Mailer {
     })
   }
 
-  async handleRecoverChallenge({payload, event}: WithEvent<RecoverChallenge>) {
+  async handleRecoveryChallenge({payload, event}: WithEvent<RecoveryChallenge>) {
     const {inbox, pubkey, items, callback_url} = payload
     const key = `${pubkey}:${inbox}`
 

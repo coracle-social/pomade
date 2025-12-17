@@ -47,22 +47,22 @@ The client then shards the user's `secret key` using FROST and registers each sh
   method: "register/request"
   payload: {
     share: {
-      idx: number          // commit index
-      binder_sn: string    // 32 byte hex string
-      hidden_sn: string    // 32 byte hex string
-      seckey: string       // 32 byte hex string
+      idx: number // commit index
+      binder_sn: string // 32 byte hex string
+      hidden_sn: string // 32 byte hex string
+      seckey: string // 32 byte hex string
     }
     group: {
       commits: Array<{
-        idx: number        // commit index
-        pubkey: string     // 33 byte hex string
-        hidden_pn: string  // 33 byte hex string
-        binder_pn: string  // 33 byte hex string
+        idx: number // commit index
+        pubkey: string // 33 byte hex string
+        hidden_pn: string // 33 byte hex string
+        binder_pn: string // 33 byte hex string
       }>
-      group_pk: string     // 33 byte hex string
-      threshold: number    // integer signing threshold
+      group_pk: string // 33 byte hex string
+      threshold: number // integer signing threshold
     }
-    recovery: boolean      // whether recovery is enabled for this session
+    recovery: boolean // whether recovery is enabled for this session
   }
 }
 ```
@@ -73,9 +73,9 @@ Each signer must then explicitly accept or (optionally) reject the share:
 {
   method: "register/result"
   payload: {
-    ok: boolean      // whether registration succeeded
-    message: string  // a human-readable error/success message
-    prev: string     // 32 byte hex id of request event
+    ok: boolean // whether registration succeeded
+    message: string // a human-readable error/success message
+    prev: string // 32 byte hex id of request event
   }
 }
 ```
@@ -86,15 +86,28 @@ The same signer MUST NOT be used multiple times for multiple shares of the same 
 
 ### Setting a Recovery Method
 
-Users MAY set a recovery method by sending a `setRecoveryMethod/request` to the signers for a given session.
+Users MAY set a recovery method by sending a `recoveryMethod/set` to the signers for a given session.
 
 ```typescript
 {
-  method: "setRecoveryMethod/request"
+  method: "recoveryMethod/set"
   payload: {
     mailer: string         // 32 byte hex pubkey of mailer service
     inbox: string          // string identifying the user to the mailer service
     callback_url?: string  // optional callback url to send users to
+  }
+}
+```
+
+Signers must respond as follows:
+
+```typescript
+{
+  method: "recoveryMethod/set/result"
+  payload: {
+    ok: boolean // whether the flow was successful
+    message: string // human-readable error/success message
+    prev: string // 32 byte hex encoded recoveryMethod/finalize event id
   }
 }
 ```
@@ -107,13 +120,13 @@ In order to validate a user's inbox, signers must generate an OTP and send it to
 
 ```typescript
 {
-  method: "setRecoveryMethod/challenge"
+  method: "recoveryMethod/challenge"
   payload: {
     otp: string            // 6+ digit one time password
     inbox: string          // the user's email address or other inbox identifier
     pubkey: string         // 32 byte hex public key of the user
     threshold: number      // number of signers that need to validate the email (not the signing threshold)
-    callback_url?: string  // callback url provided in setRecoveryMethod/request
+    callback_url?: string  // callback url provided in recoveryMethod/request
   }
 }
 ```
@@ -130,7 +143,7 @@ Once the user's client receives the challenge, it should parse it and send each 
 
 ```typescript
 {
-  method: "setRecoveryMethod/finalize"
+  method: "recoveryMethod/finalize"
   payload: {
     otp: string // 6+ digit one time password provided for the signer
   }
@@ -141,11 +154,11 @@ The signer must then indicate whether the flow was successful:
 
 ```typescript
 {
-  method: "setRecoveryMethod/finalize/result"
+  method: "recoveryMethod/finalize/result"
   payload: {
-    ok: boolean      // whether the flow was successful
-    message: string  // human-readable error/success message
-    prev: string     // 32 byte hex encoded setRecoveryMethod/finalize event id
+    ok: boolean // whether the flow was successful
+    message: string // human-readable error/success message
+    prev: string // 32 byte hex encoded recoveryMethod/finalize event id
   }
 }
 ```
@@ -248,7 +261,7 @@ To recover the user's original `secret key` by email alone without access to an 
 
 ```typescript
 {
-  method: "recover/request"
+  method: "recovery/start"
   payload: {
     inbox: string          // the user's inbox identifier
     pubkey?: string        // the user's pubkey (optional, useful if multiple pubkeys are associated with a single inbox)
@@ -257,11 +270,24 @@ To recover the user's original `secret key` by email alone without access to an 
 }
 ```
 
+Signers then responsd:
+
+```typescript
+{
+  method: "recovery/start/result"
+  payload: {
+    ok: boolean // whether the flow was successful
+    message: string // human-readable error/success message
+    prev: string // 32 byte hex encoded recovery/finalize event id
+  }
+}
+```
+
 Each signer then finds any sessions that were registered with the provided `inbox` and sends its `client`, `threshold`, and a newly generated `otp` to its `mailer` service.
 
 ```typescript
 {
-  method: "recover/challenge"
+  method: "recovery/challenge"
   payload: {
     inbox: string         // the user's inbox identifier
     pubkey: string        // the user's pubkey
@@ -291,7 +317,7 @@ Once the user's client receives the challenge, it should parse it and send each 
 
 ```typescript
 {
-  method: "recover/finalize"
+  method: "recovery/finalize"
   payload: {
     otp: string // 6+ digit one time password provided for the signer
   }
@@ -302,27 +328,27 @@ The signer must then indicate whether the flow was successful by returning the `
 
 ```typescript
 {
-  method: "recover/finalize/result"
+  method: "recovery/finalize/result"
   payload: {
     share: {
-      idx: number          // commit index
-      binder_sn: string    // 32 byte hex string
-      hidden_sn: string    // 32 byte hex string
-      seckey: string       // 32 byte hex string
+      idx: number // commit index
+      binder_sn: string // 32 byte hex string
+      hidden_sn: string // 32 byte hex string
+      seckey: string // 32 byte hex string
     }
     group: {
       commits: Array<{
-        idx: number        // commit index
-        pubkey: string     // 33 byte hex string
-        hidden_pn: string  // 33 byte hex string
-        binder_pn: string  // 33 byte hex string
+        idx: number // commit index
+        pubkey: string // 33 byte hex string
+        hidden_pn: string // 33 byte hex string
+        binder_pn: string // 33 byte hex string
       }>
-      group_pk: string     // 33 byte hex string
-      threshold: number    // integer signing threshold
+      group_pk: string // 33 byte hex string
+      threshold: number // integer signing threshold
     }
-    ok: boolean            // whether the flow was successful
-    message: string        // human-readable error/success message
-    prev: string           // 32 byte hex encoded recover/finalize event id
+    ok: boolean // whether the flow was successful
+    message: string // human-readable error/success message
+    prev: string // 32 byte hex encoded recovery/finalize event id
   }
 }
 ```
@@ -337,11 +363,11 @@ Lib.recover_secret_key(group, shares)
 
 ### Session management
 
-A user can request all active sessions for their pubkey by requesting them from all known signers (not just the ones the user is currently using). This message is authenticated not based on the signing `client`, but based on a NIP 98 event signed by the user's own key with the signer's pubkey as the `u` tag and "session/list/request" as the `method`. The event's timestamp MUST be current to avoid replay attacks.
+A user can request all active sessions for their pubkey by requesting them from all known signers (not just the ones the user is currently using). This message is authenticated not based on the signing `client`, but based on a NIP 98 event signed by the user's own key with the signer's pubkey as the `u` tag and "session/list" as the `method`. The event's timestamp MUST be current to avoid replay attacks.
 
 ```typescript
 {
-  method: "session/list/request"
+  method: "session/list"
   payload: {
     auth: SignedEvent // NIP 98 auth event signed by user
   }
@@ -362,7 +388,7 @@ Each signer must then respond with a list of sessions for the given user:
     }[],
     ok: boolean              // whether the flow was successful
     message: string          // human-readable error/success message
-    prev: string             // 32 byte hex encoded session/list/request event id
+    prev: string             // 32 byte hex encoded session/list event id
   }
 }
 ```
@@ -373,8 +399,8 @@ These results may then be aggregated across all signers and displayed to the use
 {
   method: "session/delete/request"
   payload: {
-    client: string     // 32 byte hex encoded client pubkey
-    auth: SignedEvent  // NIP 98 auth event signed by user
+    client: string // 32 byte hex encoded client pubkey
+    auth: SignedEvent // NIP 98 auth event signed by user
   }
 }
 ```
@@ -385,9 +411,9 @@ Signers should then respond by confirming the deletion:
 {
   method: "session/delete/request"
   payload: {
-    ok: boolean      // whether the deletion was successful
-    message: string  // human-readable error/success message
-    prev: string     // 32 byte hex encoded session/delete/request event id
+    ok: boolean // whether the deletion was successful
+    message: string // human-readable error/success message
+    prev: string // 32 byte hex encoded session/delete/request event id
   }
 }
 ```
