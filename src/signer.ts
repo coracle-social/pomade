@@ -3,10 +3,10 @@ import type {GroupPackage, SharePackage} from "@frostr/bifrost"
 import {now, spec, uniq, between, groupBy, map, call, int, ago, MINUTE, YEAR} from "@welshman/lib"
 import {getPubkey, verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
 import type {TrustedEvent, SignedEvent} from "@welshman/util"
-import {IStorageFactory, IStorage} from "./storage"
-import {RecoveryType, Method} from "./schema"
-import {RPC, WithEvent} from "./rpc"
-import {generateOTP} from "./misc"
+import {IStorageFactory, IStorage} from "./storage.js"
+import {RecoveryType, Method} from "./schema.js"
+import {RPC, WithEvent} from "./rpc.js"
+import {generateOTP} from "./misc.js"
 import {
   EcdhRequest,
   isEcdhRequest,
@@ -39,7 +39,7 @@ import {
   SessionList,
   SessionListResult,
   SignRequest,
-} from "./message"
+} from "./message.js"
 
 // Storage types
 
@@ -89,7 +89,6 @@ export class Signer {
   sessions: IStorage<SignerSession>
   recoveries: IStorage<SignerRecovery>
   validations: IStorage<Validation>
-  unsubscribe: () => void
   intervals: number[]
 
   constructor(private options: SignerOptions) {
@@ -98,7 +97,7 @@ export class Signer {
     this.recoveries = options.storage("recoveries")
     this.validations = options.storage("validations")
     this.rpc = new RPC(options.secret, options.relays)
-    this.unsubscribe = this.rpc.subscribe(message => {
+    this.rpc.subscribe(message => {
       // Ignore events with weird timestamps
       if (!between([now() - 60, now() + 60], message.event.created_at)) return
 
@@ -138,7 +137,7 @@ export class Signer {
   }
 
   stop() {
-    this.unsubscribe()
+    this.rpc.stop()
     this.intervals.forEach(clearInterval)
   }
 

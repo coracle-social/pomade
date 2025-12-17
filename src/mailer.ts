@@ -1,14 +1,14 @@
 import {int, now, sortBy, groupBy, ago, MINUTE} from "@welshman/lib"
 import {getPubkey} from "@welshman/util"
-import {IStorageFactory, IStorage} from "./storage"
-import {buildChallenge} from "./misc"
-import {WithEvent, RPC} from "./rpc"
+import {IStorageFactory, IStorage} from "./storage.js"
+import {buildChallenge} from "./misc.js"
+import {WithEvent, RPC} from "./rpc.js"
 import {
   isRecoveryChallenge,
   isRecoveryMethodChallenge,
   RecoveryChallenge,
   RecoveryMethodChallenge,
-} from "./message"
+} from "./message.js"
 
 // Mailer Provider
 
@@ -71,7 +71,6 @@ export class Mailer {
   pubkey: string
   validations: IStorage<MailerValidation>
   recovers: IStorage<MailerRecover>
-  unsubscribe: () => void
   intervals: number[]
 
   constructor(private options: MailerOptions) {
@@ -79,7 +78,7 @@ export class Mailer {
     this.validations = options.storage("validations")
     this.recovers = options.storage("recovers")
     this.rpc = new RPC(options.secret, options.relays)
-    this.unsubscribe = this.rpc.subscribe(message => {
+    this.rpc.subscribe(message => {
       if (isRecoveryMethodChallenge(message)) this.handleRecoveryMethodChallenge(message)
       if (isRecoveryChallenge(message)) this.handleRecoveryChallenge(message)
     })
@@ -102,7 +101,7 @@ export class Mailer {
   }
 
   stop() {
-    this.unsubscribe()
+    this.rpc.stop()
     this.intervals.forEach(clearInterval)
   }
 

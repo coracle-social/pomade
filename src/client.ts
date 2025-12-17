@@ -18,10 +18,10 @@ import {prep, makeSecret, getPubkey, makeHttpAuth} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Lib} from "@frostr/bifrost"
 import type {GroupPackage, ECDHPackage} from "@frostr/bifrost"
-import {Schema, Method, RecoveryType} from "./schema"
-import {parseChallenge} from "./misc"
-import {RPC, WithEvent} from "./rpc"
-import {context} from "./context"
+import {Schema, Method, RecoveryType} from "./schema.js"
+import {parseChallenge} from "./misc.js"
+import {RPC, WithEvent} from "./rpc.js"
+import {context} from "./context.js"
 import {
   SessionListResult,
   isSessionListResult,
@@ -48,7 +48,7 @@ import {
   RecoveryMethodSetResult,
   SignResult,
   SessionDeleteResult,
-} from "./message"
+} from "./message.js"
 
 export type ClientOptions = {
   group: GroupPackage

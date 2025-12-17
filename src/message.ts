@@ -1,7 +1,7 @@
 import * as z from "zod"
 import {parseJson, switcher} from "@welshman/lib"
 import type {Maybe} from "@welshman/lib"
-import {Schema, Method} from "./schema"
+import {Schema, Method} from "./schema.js"
 
 // Message types
 
