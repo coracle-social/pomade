@@ -55,35 +55,8 @@ const share = z.object({
   seckey: hex32,
 })
 
-const ecdh = z.object({
-  idx: z.number(),
-  keyshare: hex,
-  members: z.number().array(),
-  ecdh_pk: hex,
-})
-
 const psig_entry = z.tuple([hex32, hex32])
 const sighash_vec = z.tuple([hex32]).rest(hex32)
-
-const template = z.object({
-  content: z.string().nullable(),
-  hashes: sighash_vec.array(),
-  members: z.number().array(),
-  stamp: z.number(),
-  type: z.string(),
-})
-
-const session = template.extend({
-  gid: hex32,
-  sid: hex32,
-})
-
-const psig = z.object({
-  idx: z.number(),
-  psigs: psig_entry.array(),
-  pubkey: hex33,
-  sid: hex32,
-})
 
 const event = z.object({
   sig: hex,
@@ -119,7 +92,14 @@ export const Schema = {
     ecdh_pk: hex32,
   }),
   ecdhResult: z.object({
-    result: ecdh.optional(),
+    result: z.optional(
+      z.object({
+        idx: z.number(),
+        keyshare: hex,
+        members: z.number().array(),
+        ecdh_pk: hex,
+      })
+    ),
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,
@@ -186,10 +166,25 @@ export const Schema = {
     prev: hex32,
   }),
   signRequest: z.object({
-    session: session,
+    request: z.object({
+      content: z.string().nullable(),
+      hashes: sighash_vec.array(),
+      members: z.number().array(),
+      stamp: z.number(),
+      type: z.string(),
+      gid: hex32,
+      sid: hex32,
+    }),
   }),
   signResult: z.object({
-    result: psig.optional(),
+    result: z.optional(
+      z.object({
+        idx: z.number(),
+        psigs: psig_entry.array(),
+        pubkey: hex33,
+        sid: hex32,
+      })
+    ),
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,

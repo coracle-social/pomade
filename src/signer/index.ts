@@ -296,15 +296,17 @@ export class Signer {
 
         const session = await sessions.get(item.client)
 
-        return this.rpc.channel(event.pubkey).send(
-          makeRecoverFinalizeResult({
-            status: Status.Ok,
-            message: "Recovery successfully completed.",
-            group: session.group,
-            share: session.share,
-            prev: event.id,
-          }),
-        )
+        if (session) {
+          return this.rpc.channel(event.pubkey).send(
+            makeRecoverFinalizeResult({
+              status: Status.Ok,
+              message: "Recovery successfully completed.",
+              group: session.group,
+              share: session.share,
+              prev: event.id,
+            }),
+          )
+        }
       }
 
       this.rpc.channel(event.pubkey).send(
@@ -331,7 +333,7 @@ export class Signer {
         )
       }
 
-      const ctx = Lib.get_session_ctx(session.group, payload.session)
+      const ctx = Lib.get_session_ctx(session.group, payload.request)
       const partialSignature = Lib.create_psig_pkg(ctx, session.share)
 
       await sessions.set(event.pubkey, {...session, last_activity: now()})

@@ -247,7 +247,7 @@ export class Client {
 
     if (!template) throw new Error("Failed to create signing template")
 
-    const session = Lib.create_session_pkg(this.group, template)
+    const request = Lib.create_session_pkg(this.group, template)
 
     const messages = await Promise.all(
       members.map(idx => {
@@ -255,7 +255,7 @@ export class Client {
 
         return this.rpc
           .channel(peer)
-          .send(makeSignRequest({session}))
+          .send(makeSignRequest({request}))
           .receive<WithEvent<SignResult>>((message, resolve) => {
             if (isSignResult(message)) {
               resolve(message)
@@ -265,7 +265,7 @@ export class Client {
     )
 
     if (messages.every(m => m?.payload.status === Status.Ok)) {
-      const ctx = Lib.get_session_ctx(this.group, session)
+      const ctx = Lib.get_session_ctx(this.group, request)
       const pkgs = messages.map(m => m!.payload.result!)
       const sig = Lib.combine_signature_pkgs(ctx, pkgs)[0]?.[2]
 
