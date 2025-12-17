@@ -1,6 +1,6 @@
 import {Lib} from "@frostr/bifrost"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
-import {now, groupBy, first, sortBy, textEncoder, map, sha256, spec, call, int, ago, MINUTE, YEAR} from "@welshman/lib"
+import {now, groupBy, map, call, int, ago, MINUTE, YEAR} from "@welshman/lib"
 import {getPubkey, verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
 import type {TrustedEvent, SignedEvent} from "@welshman/util"
 import {
@@ -34,6 +34,7 @@ import type {
   IStorageFactory,
   IStorage,
   SessionListResult,
+  RecoverChallenge,
   RegisterRequest,
   SignRequest,
   SetRecoveryMethodRequest,
@@ -62,15 +63,16 @@ export type Validation = {
   event: TrustedEvent
 }
 
-export type RecoverItem = {
+export type RecoverOption = {
   otp: string
   client: string
+  threshold: number
 }
 
 export type Recover = {
   inbox: string
   event: TrustedEvent
-  items: RecoverItem[]
+  items: RecoverOption[]
 }
 
 export type SignerOptions = {
@@ -207,8 +209,9 @@ export class Signer {
 
     await this.validations.set(client, {otp, inbox, mailer, event})
 
-    this.rpc.channel(mailer)
-      .send(makeSetRecoveryMethodChallenge({otp, inbox, pubkey, threshold, callback_url}))
+    this.rpc
+      .channel(mailer)
+      .send(makeSetRecoveryMethodChallenge({otp, client, inbox, pubkey, threshold, callback_url}))
 
     this.rpc.channel(client).send(
       makeSetRecoveryMethodRequestResult({
@@ -255,27 +258,30 @@ export class Signer {
   async handleRecoverRequest({payload, event}: WithEvent<RecoverRequest>) {
     const {inbox, pubkey, callback_url} = payload
 
-    // Pick the most recently active session to log into for each associated pubkey
-    const sessionsByPubkey = groupBy(
-      s => s.group.group_pk.slice(2),
-      map(s => s[1], await this.sessions.entries())
-        .filter(s => s.inbox == inbox && (!pubkey || s.group.group_pk.slice(2) === pubkey))
+    const sessions = map(s => s[1], await this.sessions.entries()).filter(
+      s => s.mailer && s.inbox == inbox && (!pubkey || s.group.group_pk.slice(2) === pubkey),
     )
 
-    const items: RecoverItem[] = []
-    for (const [pubkey, sessions] of sessionsByPubkey) {
-      const otp = generateOTP()
-      const session = first(sortBy(s => -s.last_activity, sessions))!
-      const threshold = session.group.threshold
+    const sessionsByPubkey = groupBy(s => s.group.group_pk.slice(2), sessions)
 
-      items.push({client: session.client, otp})
+    const allItems: RecoverChallenge["payload"]["items"] = []
+    for (const [pubkey, pubkeySessions] of sessionsByPubkey) {
+      const sessionsByMailer = groupBy(s => s.mailer, pubkeySessions)
 
-      this.rpc
-        .channel(session.mailer!)
-        .send(makeRecoverChallenge({otp, inbox, pubkey, threshold, callback_url}))
+      for (const [mailer, mailerSessions] of sessionsByMailer) {
+        const items = mailerSessions.map(s => ({
+          otp: generateOTP(),
+          threshold: s.group.threshold,
+          client: s.client,
+        }))
+
+        allItems.push(...items)
+
+        this.rpc.channel(mailer!).send(makeRecoverChallenge({inbox, pubkey, items, callback_url}))
+      }
     }
 
-    await this.recovers.set(event.pubkey, {inbox, event, items})
+    await this.recovers.set(event.pubkey, {inbox, event, items: allItems})
 
     // Always show success so attackers can't get information on who is registered
     this.rpc.channel(event.pubkey).send(

@@ -75,6 +75,12 @@ const sessionItem = z.object({
   last_activity: z.int().positive(),
 })
 
+const recoverItem = z.object({
+  otp: z.string(),
+  client: hex32,
+  threshold: z.int().positive(),
+})
+
 export const Schema = {
   sessionItem,
   sessionListRequest: z.object({
@@ -98,7 +104,7 @@ export const Schema = {
         keyshare: hex,
         members: z.number().array(),
         ecdh_pk: hex,
-      })
+      }),
     ),
     status: z.enum(Object.values(Status)),
     message: z.string(),
@@ -114,11 +120,11 @@ export const Schema = {
     message: z.string(),
     prev: hex32,
   }),
+  recoverItem,
   recoverChallenge: z.object({
-    otp: z.string(),
     inbox: z.string(),
     pubkey: hex32,
-    threshold: z.number(),
+    items: recoverItem.array(),
     callback_url: z.string().optional(),
   }),
   recoverFinalize: z.object({
@@ -152,6 +158,7 @@ export const Schema = {
   }),
   setRecoveryMethodChallenge: z.object({
     otp: z.string(),
+    client: hex32,
     inbox: z.string(),
     pubkey: hex32,
     threshold: z.number(),
@@ -183,7 +190,7 @@ export const Schema = {
         psigs: psig_entry.array(),
         pubkey: hex33,
         sid: hex32,
-      })
+      }),
     ),
     status: z.enum(Object.values(Status)),
     message: z.string(),

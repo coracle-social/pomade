@@ -73,8 +73,8 @@ Each signer must then explicitly accept or (optionally) reject the share:
   method: "register/result"
   payload: {
     status: "ok" | "error" // whether registration succeeded
-    message: string        // a human-readable error/success message
-    prev: string           // 32 byte hex id of request event
+    message: string // a human-readable error/success message
+    prev: string // 32 byte hex id of request event
   }
 }
 ```
@@ -131,7 +131,7 @@ Once it receives the challenge, the user's client should parse it and send each 
 {
   method: "setRecoveryMethod/finalize"
   payload: {
-    otp: string  // 6+ digit one time password provided for the signer
+    otp: string // 6+ digit one time password provided for the signer
   }
 }
 ```
@@ -143,8 +143,8 @@ The signer must then indicate whether the flow was successful:
   method: "setRecoveryMethod/finalize/result"
   payload: {
     status: "ok" | "error" // whether the flow was successful
-    message: string        // human-readable error/success message
-    prev: string           // 32 byte hex encoded setRecoveryMethod/finalize event id
+    message: string // human-readable error/success message
+    prev: string // 32 byte hex encoded setRecoveryMethod/finalize event id
   }
 }
 ```
@@ -235,7 +235,9 @@ import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
 const textEncoder = new TextEncoder()
 
 const rawSharedSecret = hexToBytes(Lib.combine_ecdh_pkgs(results).slice(2))
-const nostrConversationKey = bytesToHex(extract(sha256, rawSharedSecret, textEncoder.encode("nip44-v2")))
+const nostrConversationKey = bytesToHex(
+  extract(sha256, rawSharedSecret, textEncoder.encode("nip44-v2")),
+)
 ```
 
 ### Recovery
@@ -253,21 +255,21 @@ To recover the user's original `secret key` by email alone without access to an 
 }
 ```
 
-Each signer then finds any sessions that were registered with the provided `inbox` and send an OTP to each one. If multiple sessions exist for a single inbox/pubkey pair, the signer should pick the most recently active
+Each signer then finds any sessions that were registered with the provided `inbox` and sends its `client`, `threshold`, and a newly generated OTP to its `mailer` service.
 
 ```typescript
 {
-  "kind": 28350,
-  "pubkey": "<signer pubkey>",
-  "content": nip44_encrypt([
-    ["method", "recover/select"],
-    ["pubkey", "<pubkey 1>"],
-    ["pubkey", "<pubkey 2>"],
-    ["e", "<kind recover/request event id>"],
-  ]),
-  "tags": [
-    ["p", "<recovery pubkey>"],
-  ],
+  method: "recover/challenge"
+  payload: {
+    inbox: string         // the user's inbox identifier
+    pubkey: string        // the user's pubkey
+    options: {
+      otp: string         // a one-time code unique to this option
+      client: string      // 32 byte hex-encoded client pubkey
+      threshold: number   // minimum number of shares needed to recover the user's key
+    }[],
+    callback_url?: string // optional callback url to send users to
+  }
 }
 ```
 
@@ -298,7 +300,6 @@ The mailer waits until `count` shares have been received and sends the group and
 `base58(group_ciphertext + share_ciphertext * n)`
 
 The user can copy this payload into their recovery client, which uses the `recovery key` the user generated at the beginning of the process to decrypt all shares and reconstitute the user's secret key.
-
 
 ### Session deletion
 

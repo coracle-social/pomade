@@ -33,7 +33,10 @@ export type RecoverFinalizeResult = DefineMessage<
 >
 export type RegisterRequest = DefineMessage<Method.RegisterRequest, typeof Schema.registerRequest>
 export type RegisterResult = DefineMessage<Method.RegisterResult, typeof Schema.registerResult>
-export type SetRecoveryMethodRequest = DefineMessage<Method.SetRecoveryMethodRequest, typeof Schema.setRecoveryMethodRequest>
+export type SetRecoveryMethodRequest = DefineMessage<
+  Method.SetRecoveryMethodRequest,
+  typeof Schema.setRecoveryMethodRequest
+>
 export type SetRecoveryMethodRequestResult = DefineMessage<
   Method.SetRecoveryMethodRequestResult,
   typeof Schema.setRecoveryMethodRequestResult
@@ -130,8 +133,13 @@ export function makeRegisterResult(payload: RegisterResult["payload"]): Register
   return {method: Method.RegisterResult, payload: Schema.registerResult.parse(payload)}
 }
 
-export function makeSetRecoveryMethodRequest(payload: SetRecoveryMethodRequest["payload"]): SetRecoveryMethodRequest {
-  return {method: Method.SetRecoveryMethodRequest, payload: Schema.setRecoveryMethodRequest.parse(payload)}
+export function makeSetRecoveryMethodRequest(
+  payload: SetRecoveryMethodRequest["payload"],
+): SetRecoveryMethodRequest {
+  return {
+    method: Method.SetRecoveryMethodRequest,
+    payload: Schema.setRecoveryMethodRequest.parse(payload),
+  }
 }
 
 export function makeSetRecoveryMethodRequestResult(
@@ -143,12 +151,22 @@ export function makeSetRecoveryMethodRequestResult(
   }
 }
 
-export function makeSetRecoveryMethodChallenge(payload: SetRecoveryMethodChallenge["payload"]): SetRecoveryMethodChallenge {
-  return {method: Method.SetRecoveryMethodChallenge, payload: Schema.setRecoveryMethodChallenge.parse(payload)}
+export function makeSetRecoveryMethodChallenge(
+  payload: SetRecoveryMethodChallenge["payload"],
+): SetRecoveryMethodChallenge {
+  return {
+    method: Method.SetRecoveryMethodChallenge,
+    payload: Schema.setRecoveryMethodChallenge.parse(payload),
+  }
 }
 
-export function makeSetRecoveryMethodFinalize(payload: SetRecoveryMethodFinalize["payload"]): SetRecoveryMethodFinalize {
-  return {method: Method.SetRecoveryMethodFinalize, payload: Schema.setRecoveryMethodFinalize.parse(payload)}
+export function makeSetRecoveryMethodFinalize(
+  payload: SetRecoveryMethodFinalize["payload"],
+): SetRecoveryMethodFinalize {
+  return {
+    method: Method.SetRecoveryMethodFinalize,
+    payload: Schema.setRecoveryMethodFinalize.parse(payload),
+  }
 }
 
 export function makeSetRecoveryMethodFinalizeResult(
@@ -242,8 +260,9 @@ export const isSetRecoveryMethodChallenge = (m: Message): m is SetRecoveryMethod
   m.method === Method.SetRecoveryMethodChallenge
 export const isSetRecoveryMethodFinalize = (m: Message): m is SetRecoveryMethodFinalize =>
   m.method === Method.SetRecoveryMethodFinalize
-export const isSetRecoveryMethodFinalizeResult = (m: Message): m is SetRecoveryMethodFinalizeResult =>
-  m.method === Method.SetRecoveryMethodFinalizeResult
+export const isSetRecoveryMethodFinalizeResult = (
+  m: Message,
+): m is SetRecoveryMethodFinalizeResult => m.method === Method.SetRecoveryMethodFinalizeResult
 export const isSignRequest = (m: Message): m is SignRequest => m.method === Method.SignRequest
 export const isSignResult = (m: Message): m is SignResult => m.method === Method.SignResult
 export const isLogoutRequest = (m: Message): m is LogoutRequest => m.method === Method.LogoutRequest

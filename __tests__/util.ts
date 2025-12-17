@@ -43,7 +43,10 @@ export function afterHook() {
   signers.forEach(signer => signer.stop())
 }
 
-export async function makeClientWithRecovery(inbox: string, provider: Partial<MailerProvider> = {}) {
+export async function makeClientWithRecovery(
+  inbox: string,
+  provider: Partial<MailerProvider> = {},
+) {
   let challenge
 
   const mailer = makeMailer(makeSecret(), {
