@@ -3,6 +3,7 @@ import {describe, it, expect, beforeEach, afterEach} from "vitest"
 import {sleep, sortBy, hexToBytes, bytesToHex} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
 import {beforeHook, afterHook, makeMailer, makeClientWithRecovery} from "./util"
+import type {RecoverPayload} from "../src/mailer"
 import {Client} from "../src/client"
 import {generateOTP, buildChallenge, context} from "../src/lib"
 
@@ -175,6 +176,14 @@ describe("protocol flows", () => {
 
       await expect(confirmed.ok).toBe(false)
     })
+
+    it("rejects disabled recovery", async () => {
+      const mailer = makeMailer(makeSecret())
+      const client = await Client.register(1, 2, makeSecret(), false)
+      const res = await client.setRecoveryMethodRequest("test@example.com", mailer.pubkey)
+
+      expect(res.ok).toBe(false)
+    })
   })
 
   describe("recovery", () => {
@@ -266,6 +275,79 @@ describe("protocol flows", () => {
       const res2 = await Client.recoverFinalize(secret, payloads[1].challenge)
 
       expect(res2.ok).toBe(true)
+    })
+
+    it("handles recovery across multiple mailers", async () => {
+      const payloads: RecoverPayload[] = []
+      const inbox = "complex@example.com"
+
+      let challenge1
+      let challenge2
+
+      // Create two different mailers that will handle recovery and validation
+      const mailer1 = makeMailer(makeSecret(), {
+        sendRecover: payload => {
+          payloads.push(payload)
+        },
+        sendValidation: payload => {
+          challenge1 = payload.challenge
+        },
+      })
+
+      const mailer2 = makeMailer(makeSecret(), {
+        sendRecover: payload => {
+          payloads.push(payload)
+        },
+        sendValidation: payload => {
+          challenge2 = payload.challenge
+        },
+      })
+
+      // Register first client with 1/2 threshold and mailer1
+      const client1Secret = makeSecret()
+      const client1 = await Client.register(1, 2, client1Secret)
+
+      await client1.setRecoveryMethodRequest(inbox, mailer1.pubkey)
+      await sleep(10)
+      await client1.setRecoveryMethodFinalize(challenge1)
+
+      // Register second client with 2/3 threshold and mailer2
+      const client2Secret = makeSecret()
+      const client2 = await Client.register(2, 3, client2Secret)
+
+      await client2.setRecoveryMethodRequest(inbox, mailer2.pubkey)
+      await sleep(10)
+      await client2.setRecoveryMethodFinalize(challenge2)
+
+      // Initiate recovery for the shared inbox - should trigger both mailers
+      const recoverySecret = makeSecret()
+      const res = await Client.recoverRequest(recoverySecret, inbox)
+      await sleep(10)
+
+      // Should have received challenges from both mailers
+      expect(res.ok).toBe(true)
+      expect(payloads.length).toBe(2)
+
+      // Verify first payload is for client1 with correct threshold
+      const payload1 = payloads.find(p => p.pubkey === client1.group.group_pk.slice(2))
+      expect(payload1?.inbox).toBe(inbox)
+      expect(payload1?.challenge.length).toBeGreaterThan(90)
+
+      // Verify second payload is for client2 with correct threshold
+      const payload2 = payloads.find(p => p.pubkey === client2.group.group_pk.slice(2))
+      expect(payload2?.inbox).toBe(inbox)
+      expect(payload2?.challenge.length).toBeGreaterThan(90)
+
+      // Test recovery using first client's challenge
+      const result1 = await Client.recoverFinalize(recoverySecret, payload1!.challenge)
+      expect(result1.ok).toBe(true)
+      expect(getPubkey(result1.secret)).toBe(client1.group.group_pk.slice(2))
+
+      // Test recovery using second client's challenge with the same recovery secret
+      // A single recovery request generates challenges for all clients with the inbox
+      const result2 = await Client.recoverFinalize(recoverySecret, payload2!.challenge)
+      expect(result2.ok).toBe(true)
+      expect(getPubkey(result2.secret)).toBe(client2.group.group_pk.slice(2))
     })
   })
 })

@@ -134,6 +134,7 @@ export const Schema = {
   registerRequest: z.object({
     share: share,
     group: group,
+    recovery: z.boolean(),
   }),
   registerResult: z.object({
     ok: z.boolean(),

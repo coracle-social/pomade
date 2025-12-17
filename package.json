@@ -24,7 +24,8 @@
     "prepublishOnly": "pnpm run build",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
-    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "check": "pnpm run build && pnpm run format && pnpm run lint && pnpm run test --run"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.49.0",

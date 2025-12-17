@@ -49,6 +49,7 @@ export type Session = {
   client: string
   share: SharePackage
   group: GroupPackage
+  recovery: boolean
   event: TrustedEvent
   last_activity: number
   inbox?: string
@@ -149,7 +150,7 @@ export class Signer {
 
   async handleRegisterRequest({payload, event}: WithEvent<RegisterRequest>) {
     const client = event.pubkey
-    const {group, share} = payload
+    const {group, share, recovery} = payload
     const cb = (ok: boolean, message: string) =>
       this.rpc.channel(client).send(makeRegisterResult({ok, message, prev: event.id}))
 
@@ -170,7 +171,7 @@ export class Signer {
     if (!commit) return cb(false, "Share index not found in group commits.")
     if (await this.sessions.has(client)) return cb(false, "Client is already registered.")
 
-    await this.sessions.set(client, {client, event, share, group, last_activity: now()})
+    await this.sessions.set(client, {client, event, share, group, recovery, last_activity: now()})
 
     return cb(true, "Your key has been registered")
   }
@@ -185,6 +186,16 @@ export class Signer {
         makeSetRecoveryMethodRequestResult({
           ok: false,
           message: "No session found for client.",
+          prev: event.id,
+        }),
+      )
+    }
+
+    if (!session.recovery) {
+      return this.rpc.channel(client).send(
+        makeSetRecoveryMethodRequestResult({
+          ok: false,
+          message: "Recovery is disabled on this session.",
           prev: event.id,
         }),
       )
@@ -223,19 +234,18 @@ export class Signer {
 
   async handleSetRecoveryMethodFinalize({payload, event}: WithEvent<SetRecoveryMethodFinalize>) {
     return this.sessions.tx(async sessions => {
-      const client = event.pubkey
-      const session = await sessions.get(client)
-      const challenge = await this.validations.get(client)
+      const session = await sessions.get(event.pubkey)
+      const challenge = await this.validations.get(event.pubkey)
 
       if (session && challenge?.otp === payload.otp) {
-        await sessions.set(client, {
+        await sessions.set(event.pubkey, {
           ...session,
           last_activity: now(),
           inbox: challenge.inbox,
           mailer: challenge.mailer,
         })
 
-        this.rpc.channel(client).send(
+        this.rpc.channel(event.pubkey).send(
           makeSetRecoveryMethodFinalizeResult({
             ok: true,
             message: "Recovery method successfully verified and associated with your account",
@@ -243,7 +253,7 @@ export class Signer {
           }),
         )
       } else {
-        this.rpc.channel(client).send(
+        this.rpc.channel(event.pubkey).send(
           makeSetRecoveryMethodFinalizeResult({
             ok: false,
             message: `Failed to validate challenge. Please request a new one to try again.`,
@@ -251,6 +261,8 @@ export class Signer {
           }),
         )
       }
+
+      await this.validations.delete(event.pubkey)
     })
   }
 
@@ -321,6 +333,8 @@ export class Signer {
           prev: event.id,
         }),
       )
+
+      await this.recovers.delete(event.pubkey)
     })
   }
 

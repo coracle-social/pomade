@@ -47,22 +47,23 @@ The client then shards the user's `secret key` using FROST and registers each sh
   method: "register/request"
   payload: {
     share: {
-      idx: number         // commit index
-      binder_sn: string   // 32 byte hex string
-      hidden_sn: string   // 32 byte hex string
-      seckey: string      // 32 byte hex string
+      idx: number          // commit index
+      binder_sn: string    // 32 byte hex string
+      hidden_sn: string    // 32 byte hex string
+      seckey: string       // 32 byte hex string
     }
     group: {
       commits: Array<{
-        idx: number       // commit index
-        pubkey: string    // 33 byte hex string
-        hidden_pn: string // 33 byte hex string
-        binder_pn: string // 33 byte hex string
+        idx: number        // commit index
+        pubkey: string     // 33 byte hex string
+        hidden_pn: string  // 33 byte hex string
+        binder_pn: string  // 33 byte hex string
       }>
-      group_pk: string    // 33 byte hex string
-      threshold: number   // integer signing threshold
+      group_pk: string     // 33 byte hex string
+      threshold: number    // integer signing threshold
     }
-  },
+    recovery: boolean      // whether recovery is enabled for this session
+  }
 }
 ```
 
@@ -72,9 +73,9 @@ Each signer must then explicitly accept or (optionally) reject the share:
 {
   method: "register/result"
   payload: {
-    ok: boolean // whether registration succeeded
-    message: string // a human-readable error/success message
-    prev: string // 32 byte hex id of request event
+    ok: boolean      // whether registration succeeded
+    message: string  // a human-readable error/success message
+    prev: string     // 32 byte hex id of request event
   }
 }
 ```
@@ -142,9 +143,9 @@ The signer must then indicate whether the flow was successful:
 {
   method: "setRecoveryMethod/finalize/result"
   payload: {
-    ok: boolean // whether the flow was successful
-    message: string // human-readable error/success message
-    prev: string // 32 byte hex encoded setRecoveryMethod/finalize event id
+    ok: boolean      // whether the flow was successful
+    message: string  // human-readable error/success message
+    prev: string     // 32 byte hex encoded setRecoveryMethod/finalize event id
   }
 }
 ```
@@ -249,9 +250,9 @@ To recover the user's original `secret key` by email alone without access to an 
 {
   method: "recover/request"
   payload: {
-    inbox: string // the user's inbox identifier
-    pubkey?: string // the user's pubkey (optional, useful if multiple pubkeys are associated with a single inbox)
-    callback_url?: string // optional callback url to send users to
+    inbox: string          // the user's inbox identifier
+    pubkey?: string        // the user's pubkey (optional, useful if multiple pubkeys are associated with a single inbox)
+    callback_url?: string  // optional callback url to send users to
   }
 }
 ```
@@ -304,24 +305,24 @@ The signer must then indicate whether the flow was successful by returning the `
   method: "recover/finalize/result"
   payload: {
     share: {
-      idx: number // commit index
-      binder_sn: string // 32 byte hex string
-      hidden_sn: string // 32 byte hex string
-      seckey: string // 32 byte hex string
+      idx: number          // commit index
+      binder_sn: string    // 32 byte hex string
+      hidden_sn: string    // 32 byte hex string
+      seckey: string       // 32 byte hex string
     }
     group: {
       commits: Array<{
-        idx: number // commit index
-        pubkey: string // 33 byte hex string
-        hidden_pn: string // 33 byte hex string
-        binder_pn: string // 33 byte hex string
+        idx: number        // commit index
+        pubkey: string     // 33 byte hex string
+        hidden_pn: string  // 33 byte hex string
+        binder_pn: string  // 33 byte hex string
       }>
-      group_pk: string // 33 byte hex string
-      threshold: number // integer signing threshold
+      group_pk: string     // 33 byte hex string
+      threshold: number    // integer signing threshold
     }
-    ok: boolean // whether the flow was successful
-    message: string // human-readable error/success message
-    prev: string // 32 byte hex encoded recover/finalize event id
+    ok: boolean            // whether the flow was successful
+    message: string        // human-readable error/success message
+    prev: string           // 32 byte hex encoded recover/finalize event id
   }
 }
 ```
@@ -372,8 +373,8 @@ These results may then be aggregated across all signers and displayed to the use
 {
   method: "session/delete/request"
   payload: {
-    client: string // 32 byte hex encoded client pubkey
-    auth: SignedEvent // NIP 98 auth event signed by user
+    client: string     // 32 byte hex encoded client pubkey
+    auth: SignedEvent  // NIP 98 auth event signed by user
   }
 }
 ```
@@ -384,9 +385,9 @@ Signers should then respond by confirming the deletion:
 {
   method: "session/delete/request"
   payload: {
-    ok: boolean // whether the deletion was successful
-    message: string // human-readable error/success message
-    prev: string // 32 byte hex encoded session/delete/request event id
+    ok: boolean      // whether the deletion was successful
+    message: string  // human-readable error/success message
+    prev: string     // 32 byte hex encoded session/delete/request event id
   }
 }
 ```
@@ -397,9 +398,10 @@ This implementation uses @frostr/bifrost for all cryptographic functionality.
 
 ## Threat model
 
-There are a few denial-of-service attack vectors and privacy leaks in this spec, which are to a certain extent unavoidable with email-based login and recovery. Keep these in mind when directing users to use this or another approach for login.
+Signers are the most trusted party in this setup. It is assumed that they are run by reputable people, and carefully selected by clients based on this reputation. If `threshold` signers collude, they are necessarily able to steal key material. This can be mitigated by having clients store one key share, reducing the surface area of attack, but this comes at the trade-off of making recovery more fragile.
 
-- Anyone can initiate a recovery or login flow for any email address, spamming the mailer service and the end user's email inbox. This is mitigated by using one-off client keys to sign messages, such that neither a user's pubkey nor email is visible. This attack is only possible if an attacker knows which bunkers a given email is registered with.
-- Malicious mailers can block registration, recovery, and login if they choose not to send messages to certain emails.
-- Signers have access to user pubkeys and mailers have access to user emails, but neither have access to both, preventing trivial correlation. However, email hashes are not salted, so it is possible to break the hashes given a list of valid emails.
-- `login/select` and `recover/select` can leak the association between an email and a pubkey to an attacker that is able to provide a valid email address. This can be mitigated by rate-limiting login/recover events, but is something that users should be informed about in case they want to keep their email/pubkey link private. This attack vector only exists for users who have associated multiple pubkeys with a given email.
+Mailers are trusted to the extent that they have access to user metadata (e.g. linking nostr pubkeys with user emails), but are not capable of executing a man-in-the-middle attack. In addition, since recovery is triggered using only publicly available information, anyone can initiate a recovery flow, spamming the mailer service and the end user's inbox.
+
+However, both signers and mailers have the ability to perform a denial-of-service attack by refusing to respond to messages or relay challenges to the user's `inbox`. User key shares are also held on servers accessible to the internet, which likely are running the same code, and so if one signer is vulnerable, all of them are.
+
+For this reason, this scheme is not recommended for users who are capable of holding their own keys, but for users who are completely new to nostr and the concept of keys. Even still, clients that use this scheme should encourage their users to migrate to self-custody once they have established their value proposition. Other clients may choose to use this scheme for signing, but disable key recovery, opting for an encrypted backup instead.

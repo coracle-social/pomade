@@ -74,7 +74,7 @@ export class Client {
     this.userPubkey = this.group.group_pk.slice(2)
   }
 
-  static async register(threshold: number, n: number, userSecret: string) {
+  static async register(threshold: number, n: number, userSecret: string, recovery = true) {
     if (context.signerPubkeys.length < n) {
       throw new Error("Not enough signers available")
     }
@@ -95,7 +95,7 @@ export class Client {
         while (remainingSignerPubkeys.length > 0 && !peersByIndex.has(i)) {
           await rpc
             .channel(remainingSignerPubkeys.shift()!)
-            .send(makeRegisterRequest({share, group}))
+            .send(makeRegisterRequest({share, group, recovery}))
             .receive((message, resolve) => {
               if (isRegisterResult(message)) {
                 if (message.payload.ok) {
