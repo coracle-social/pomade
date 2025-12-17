@@ -8,17 +8,17 @@ import {
   Status,
   makeSessionListResult,
   makeRegisterResult,
-  makeSetEmailRequestResult,
-  makeSetEmailFinalizeResult,
-  makeSetEmailChallenge,
+  makeSetRecoveryMethodRequestResult,
+  makeSetRecoveryMethodFinalizeResult,
+  makeSetRecoveryMethodChallenge,
   isSessionListRequest,
   isRegisterRequest,
   isSignRequest,
   isEcdhRequest,
   isRecoverRequest,
   isRecoverFinalize,
-  isSetEmailRequest,
-  isSetEmailFinalize,
+  isSetRecoveryMethodRequest,
+  isSetRecoveryMethodFinalize,
   isLogoutRequest,
   makeSignResult,
   makeEcdhResult,
@@ -36,8 +36,8 @@ import type {
   SessionListResult,
   RegisterRequest,
   SignRequest,
-  SetEmailRequest,
-  SetEmailFinalize,
+  SetRecoveryMethodRequest,
+  SetRecoveryMethodFinalize,
   EcdhRequest,
   RecoverRequest,
   RecoverFinalize,
@@ -51,14 +51,14 @@ export type Session = {
   group: GroupPackage
   event: TrustedEvent
   last_activity: number
-  email?: string
-  email_service?: string
+  inbox?: string
+  mailer?: string
 }
 
 export type Validation = {
   otp: string
-  email: string
-  email_service: string
+  inbox: string
+  mailer: string
   event: TrustedEvent
 }
 
@@ -68,7 +68,7 @@ export type RecoverItem = {
 }
 
 export type Recover = {
-  email: string
+  inbox: string
   event: TrustedEvent
   items: RecoverItem[]
 }
@@ -96,8 +96,8 @@ export class Signer {
     this.rpc = new RPC(options.secret, options.relays)
     this.unsubscribe = this.rpc.subscribe(message => {
       if (isRegisterRequest(message)) this.handleRegisterRequest(message)
-      if (isSetEmailRequest(message)) this.handleSetEmailRequest(message)
-      if (isSetEmailFinalize(message)) this.handleSetEmailFinalize(message)
+      if (isSetRecoveryMethodRequest(message)) this.handleSetRecoveryMethodRequest(message)
+      if (isSetRecoveryMethodFinalize(message)) this.handleSetRecoveryMethodFinalize(message)
       if (isRecoverRequest(message)) this.handleRecoverRequest(message)
       if (isRecoverFinalize(message)) this.handleRecoverFinalize(message)
       if (isSignRequest(message)) this.handleSignRequest(message)
@@ -174,14 +174,14 @@ export class Signer {
     return cb(Status.Ok, "Your key has been registered")
   }
 
-  async handleSetEmailRequest({payload, event}: WithEvent<SetEmailRequest>) {
+  async handleSetRecoveryMethodRequest({payload, event}: WithEvent<SetRecoveryMethodRequest>) {
     const client = event.pubkey
     const session = await this.sessions.get(client)
-    const {email, email_service, callback_url} = payload
+    const {inbox, mailer, callback_url} = payload
 
     if (!session) {
       return this.rpc.channel(client).send(
-        makeSetEmailRequestResult({
+        makeSetRecoveryMethodRequestResult({
           status: Status.Error,
           message: "No session found for client.",
           prev: event.id,
@@ -189,13 +189,13 @@ export class Signer {
       )
     }
 
-    // email has to be bound at (or shorly after) session, otherwise an attacker with access
-    // to any session could escalate permissions by recovering the secret key to their own email
+    // recovery method has to be bound at (or shorly after) session, otherwise an attacker with access
+    // to any session could escalate permissions by setting up their own recovery method
     if (session.event.created_at < ago(5, MINUTE)) {
       return this.rpc.channel(client).send(
-        makeSetEmailRequestResult({
+        makeSetRecoveryMethodRequestResult({
           status: Status.Error,
-          message: "Email must be set within 5 minutes of session.",
+          message: "Recovery method must be set within 5 minutes of session.",
           prev: event.id,
         }),
       )
@@ -205,44 +205,44 @@ export class Signer {
     const pubkey = session.group.group_pk.slice(2)
     const threshold = session.group.commits.length
 
-    await this.validations.set(client, {otp, email, email_service, event})
+    await this.validations.set(client, {otp, inbox, mailer, event})
 
-    this.rpc.channel(email_service)
-      .send(makeSetEmailChallenge({otp, email, pubkey, threshold, callback_url}))
+    this.rpc.channel(mailer)
+      .send(makeSetRecoveryMethodChallenge({otp, inbox, pubkey, threshold, callback_url}))
 
     this.rpc.channel(client).send(
-      makeSetEmailRequestResult({
+      makeSetRecoveryMethodRequestResult({
         status: Status.Ok,
-        message: "Verification email sent. Please check your email to continue.",
+        message: "Verification sent. Please check your recovery method to continue.",
         prev: event.id,
       }),
     )
   }
 
-  async handleSetEmailFinalize({payload, event}: WithEvent<SetEmailFinalize>) {
+  async handleSetRecoveryMethodFinalize({payload, event}: WithEvent<SetRecoveryMethodFinalize>) {
     return this.sessions.tx(async sessions => {
       const client = event.pubkey
       const session = await sessions.get(client)
       const challenge = await this.validations.get(client)
 
-      if (session && challenge?.otp === payload.otp && challenge?.email === payload.email) {
+      if (session && challenge?.otp === payload.otp) {
         await sessions.set(client, {
           ...session,
           last_activity: now(),
-          email: challenge.email,
-          email_service: challenge.email_service,
+          inbox: challenge.inbox,
+          mailer: challenge.mailer,
         })
 
         this.rpc.channel(client).send(
-          makeSetEmailFinalizeResult({
+          makeSetRecoveryMethodFinalizeResult({
             status: Status.Ok,
-            message: "Email successfully verified and associated with your account",
+            message: "Recovery method successfully verified and associated with your account",
             prev: event.id,
           }),
         )
       } else {
         this.rpc.channel(client).send(
-          makeSetEmailFinalizeResult({
+          makeSetRecoveryMethodFinalizeResult({
             status: Status.Error,
             message: `Failed to validate challenge. Please request a new one to try again.`,
             prev: event.id,
@@ -253,13 +253,13 @@ export class Signer {
   }
 
   async handleRecoverRequest({payload, event}: WithEvent<RecoverRequest>) {
-    const {email, pubkey, callback_url} = payload
+    const {inbox, pubkey, callback_url} = payload
 
     // Pick the most recently active session to log into for each associated pubkey
     const sessionsByPubkey = groupBy(
       s => s.group.group_pk.slice(2),
       map(s => s[1], await this.sessions.entries())
-        .filter(s => s.email == email && (!pubkey || s.group.group_pk.slice(2) === pubkey))
+        .filter(s => s.inbox == inbox && (!pubkey || s.group.group_pk.slice(2) === pubkey))
     )
 
     const items: RecoverItem[] = []
@@ -271,17 +271,17 @@ export class Signer {
       items.push({client: session.client, otp})
 
       this.rpc
-        .channel(session.email_service!)
-        .send(makeRecoverChallenge({otp, email, pubkey, threshold, callback_url}))
+        .channel(session.mailer!)
+        .send(makeRecoverChallenge({otp, inbox, pubkey, threshold, callback_url}))
     }
 
-    await this.recovers.set(event.pubkey, {email, event, items})
+    await this.recovers.set(event.pubkey, {inbox, event, items})
 
     // Always show success so attackers can't get information on who is registered
     this.rpc.channel(event.pubkey).send(
       makeRecoverRequestResult({
         status: Status.Ok,
-        message: "Verification email sent. Please check your email to continue.",
+        message: "Verification sent. Please check your inbox to continue.",
         prev: event.id,
       }),
     )
@@ -295,8 +295,6 @@ export class Signer {
         if (item.otp !== payload.otp) continue
 
         const session = await sessions.get(item.client)
-
-        if (session?.email !== payload.email) continue
 
         return this.rpc.channel(event.pubkey).send(
           makeRecoverFinalizeResult({
@@ -395,7 +393,7 @@ export class Signer {
     for (const [_, session] of await this.sessions.entries()) {
       if (session.group.group_pk.slice(2) === payload.auth.pubkey) {
         sessions.push({
-          email: session.email,
+          inbox: session.inbox,
           client: session.client,
           created_at: session.event.created_at,
           last_activity: session.last_activity,

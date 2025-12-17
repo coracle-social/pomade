@@ -2,7 +2,7 @@ import * as nt44 from "nostr-tools/nip44"
 import {describe, it, expect, beforeEach, afterEach} from "vitest"
 import {sleep, sortBy, hexToBytes, bytesToHex} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
-import {beforeHook, afterHook, makeMailer, makeClientWithEmail} from "./util"
+import {beforeHook, afterHook, makeMailer, makeClientWithRecovery} from "./util"
 import {Client} from "../src/client"
 import {generateOTP, buildChallenge, context} from "../src/lib"
 
@@ -113,74 +113,65 @@ describe("protocol flows", () => {
     })
   })
 
-  describe("set email", () => {
-    it("successfully sets user email multiple times", async () => {
+  describe("set recovery method", () => {
+    it("successfully sets user inbox multiple times", async () => {
       let payloads = []
 
       const mailer = makeMailer(makeSecret(), {
-        sendValidationEmail: payload => {
+        sendValidation: payload => {
           payloads.push(payload)
         },
       })
 
       const client = await Client.register(1, 2, makeSecret())
 
-      await client.setEmailRequest("test@example.com", mailer.pubkey)
+      await client.setRecoveryMethodRequest("test@example.com", mailer.pubkey)
       await sleep(10)
 
-      expect(payloads[0].email).toBe("test@example.com")
+      expect(payloads[0].inbox).toBe("test@example.com")
       expect(payloads[0].challenge.length).toBeGreaterThan(90)
 
-      const confirmed1 = await client.setEmailFinalize("test@example.com", mailer.pubkey, payloads[0].challenge)
+      const confirmed1 = await client.setRecoveryMethodFinalize(payloads[0].challenge)
 
       expect(confirmed1.ok).toBe(true)
 
-      await client.setEmailRequest("test2@example.com", mailer.pubkey)
+      await client.setRecoveryMethodRequest("test2@example.com", mailer.pubkey)
       await sleep(10)
 
-      const confirmed2 = await client.setEmailFinalize(
-        "test2@example.com",
-        mailer.pubkey,
-        payloads[1].challenge,
-      )
+      const confirmed2 = await client.setRecoveryMethodFinalize(payloads[1].challenge)
 
       expect(confirmed2.ok).toBe(true)
     })
 
-    it("rejects invalid email", async () => {
+    it("rejects inconsistent client", async () => {
       let challenge
 
       const mailer = makeMailer(makeSecret(), {
-        sendValidationEmail: payload => {
+        sendValidation: payload => {
           challenge = payload.challenge
         },
       })
 
-      const client = await Client.register(1, 2, makeSecret())
+      const client1 = await Client.register(1, 2, makeSecret())
+      const client2 = await Client.register(1, 2, makeSecret())
 
-      await client.setEmailRequest("test@example.com", mailer.pubkey)
+      await client1.setRecoveryMethodRequest("test@example.com", mailer.pubkey)
       await sleep(10)
 
-      const confirmed = await client.setEmailFinalize("test2@example.com", mailer.pubkey, challenge)
+      const confirmed = await client2.setRecoveryMethodFinalize(challenge)
 
       await expect(confirmed.ok).toBe(false)
     })
 
     it("rejects invalid challenge", async () => {
-      let challenge
-
-      const mailer = makeMailer(makeSecret(), {
-        sendValidationEmail: payload => {
-          challenge = payload.challenge
-        },
-      })
-
+      const mailer = makeMailer(makeSecret())
       const client = await Client.register(1, 2, makeSecret())
+      const challenge = buildChallenge(context.signerPubkeys.map(pk => [pk, generateOTP()]))
 
-      await client.setEmailRequest("test@example.com", mailer.pubkey)
+      await client.setRecoveryMethodRequest("test@example.com", mailer.pubkey)
       await sleep(10)
 
-      const confirmed = await client.setEmailFinalize("test2@example.com", mailer.pubkey, challenge)
+      const confirmed = await client.setRecoveryMethodFinalize(challenge)
 
       await expect(confirmed.ok).toBe(false)
     })
@@ -190,8 +181,8 @@ describe("protocol flows", () => {
     it("successfully allows recovery", async () => {
       let payload
 
-      const client = await makeClientWithEmail("test@example.com", {
-        sendRecoverEmail: payload_ => {
+      const client = await makeClientWithRecovery("test@example.com", {
+        sendRecover: payload_ => {
           payload = payload_
         },
       })
@@ -201,17 +192,17 @@ describe("protocol flows", () => {
       await Client.recoverRequest(secret, "test@example.com")
       await sleep(10)
 
-      expect(payload.email).toBe("test@example.com")
+      expect(payload.inbox).toBe("test@example.com")
       expect(payload.challenge.length).toBeGreaterThan(90)
 
-      const res = await Client.recoverFinalize(secret, "test@example.com", payload.challenge)
+      const res = await Client.recoverFinalize(secret, payload.challenge)
 
       expect(res.ok).toBe(true)
       expect(getPubkey(res.secret)).toBe(client.group.group_pk.slice(2))
     })
 
     it("prevents probing for session", async () => {
-      const client = await makeClientWithEmail("test@example.com")
+      const client = await makeClientWithRecovery("test@example.com")
 
       doLet(await Client.recoverRequest(makeSecret(), "test@example.com"), res =>
         expect(res.ok).toBe(true),
@@ -221,27 +212,8 @@ describe("protocol flows", () => {
       )
     })
 
-    it("rejects invalid email", async () => {
-      let challenge
-
-      await makeClientWithEmail("test@example.com", {
-        sendRecoverEmail: payload => {
-          challenge = payload.challenge
-        },
-      })
-
-      const secret = makeSecret()
-
-      await Client.recoverRequest(secret, "test@example.com")
-      await sleep(10)
-
-      const res = await Client.recoverFinalize(secret, "test2@example.com", challenge)
-
-      expect(res.ok).toBe(false)
-    })
-
     it("rejects invalid challenge", async () => {
-      await makeClientWithEmail("test@example.com")
+      await makeClientWithRecovery("test@example.com")
 
       const secret = makeSecret()
 
@@ -250,7 +222,7 @@ describe("protocol flows", () => {
 
       const challenge = buildChallenge(context.signerPubkeys.map(pk => [pk, generateOTP()]))
 
-      const res = await Client.recoverFinalize(secret, "test2@example.com", challenge)
+      const res = await Client.recoverFinalize(secret, challenge)
 
       expect(res.ok).toBe(false)
     })
@@ -258,8 +230,8 @@ describe("protocol flows", () => {
     it("rejects inconsistent client secret", async () => {
       let challenge
 
-      await makeClientWithEmail("test@example.com", {
-        sendRecoverEmail: payload => {
+      await makeClientWithRecovery("test@example.com", {
+        sendRecover: payload => {
           challenge = payload.challenge
         },
       })
@@ -267,22 +239,22 @@ describe("protocol flows", () => {
       await Client.recoverRequest(makeSecret(), "test@example.com")
       await sleep(10)
 
-      const res = await Client.recoverFinalize(makeSecret(), "test@example.com", challenge)
+      const res = await Client.recoverFinalize(makeSecret(), challenge)
 
       expect(res.ok).toBe(false)
     })
 
-    it("handles multiple pubkeys associated with a single email", async () => {
-      const payloads: RecoverEmailPayload[] = []
+    it("handles multiple pubkeys associated with a single inbox", async () => {
+      const payloads = []
 
       const provider = {
-        sendRecoverEmail: payload => {
+        sendRecover: payload => {
           payloads.push(payload)
         },
       }
 
-      await makeClientWithEmail("test@example.com", provider)
-      await makeClientWithEmail("test@example.com", provider)
+      await makeClientWithRecovery("test@example.com", provider)
+      await makeClientWithRecovery("test@example.com", provider)
 
       const secret = makeSecret()
       const res1 = await Client.recoverRequest(secret, "test@example.com")
@@ -291,7 +263,7 @@ describe("protocol flows", () => {
       expect(payloads.length).toBe(2)
       expect(res1.ok).toBe(true)
 
-      const res2 = await Client.recoverFinalize(secret, "test@example.com", payloads[1].challenge)
+      const res2 = await Client.recoverFinalize(secret, payloads[1].challenge)
 
       expect(res2.ok).toBe(true)
     })

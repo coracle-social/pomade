@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "author": "hodlbod",
   "license": "MIT",
-  "description": "Email recovery protocol and implementation for nostr multisig signers.",
+  "description": "Recovery protocol and implementation for nostr multisig signers.",
   "publishConfig": {
     "access": "public"
   },

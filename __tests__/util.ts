@@ -22,14 +22,14 @@ export function makeSigner(secret: string) {
   })
 }
 
-export function makeMailer(secret: string, provider: Partial<EmailProvider> = {}) {
+export function makeMailer(secret: string, provider: Partial<MailerProvider> = {}) {
   return new Mailer({
     secret,
     relays: [LOCAL_RELAY_URL],
     storage: defaultStorageFactory,
     provider: {
-      sendValidationEmail: noop,
-      sendRecoverEmail: noop,
+      sendValidation: noop,
+      sendRecover: noop,
       ...provider,
     },
   })
@@ -43,21 +43,21 @@ export function afterHook() {
   signers.forEach(signer => signer.stop())
 }
 
-export async function makeClientWithEmail(email: string, provider: Partial<EmailProvider> = {}) {
+export async function makeClientWithRecovery(inbox: string, provider: Partial<MailerProvider> = {}) {
   let challenge
 
   const mailer = makeMailer(makeSecret(), {
     ...provider,
-    sendValidationEmail: payload => {
+    sendValidation: payload => {
       challenge = payload.challenge
     },
   })
 
   const client = await Client.register(2, 3, makeSecret())
 
-  await client.setEmailRequest(email, mailer.pubkey)
+  await client.setRecoveryMethodRequest(inbox, mailer.pubkey)
   await sleep(10)
-  await client.setEmailFinalize(email, mailer.pubkey, challenge)
+  await client.setRecoveryMethodFinalize(challenge)
 
   return client
 }

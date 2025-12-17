@@ -33,22 +33,22 @@ export type RecoverFinalizeResult = DefineMessage<
 >
 export type RegisterRequest = DefineMessage<Method.RegisterRequest, typeof Schema.registerRequest>
 export type RegisterResult = DefineMessage<Method.RegisterResult, typeof Schema.registerResult>
-export type SetEmailRequest = DefineMessage<Method.SetEmailRequest, typeof Schema.setEmailRequest>
-export type SetEmailRequestResult = DefineMessage<
-  Method.SetEmailRequestResult,
-  typeof Schema.setEmailRequestResult
+export type SetRecoveryMethodRequest = DefineMessage<Method.SetRecoveryMethodRequest, typeof Schema.setRecoveryMethodRequest>
+export type SetRecoveryMethodRequestResult = DefineMessage<
+  Method.SetRecoveryMethodRequestResult,
+  typeof Schema.setRecoveryMethodRequestResult
 >
-export type SetEmailChallenge = DefineMessage<
-  Method.SetEmailChallenge,
-  typeof Schema.setEmailChallenge
+export type SetRecoveryMethodChallenge = DefineMessage<
+  Method.SetRecoveryMethodChallenge,
+  typeof Schema.setRecoveryMethodChallenge
 >
-export type SetEmailFinalize = DefineMessage<
-  Method.SetEmailFinalize,
-  typeof Schema.setEmailFinalize
+export type SetRecoveryMethodFinalize = DefineMessage<
+  Method.SetRecoveryMethodFinalize,
+  typeof Schema.setRecoveryMethodFinalize
 >
-export type SetEmailFinalizeResult = DefineMessage<
-  Method.SetEmailFinalizeResult,
-  typeof Schema.setEmailFinalizeResult
+export type SetRecoveryMethodFinalizeResult = DefineMessage<
+  Method.SetRecoveryMethodFinalizeResult,
+  typeof Schema.setRecoveryMethodFinalizeResult
 >
 export type SignRequest = DefineMessage<Method.SignRequest, typeof Schema.signRequest>
 export type SignResult = DefineMessage<Method.SignResult, typeof Schema.signResult>
@@ -67,11 +67,11 @@ export type Message =
   | RecoverFinalizeResult
   | RegisterRequest
   | RegisterResult
-  | SetEmailRequest
-  | SetEmailRequestResult
-  | SetEmailChallenge
-  | SetEmailFinalize
-  | SetEmailFinalizeResult
+  | SetRecoveryMethodRequest
+  | SetRecoveryMethodRequestResult
+  | SetRecoveryMethodChallenge
+  | SetRecoveryMethodFinalize
+  | SetRecoveryMethodFinalizeResult
   | SignRequest
   | SignResult
   | LogoutRequest
@@ -130,33 +130,33 @@ export function makeRegisterResult(payload: RegisterResult["payload"]): Register
   return {method: Method.RegisterResult, payload: Schema.registerResult.parse(payload)}
 }
 
-export function makeSetEmailRequest(payload: SetEmailRequest["payload"]): SetEmailRequest {
-  return {method: Method.SetEmailRequest, payload: Schema.setEmailRequest.parse(payload)}
+export function makeSetRecoveryMethodRequest(payload: SetRecoveryMethodRequest["payload"]): SetRecoveryMethodRequest {
+  return {method: Method.SetRecoveryMethodRequest, payload: Schema.setRecoveryMethodRequest.parse(payload)}
 }
 
-export function makeSetEmailRequestResult(
-  payload: SetEmailRequestResult["payload"],
-): SetEmailRequestResult {
+export function makeSetRecoveryMethodRequestResult(
+  payload: SetRecoveryMethodRequestResult["payload"],
+): SetRecoveryMethodRequestResult {
   return {
-    method: Method.SetEmailRequestResult,
-    payload: Schema.setEmailRequestResult.parse(payload),
+    method: Method.SetRecoveryMethodRequestResult,
+    payload: Schema.setRecoveryMethodRequestResult.parse(payload),
   }
 }
 
-export function makeSetEmailChallenge(payload: SetEmailChallenge["payload"]): SetEmailChallenge {
-  return {method: Method.SetEmailChallenge, payload: Schema.setEmailChallenge.parse(payload)}
+export function makeSetRecoveryMethodChallenge(payload: SetRecoveryMethodChallenge["payload"]): SetRecoveryMethodChallenge {
+  return {method: Method.SetRecoveryMethodChallenge, payload: Schema.setRecoveryMethodChallenge.parse(payload)}
 }
 
-export function makeSetEmailFinalize(payload: SetEmailFinalize["payload"]): SetEmailFinalize {
-  return {method: Method.SetEmailFinalize, payload: Schema.setEmailFinalize.parse(payload)}
+export function makeSetRecoveryMethodFinalize(payload: SetRecoveryMethodFinalize["payload"]): SetRecoveryMethodFinalize {
+  return {method: Method.SetRecoveryMethodFinalize, payload: Schema.setRecoveryMethodFinalize.parse(payload)}
 }
 
-export function makeSetEmailFinalizeResult(
-  payload: SetEmailFinalizeResult["payload"],
-): SetEmailFinalizeResult {
+export function makeSetRecoveryMethodFinalizeResult(
+  payload: SetRecoveryMethodFinalizeResult["payload"],
+): SetRecoveryMethodFinalizeResult {
   return {
-    method: Method.SetEmailFinalizeResult,
-    payload: Schema.setEmailFinalizeResult.parse(payload),
+    method: Method.SetRecoveryMethodFinalizeResult,
+    payload: Schema.setRecoveryMethodFinalizeResult.parse(payload),
   }
 }
 
@@ -191,11 +191,11 @@ export function getMessageSchema(method: Method) {
     [Method.RecoverFinalizeResult]: Schema.recoverFinalizeResult,
     [Method.RegisterRequest]: Schema.registerRequest,
     [Method.RegisterResult]: Schema.registerResult,
-    [Method.SetEmailRequest]: Schema.setEmailRequest,
-    [Method.SetEmailRequestResult]: Schema.setEmailRequestResult,
-    [Method.SetEmailChallenge]: Schema.setEmailChallenge,
-    [Method.SetEmailFinalize]: Schema.setEmailFinalize,
-    [Method.SetEmailFinalizeResult]: Schema.setEmailFinalizeResult,
+    [Method.SetRecoveryMethodRequest]: Schema.setRecoveryMethodRequest,
+    [Method.SetRecoveryMethodRequestResult]: Schema.setRecoveryMethodRequestResult,
+    [Method.SetRecoveryMethodChallenge]: Schema.setRecoveryMethodChallenge,
+    [Method.SetRecoveryMethodFinalize]: Schema.setRecoveryMethodFinalize,
+    [Method.SetRecoveryMethodFinalizeResult]: Schema.setRecoveryMethodFinalizeResult,
     [Method.SignRequest]: Schema.signRequest,
     [Method.SignResult]: Schema.signResult,
     [Method.LogoutRequest]: Schema.logoutRequest,
@@ -234,16 +234,16 @@ export const isRegisterRequest = (m: Message): m is RegisterRequest =>
   m.method === Method.RegisterRequest
 export const isRegisterResult = (m: Message): m is RegisterResult =>
   m.method === Method.RegisterResult
-export const isSetEmailRequest = (m: Message): m is SetEmailRequest =>
-  m.method === Method.SetEmailRequest
-export const isSetEmailRequestResult = (m: Message): m is SetEmailRequestResult =>
-  m.method === Method.SetEmailRequestResult
-export const isSetEmailChallenge = (m: Message): m is SetEmailChallenge =>
-  m.method === Method.SetEmailChallenge
-export const isSetEmailFinalize = (m: Message): m is SetEmailFinalize =>
-  m.method === Method.SetEmailFinalize
-export const isSetEmailFinalizeResult = (m: Message): m is SetEmailFinalizeResult =>
-  m.method === Method.SetEmailFinalizeResult
+export const isSetRecoveryMethodRequest = (m: Message): m is SetRecoveryMethodRequest =>
+  m.method === Method.SetRecoveryMethodRequest
+export const isSetRecoveryMethodRequestResult = (m: Message): m is SetRecoveryMethodRequestResult =>
+  m.method === Method.SetRecoveryMethodRequestResult
+export const isSetRecoveryMethodChallenge = (m: Message): m is SetRecoveryMethodChallenge =>
+  m.method === Method.SetRecoveryMethodChallenge
+export const isSetRecoveryMethodFinalize = (m: Message): m is SetRecoveryMethodFinalize =>
+  m.method === Method.SetRecoveryMethodFinalize
+export const isSetRecoveryMethodFinalizeResult = (m: Message): m is SetRecoveryMethodFinalizeResult =>
+  m.method === Method.SetRecoveryMethodFinalizeResult
 export const isSignRequest = (m: Message): m is SignRequest => m.method === Method.SignRequest
 export const isSignResult = (m: Message): m is SignResult => m.method === Method.SignResult
 export const isLogoutRequest = (m: Message): m is LogoutRequest => m.method === Method.LogoutRequest

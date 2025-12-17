@@ -1,13 +1,12 @@
 # Pomade
 
-Nostr uses secp256k1 keypairs which are used to sign, encrypt, and decrypt messages. This project has several goals:
+Nostr uses secp256k1 keypairs which are used to sign, encrypt, and decrypt messages. Keys are GREAT. However, they are very hard to understand, secure, and use for non-nerds. This project has several goals:
 
 - Secure key storage using Shamir Secret Sharing via FROST (Schnorr) threshold signatures.
+- The ability for users to recover their secret key using only an email.
 - Non-interactive signing of messages.
-- Email/otp "log in" such that users can recover a signing session with only an email.
-- Key recovery such that users can recover their secret key, with no trusted third parties.
 
-WARNING: this protocol has not been audited, and I don't really know what I'm doing. There could be fatal flaws resulting in key loss, theft, denial of service, or metadata leakage. Use this at your own risk.
+WARNING: this project should be considered ALPHA, and not ready for use in production. Neither the protocol nor the code has been audited. There could be fatal flaws resulting in key loss, theft, denial of service, or metadata leakage. Use this at your own risk.
 
 ## Components
 
@@ -19,101 +18,82 @@ A _client_ is an application that can be trusted to (temporarily) handle key mat
 
 A _signer_ is a headless application that can be trusted to store key shares and collaborate in building threshold signatures. A signer is identified by a nostr public key. Communication is brokered following NIP 65.
 
-### Email Service
+### Mailer
 
-A _email service_ is a headless application that can be trusted to send emails containing encrypted data to users, but not to access key material. Communication is brokered following NIP 65.
+A _mailer_ is a headless application that can be trusted to send messages containing one time passwords to users, but not to access key material. Communication is brokered following NIP 65.
 
 ## Protocol Overview
 
-In order to protect message metadata, this protocol uses a single event kind, `28350`, for all requests. All events contain a private `method` tag that determines the semantics of the remaining tags.
+In order to protect message metadata, this protocol uses a single event kind, `28350`, for all requests. These events are `p`-tagged to the recipient, and their `content` is set to the nip44-encrypted JSON-encoded message. Massages contain a `method` that determines the semantics of its `payload`.
+
+```typescript
+{
+  kind: 28350,
+  pubkey: author,
+  content: nip44_encrypt({method, payload}),
+  tags: [["p", recipient]],
+  // other fields
+}
+```
 
 ### Registration
 
 To create a new signing session, a client must first generate a new `client secret` which it will use to communicate with signers. This key MUST NOT be re-used, and MUST be distinct from the user's pubkey.
 
-The client then shares the user's `secret key` and registers each share with a different signer by creating a `register/request` event:
+The client then shards the user's `secret key` using FROST and registers each share with a different signer by creating a `register/request` event:
 
 ```typescript
 {
-  "kind": 28350,
-  "pubkey": "<client pubkey>",
-  "content": nip44_encrypt([
-    ["method", "register/request"],
-    ["share", "<hex encoded share package>"],
-    ["group", "<hex encoded group package>"],
-    ["threshold", "<number of signers required for signing>"],
-    ["email_service", "<email service pubkey>"],
-    ["email_hash", "<sha256 of user email>"],
-    ["email_ciphertext", "<user email nip44 encrypted to email_service>"],
-  ]),
-  "tags": [
-    ["p", "<signer pubkey>"]
-  ],
+  method: "register/request"
+  payload: {
+    share: {
+      idx: number // commit index
+      binder_sn: string // 32 byte hex string
+      hidden_sn: string // 32 byte hex string
+      seckey: string // 32 byte hex string
+    }
+    group: {
+      commits: Array<{
+        idx: number // commit index
+        pubkey: string // 33 byte hex string
+        hidden_pn: string // 33 byte hex string
+        binder_pn: string // 33 byte hex string
+      }>
+      group_pk: string // 33 byte hex string
+      threshold: number // integer signing threshold
+    }
+  },
 }
 ```
 
-The following public tags are required:
-
-- `p` indicates the pubkey of the signer
-
-The following private tags are required:
-
-- `share` is a `share package` containing the signer's secret share and nonces (see below)
-- `group` is a `group package` containing the shared group configuration (see below)
-- `threshold` is the number of signers required to sign an event
-
-`share` is a hex-encoded concatenation of:
-
-- `idx`: 4-bytes (little-endian) // Signer index
-- `seckey`: 32-bytes (big-endian) // Secret key share
-- `binder_sn`: 32-bytes (big-endian) // Binder secret nonce
-- `hidden_sn`: 32-bytes (big-endian) // Hidden secret nonce
-
-`group` is a hex-encoded concatenation of:
-
-- `group_pk`: 33-bytes (compressed) // The user's public key
-- `threshold`: 4-bytes (little-endian) // Signers required
-- For each member:
-  - `idx`: 4-bytes (little-endian)
-  - `pubkey`: 33-bytes (compressed) // Member's public key
-  - `binder_pn`: 33-bytes (compressed) // Binder public nonce
-  - `hidden_pn`: 33-bytes (compressed) // Hidden public nonce
-
-The registration event MAY contain recovery information in its private tags, including:
-
-- `email_service` - the pubkey of a email service that implements this protocol.
-- `email_hash` - the sha256 hash of the user's email.
-- `email_ciphertext` - the user's email encrypted to `email_service` using nip 44.
-
-This prevents the signer from learning the email of the user, while also enabling it to pass the email along to the email service.
+  registerResult: z.object({
+    status: z.enum(Object.values(Status)),
+    message: z.string(),
+    prev: hex32,
+  }),
 
 Each signer must then explicitly accept or (optionally) reject the share:
 
 ```typescript
 {
-  "kind": 28350,
-  "pubkey": "<signer pubkey>",
-  "content": nip44_encrypt([
-    ["method", "register/result"],
-    ["status", "<error|pending|ok>"],
-    ["message", "<human readable message>"],
-    ["e", "<register/request event id>"],
-  ]),
-  "tags": [
-    ["p", "<client pubkey>"],
-  ],
+  method: "register/result"
+  payload: {
+    status: "ok" | "error"
+    message: string
+    prev: string // 32 byte hex id of request event
+  }
 }
 ```
 
-This event MUST include `status` and `message` in its private tags. If a `email` is included, signers MUST validate ownership it (see below), in the meantime returning `pending` with a helpful `message`. When the email has been validated, the signer must then send another ack for the same event with `status=ok`.
+If a session exists with the same pubkey, signers SHOULD create a new session rather than replacing the old one or rejecting the new one.
 
-If a session exists with the same `email_hash` or `pubkey`, signers SHOULD create a new session rather than replacing the old one or rejecting the new one.
+The same signer MUST NOT be used multiple times for multiple shares of the same key. The same client key MUST NOT be used multiple times for different sessions.
 
-The same signer MUST NOT be used multiple times for multiple shares of the same key.
+### Setting a Recovery Method
 
-### Email Validation
+Users MAY set a recovery method by sending a `
 
-In order to validate a user's email, a signer must send a `validate/request` event to the given `email service`:
+In order to validate a user's email, a signer must send a `validate/request` event to the given `mailer`:
 
 ```typescript
 {
@@ -125,19 +105,19 @@ In order to validate a user's email, a signer must send a `validate/request` eve
     ["email_ciphertext", "<nip44 encrypted user email>"],
   ]),
   "tags": [
-    ["p", "<email service pubkey>"],
+    ["p", "<mailer pubkey>"],
   ],
 }
 ```
 
-This event must include a `client_pubkey` tag in order to allow email services to decrypt `email_ciphertext` and accurately batch requests.
+This event must include a `client_pubkey` tag in order to allow mailers to decrypt `email_ciphertext` and accurately batch requests.
 
-When the user has completed the verification process, the email service must send a `validate/result` to each signer. The email service MAY send a "pending" response in the meantime, and SHOULD send an "error" response if the email could not be validated for any reason.
+When the user has completed the verification process, the mailer must send a `validate/result` to each signer. The mailer MAY send a "pending" response in the meantime, and SHOULD send an "error" response if the email could not be validated for any reason.
 
 ```typescript
 {
   "kind": 28350,
-  "pubkey": "<email service pubkey>",
+  "pubkey": "<mailer pubkey>",
   "content": nip44_encrypt([
     ["method", "validate/result"],
     ["status", "<error|pending|ok>"],
@@ -286,12 +266,12 @@ Each signer must then encrypt the matching `share` and `group` to the `email_ser
     ["group_ciphertext", "<encrypted hex encoded group package>"],
   ]),
   "tags": [
-    ["p", "<email service pubkey>"],
+    ["p", "<mailer pubkey>"],
   ],
 }
 ```
 
-The email service waits until `count` shares have been received and sends the group and all shares to the decrypted `email` in the following format:
+The mailer waits until `count` shares have been received and sends the group and all shares to the decrypted `email` in the following format:
 
 `base58(group_ciphertext + share_ciphertext * n)`
 
@@ -349,12 +329,12 @@ Each signer then generates a single-use expiring OTP and associates it with the 
     ["email_ciphertext", "<nip44 encrypted user email>"],
   ]),
   "tags": [
-    ["p", "<email service pubkey>"],
+    ["p", "<mailer pubkey>"],
   ],
 }
 ```
 
-The email service waits until `count` messages have been received and sends signer pubkeys and OTP codes to the user in the following format:
+The mailer waits until `count` messages have been received and sends signer pubkeys and OTP codes to the user in the following format:
 
 `base58(pubkey1:otp1_ciphertext,pubkey2:otp2_ciphertext)`
 
@@ -394,11 +374,15 @@ The signer must then explicitly accept or (optionally) reject the OTP using a `L
 }
 ```
 
+## Implementation
+
+This implementation uses @frostr/bifrost for all cryptographic functionality.
+
 ## Threat model
 
 There are a few denial-of-service attack vectors and privacy leaks in this spec, which are to a certain extent unavoidable with email-based login and recovery. Keep these in mind when directing users to use this or another approach for login.
 
 - Anyone can initiate a recovery or login flow for any email address, spamming the mailer service and the end user's email inbox. This is mitigated by using one-off client keys to sign messages, such that neither a user's pubkey nor email is visible. This attack is only possible if an attacker knows which bunkers a given email is registered with.
-- Malicious email services can block registration, recovery, and login if they choose not to send messages to certain emails.
-- Signers have access to user pubkeys and email services have access to user emails, but neither have access to both, preventing trivial correlation. However, email hashes are not salted, so it is possible to break the hashes given a list of valid emails.
+- Malicious mailers can block registration, recovery, and login if they choose not to send messages to certain emails.
+- Signers have access to user pubkeys and mailers have access to user emails, but neither have access to both, preventing trivial correlation. However, email hashes are not salted, so it is possible to break the hashes given a list of valid emails.
 - `login/select` and `recover/select` can leak the association between an email and a pubkey to an attacker that is able to provide a valid email address. This can be mitigated by rate-limiting login/recover events, but is something that users should be informed about in case they want to keep their email/pubkey link private. This attack vector only exists for users who have associated multiple pubkeys with a given email.

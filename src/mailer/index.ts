@@ -5,14 +5,14 @@ import {
   RPC,
   Status,
   buildChallenge,
-  isSetEmailChallenge,
+  isSetRecoveryMethodChallenge,
   isRecoverChallenge,
   Method,
 } from "../lib/index.js"
 import type {
   IStorageFactory,
   IStorage,
-  SetEmailChallenge,
+  SetRecoveryMethodChallenge,
   RecoverChallenge,
   WithEvent,
 } from "../lib/index.js"
@@ -24,32 +24,32 @@ export type Batch = {
 
 const makeBatch = (event: TrustedEvent) => ({created_at: event.created_at, peers: []})
 
-const getBatchKey = (pubkey: string, email: string, method: string) =>
-  `${pubkey}:${email}:${method}`
+const getBatchKey = (pubkey: string, inbox: string, method: string) =>
+  `${pubkey}:${inbox}:${method}`
 
-export type ValidationEmailPayload = {
-  email: string,
+export type ValidationPayload = {
+  inbox: string,
   challenge: string,
   callback_url?: string
 }
 
-export type RecoverEmailPayload = {
-  email: string,
+export type RecoverPayload = {
+  inbox: string,
   pubkey: string,
   challenge: string,
   callback_url?: string
 }
 
-export type EmailProvider = {
-  sendValidationEmail: (payload: ValidationEmailPayload) => Promise<void>
-  sendRecoverEmail: (payload: RecoverEmailPayload) => Promise<void>
+export type MailerProvider = {
+  sendValidation: (payload: ValidationPayload) => Promise<void>
+  sendRecover: (payload: RecoverPayload) => Promise<void>
 }
 
 export type MailerOptions = {
   secret: string
   relays: string[]
   storage: IStorageFactory
-  provider: EmailProvider
+  provider: MailerProvider
 }
 
 export class Mailer {
@@ -64,7 +64,7 @@ export class Mailer {
     this.batches = options.storage("batches")
     this.rpc = new RPC(options.secret, options.relays)
     this.unsubscribe = this.rpc.subscribe(message => {
-      if (isSetEmailChallenge(message)) this.handleSetEmailChallenge(message)
+      if (isSetRecoveryMethodChallenge(message)) this.handleSetRecoveryMethodChallenge(message)
       if (isRecoverChallenge(message)) this.handleRecoverChallenge(message)
     })
 
@@ -86,9 +86,9 @@ export class Mailer {
     this.intervals.forEach(clearInterval)
   }
 
-  async handleSetEmailChallenge({method, payload, event}: WithEvent<SetEmailChallenge>) {
-    const {otp, email, pubkey, threshold, callback_url} = payload
-    const key = getBatchKey(pubkey, email, method)
+  async handleSetRecoveryMethodChallenge({method, payload, event}: WithEvent<SetRecoveryMethodChallenge>) {
+    const {otp, inbox, pubkey, threshold, callback_url} = payload
+    const key = getBatchKey(pubkey, inbox, method)
 
     await this.batches.tx(async () => {
       const batch = await this.batches.get(key) || makeBatch(event)
@@ -98,7 +98,7 @@ export class Mailer {
       if (batch.peers.length === threshold) {
         const challenge = buildChallenge(batch.peers)
 
-        await this.options.provider.sendValidationEmail({email, challenge, callback_url})
+        await this.options.provider.sendValidation({inbox, challenge, callback_url})
         await this.batches.delete(key)
       } else {
         await this.batches.set(key, batch)
@@ -107,8 +107,8 @@ export class Mailer {
   }
 
   async handleRecoverChallenge({method, payload, event}: WithEvent<RecoverChallenge>) {
-    const {otp, email, pubkey, threshold, callback_url} = payload
-    const key = getBatchKey(pubkey, email, method)
+    const {otp, inbox, pubkey, threshold, callback_url} = payload
+    const key = getBatchKey(pubkey, inbox, method)
 
     await this.batches.tx(async () => {
       const batch = await this.batches.get(key) || makeBatch(event)
@@ -118,7 +118,7 @@ export class Mailer {
       if (batch.peers.length === threshold) {
         const challenge = buildChallenge(batch.peers)
 
-        await this.options.provider.sendRecoverEmail({email, pubkey, challenge, callback_url})
+        await this.options.provider.sendRecover({inbox, pubkey, challenge, callback_url})
       }
 
       await this.batches.set(key, batch)

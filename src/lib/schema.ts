@@ -12,11 +12,11 @@ export enum Method {
   RecoverFinalizeResult = "recover/finalize/result",
   RegisterRequest = "register/request",
   RegisterResult = "register/result",
-  SetEmailRequest = "setEmail/request",
-  SetEmailRequestResult = "setEmail/request/result",
-  SetEmailChallenge = "setEmail/challenge",
-  SetEmailFinalize = "setEmail/finalize",
-  SetEmailFinalizeResult = "setEmail/finalize/result",
+  SetRecoveryMethodRequest = "setRecoveryMethod/request",
+  SetRecoveryMethodRequestResult = "setRecoveryMethod/request/result",
+  SetRecoveryMethodChallenge = "setRecoveryMethod/challenge",
+  SetRecoveryMethodFinalize = "setRecoveryMethod/finalize",
+  SetRecoveryMethodFinalizeResult = "setRecoveryMethod/finalize/result",
   SignRequest = "sign/request",
   SignResult = "sign/result",
   LogoutRequest = "logout/request",
@@ -26,7 +26,6 @@ export enum Method {
 export enum Status {
   Ok = "ok",
   Error = "error",
-  Pending = "pending",
 }
 
 const hex = z
@@ -98,7 +97,7 @@ const event = z.object({
 
 const sessionItem = z.object({
   client: hex32,
-  email: z.string().optional(),
+  inbox: z.string().optional(),
   created_at: z.int().positive(),
   last_activity: z.int().positive(),
 })
@@ -126,7 +125,7 @@ export const Schema = {
     prev: hex32,
   }),
   recoverRequest: z.object({
-    email: z.string(),
+    inbox: z.string(),
     pubkey: hex32.optional(),
     callback_url: z.string().optional(),
   }),
@@ -137,13 +136,12 @@ export const Schema = {
   }),
   recoverChallenge: z.object({
     otp: z.string(),
-    email: z.string(),
+    inbox: z.string(),
     pubkey: hex32,
     threshold: z.number(),
     callback_url: z.string().optional(),
   }),
   recoverFinalize: z.object({
-    email: z.string(),
     otp: z.string(),
   }),
   recoverFinalizeResult: z.object({
@@ -154,7 +152,6 @@ export const Schema = {
     prev: hex32,
   }),
   registerRequest: z.object({
-    threshold: z.int().positive(),
     share: share,
     group: group,
   }),
@@ -163,28 +160,27 @@ export const Schema = {
     message: z.string(),
     prev: hex32,
   }),
-  setEmailRequest: z.object({
-    email: z.string(),
-    email_service: hex32,
+  setRecoveryMethodRequest: z.object({
+    mailer: hex32,
+    inbox: z.string(),
     callback_url: z.string().optional(),
   }),
-  setEmailRequestResult: z.object({
+  setRecoveryMethodRequestResult: z.object({
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,
   }),
-  setEmailChallenge: z.object({
+  setRecoveryMethodChallenge: z.object({
     otp: z.string(),
-    email: z.string(),
+    inbox: z.string(),
     pubkey: hex32,
     threshold: z.number(),
     callback_url: z.string().optional(),
   }),
-  setEmailFinalize: z.object({
-    email: z.string(),
+  setRecoveryMethodFinalize: z.object({
     otp: z.string(),
   }),
-  setEmailFinalizeResult: z.object({
+  setRecoveryMethodFinalizeResult: z.object({
     status: z.enum(Object.values(Status)),
     message: z.string(),
     prev: hex32,

@@ -29,8 +29,8 @@ import {
   isRecoverFinalizeResult,
   isRecoverRequestResult,
   isRegisterResult,
-  isSetEmailFinalizeResult,
-  isSetEmailRequestResult,
+  isSetRecoveryMethodFinalizeResult,
+  isSetRecoveryMethodRequestResult,
   isSignResult,
   isLogoutResult,
   RecoverFinalizeResult,
@@ -40,15 +40,15 @@ import {
   makeRecoverFinalize,
   makeRecoverRequest,
   makeRegisterRequest,
-  makeSetEmailFinalize,
-  makeSetEmailRequest,
+  makeSetRecoveryMethodFinalize,
+  makeSetRecoveryMethodRequest,
   makeSignRequest,
   makeLogoutRequest,
   parseChallenge,
   RPC,
   Schema,
-  SetEmailFinalizeResult,
-  SetEmailRequestResult,
+  SetRecoveryMethodFinalizeResult,
+  SetRecoveryMethodRequestResult,
   SignResult,
   Status,
   LogoutResult,
@@ -97,7 +97,7 @@ export class Client {
         while (remainingSignerPubkeys.length > 0 && !peersByIndex.has(i)) {
           await rpc
             .channel(remainingSignerPubkeys.shift()!)
-            .send(makeRegisterRequest({threshold, share, group}))
+            .send(makeRegisterRequest({share, group}))
             .receive((message, resolve) => {
               if (isRegisterResult(message)) {
                 if (message.payload.status === Status.Ok) {
@@ -133,14 +133,14 @@ export class Client {
     })
   }
 
-  static async recoverRequest(secret: string, email: string, pubkey?: string) {
+  static async recoverRequest(secret: string, inbox: string, pubkey?: string) {
     const rpc = new RPC(secret)
 
     const messages = await Promise.all(
       context.signerPubkeys.map((peer, i) => {
         return rpc
           .channel(peer)
-          .send(makeRecoverRequest({email, pubkey}))
+          .send(makeRecoverRequest({inbox, pubkey}))
           .receive<RecoverRequestResult>((message, resolve) => {
             if (isRecoverRequestResult(message)) {
               resolve(message)
@@ -154,14 +154,14 @@ export class Client {
     return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
   }
 
-  static async recoverFinalize(secret: string, email: string, challenge: string) {
+  static async recoverFinalize(secret: string, challenge: string) {
     const rpc = new RPC(secret)
 
     const messages = await Promise.all(
       parseChallenge(challenge).map(([peer, otp]) => {
         return rpc
           .channel(peer)
-          .send(makeRecoverFinalize({otp, email}))
+          .send(makeRecoverFinalize({otp}))
           .receive<WithEvent<RecoverFinalizeResult>>((message, resolve) => {
             if (isRecoverFinalizeResult(message)) {
               resolve(message)
@@ -199,14 +199,14 @@ export class Client {
     return {ok: false, messages}
   }
 
-  async setEmailRequest(email: string, email_service: string) {
+  async setRecoveryMethodRequest(inbox: string, mailer: string) {
     const messages = await Promise.all(
       this.peers.map((peer, i) => {
         return this.rpc
           .channel(peer)
-          .send(makeSetEmailRequest({email, email_service}))
-          .receive<WithEvent<SetEmailRequestResult>>((message, resolve) => {
-            if (isSetEmailRequestResult(message)) {
+          .send(makeSetRecoveryMethodRequest({inbox, mailer}))
+          .receive<WithEvent<SetRecoveryMethodRequestResult>>((message, resolve) => {
+            if (isSetRecoveryMethodRequestResult(message)) {
               resolve(message)
             }
           })
@@ -216,7 +216,7 @@ export class Client {
     return {ok: messages.every(m => m?.payload.status === Status.Ok), messages}
   }
 
-  async setEmailFinalize(email: string, emailService: string, challenge: string) {
+  async setRecoveryMethodFinalize(challenge: string) {
     const otpsByPeer = fromPairs(parseChallenge(challenge))
 
     const messages = await Promise.all(
@@ -226,9 +226,9 @@ export class Client {
         if (otp) {
           return this.rpc
             .channel(peer)
-            .send(makeSetEmailFinalize({email, otp}))
-            .receive<WithEvent<SetEmailFinalizeResult>>((message, resolve) => {
-              if (isSetEmailFinalizeResult(message)) {
+            .send(makeSetRecoveryMethodFinalize({otp}))
+            .receive<WithEvent<SetRecoveryMethodFinalizeResult>>((message, resolve) => {
+              if (isSetRecoveryMethodFinalizeResult(message)) {
                 resolve(message)
               }
             })

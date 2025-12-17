@@ -11,5 +11,4 @@ New plan: adapt bifrost signer stuff so that it supports email recovery and logi
 
 The initial email validation provides no security, because the user is the one specifying the email service. It must be done with a valid registration, where the user has already proved they have access to the key, or access to the email using a past email service. The OTP flow is still valuable to give users a familiar experience, and to ensure they don't associate the wrong email with their key.
 
-- generalize email? Login could be any string, mailer service need not use email
 - update readme, include a disclaimer that it's alpha
