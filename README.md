@@ -260,15 +260,16 @@ const nostrConversationKey = bytesToHex(
 
 ### Recovery
 
-To recover the user's original `secret key` by email alone without access to an active `client key`, a client can send a recovery request to all known signers using a fresh client key:
+To recover access to the user's secret by email alone without access to an active `client key`, a client can send a recovery request to all known signers using a fresh client key. This recovery request can be either a `login` in which case the signer will create a new session for the user's client key, or a `recovery` in which case the signer will return the user's key shares.
 
 ```typescript
 {
   method: "recovery/start"
   payload: {
-    inbox: string          // the user's inbox identifier
-    pubkey?: string        // the user's pubkey (optional, useful if multiple pubkeys are associated with a single inbox)
-    callback_url?: string  // optional callback url to send users to
+    type: "login" | "recovery"  // whether to return the shares or create a new session on completion
+    inbox: string               // the user's inbox identifier
+    pubkey?: string             // the user's pubkey (optional, useful if multiple pubkeys are associated with a single inbox)
+    callback_url?: string       // optional callback url to send users to
   }
 }
 ```
@@ -292,6 +293,7 @@ Each signer then finds any sessions that were registered with the provided `inbo
 {
   method: "recovery/challenge"
   payload: {
+    idx: number           // the index of the signer's share
     inbox: string         // the user's inbox identifier
     pubkey: string        // the user's pubkey
     items: {
@@ -304,7 +306,7 @@ Each signer then finds any sessions that were registered with the provided `inbo
 }
 ```
 
-Because a user may have sessions across a disjunct set of signers, some of which may fail to forward their session info to the mailer, mailers will have to make a best-effort attempt to figure out which session to recover from. It can do this by grouping by `client`. If the number of peers that have responded is equal to the `threshold` for those options, the mailer can send a recovery message.
+Because a user may have sessions across a disjunct set of signers, some of which may fail to forward their session info to the mailer, mailers will have to make a best-effort attempt to figure out which session to recover from. It can do this by grouping by `client`. If the number of peers that have responded is equal to the `threshold` for those options, the mailer can send a recovery message. If the recovery type is `login`, the mailer must sort signer pubkeys based on `idx` so that the client can send the correct requests to the correct signers.
 
 Signers should be careful to send items to the `mailer` designated by the user when the recovery method was registered. If multiple pubkeys have been registered for a single recovery method, it should send a separate recovery OTP to mailers for each pubkey. The mailer MAY then re-batch by `inbox` so that the user only receives one message with the option to restore any one of the registered pubkeys.
 
@@ -327,9 +329,9 @@ Once the user's client receives the challenge, it should parse it and send each 
 }
 ```
 
-*IMPORTANT*: In order for recovery completion to be valid, it MUST be signed by the **same client pubkey** that initiated the recovery flow. Signers MUST also invalidate OTPs after a small number of attempts to prevent brute force attacks. OTPs MUST be invalidated after a short period of time as well (e.g., 15 minutes).
+_IMPORTANT_: In order for recovery completion to be valid, it MUST be signed by the **same client pubkey** that initiated the recovery flow. Signers MUST also invalidate OTPs after a small number of attempts to prevent brute force attacks. OTPs MUST be invalidated after a short period of time as well (e.g., 15 minutes).
 
-The signer must then indicate whether the flow was successful by returning the `group` and `commit` originally generated on the user's client:
+If this was a `login` flow, the signer should create a new session with the same group/share using the newly-generated client key, and NOT return them. If this was a `recovery` flow, the signer must return the `group` and `commit` originally generated on the user's client:
 
 ```typescript
 {

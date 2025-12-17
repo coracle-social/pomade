@@ -1,2 +1,0 @@
-- optimize sign/ecdh so that all signers are asked, but only the fastest results get used
-- recovery/re-register is going to trigger a re-validation, especially if new signers are used. Add login again. Use the same events for the otp challenge, just specify a flow type somewhere. Probably early to lock it in, and so that the mailer can swap templates up

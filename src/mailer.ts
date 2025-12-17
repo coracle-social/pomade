@@ -1,13 +1,14 @@
-import {int, now, groupBy, ago, MINUTE} from "@welshman/lib"
+import {int, now, sortBy, groupBy, ago, MINUTE} from "@welshman/lib"
 import {getPubkey} from "@welshman/util"
-import {RPC, buildChallenge, isRecoveryMethodChallenge, isRecoveryChallenge} from "../lib/index.js"
-import type {
-  IStorageFactory,
-  IStorage,
-  RecoveryMethodChallenge,
+import {IStorageFactory, IStorage} from "./storage"
+import {buildChallenge} from "./misc"
+import {WithEvent, RPC} from "./rpc"
+import {
+  isRecoveryChallenge,
+  isRecoveryMethodChallenge,
   RecoveryChallenge,
-  WithEvent,
-} from "../lib/index.js"
+  RecoveryMethodChallenge,
+} from "./message"
 
 // Mailer Provider
 
@@ -29,31 +30,34 @@ export type MailerProvider = {
   sendRecover: (payload: RecoverPayload) => Promise<void>
 }
 
-// Mailer
+// Storage types
 
-export type ValidationItem = {
+export type MailerValidationItem = {
   otp: string
   peer: string
 }
 
-export type Validation = {
+export type MailerValidation = {
   sent_at?: number
   created_at: number
-  items: ValidationItem[]
+  items: MailerValidationItem[]
 }
 
-export type RecoverItem = {
-  peer: string
+export type MailerRecoverItem = {
+  idx: number
   otp: string
+  peer: string
   client: string
   threshold: number
 }
 
-export type Recover = {
+export type MailerRecover = {
   sent_at?: number
   created_at: number
-  items: RecoverItem[]
+  items: MailerRecoverItem[]
 }
+
+// Mailer
 
 export type MailerOptions = {
   secret: string
@@ -65,8 +69,8 @@ export type MailerOptions = {
 export class Mailer {
   rpc: RPC
   pubkey: string
-  validations: IStorage<Validation>
-  recovers: IStorage<Recover>
+  validations: IStorage<MailerValidation>
+  recovers: IStorage<MailerRecover>
   unsubscribe: () => void
   intervals: number[]
 
@@ -119,7 +123,7 @@ export class Mailer {
       validation.items.push({otp, peer: event.pubkey})
 
       if (validation.items.length === threshold) {
-        const challenge = buildChallenge(validation.items.map(o => [o.peer, o.otp]))
+        const challenge = buildChallenge(validation.items.map(x => [x.peer, x.otp]))
 
         await this.options.provider.sendValidation({inbox, challenge, callback_url})
 
@@ -141,13 +145,13 @@ export class Mailer {
         return
       }
 
-      for (const {otp, client, threshold} of items) {
-        recover.items.push({otp, client, threshold, peer: event.pubkey})
+      for (const {idx, otp, client, threshold} of items) {
+        recover.items.push({idx, otp, client, threshold, peer: event.pubkey})
       }
 
       for (const items of groupBy(o => o.client + o.threshold, recover.items).values()) {
         if (items.length === items[0].threshold) {
-          const challenge = buildChallenge(items.map(o => [o.peer, o.otp]))
+          const challenge = buildChallenge(sortBy(x => x.idx, items).map(x => [x.peer, x.otp]))
 
           await this.options.provider.sendRecover({inbox, pubkey, challenge, callback_url})
 

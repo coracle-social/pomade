@@ -14,7 +14,7 @@ export type IStorage<T> = IBaseStorage<T> & {
 
 export type IStorageFactory = <T>(name: string) => IStorage<T>
 
-export const defaultStorageFactory = <T>(name: string) => {
+export const inMemoryStorageFactory = <T>(name: string) => {
   const data = new Map<string, T>()
 
   let lock = Promise.resolve()

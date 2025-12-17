@@ -3,9 +3,15 @@ import {describe, it, expect, beforeEach, afterEach} from "vitest"
 import {sleep, sortBy, hexToBytes, bytesToHex} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
 import {beforeHook, afterHook, makeMailer, makeClientWithRecovery} from "./util"
-import type {RecoverPayload} from "../src/mailer"
-import {Client} from "../src/client"
-import {generateOTP, buildChallenge, context} from "../src/lib"
+import {
+  buildChallenge,
+  Client,
+  context,
+  generateOTP,
+  parseChallenge,
+  RecoverPayload,
+  RecoveryType,
+} from "../src"
 
 const doLet = <T>(x: T, f: <R>(x: T) => R) => f(x)
 
@@ -54,28 +60,28 @@ describe("protocol flows", () => {
     })
   })
 
-  describe("list sessions and logout", () => {
-    it("successfully logouts current session", async () => {
+  describe("list and delete sessions", () => {
+    it("successfully deletes current session", async () => {
       const secret = makeSecret()
       const client1 = await Client.register(1, 2, secret)
       const client2 = await Client.register(1, 2, secret)
       const client3 = await Client.register(1, 2, secret)
 
-      await client1.logout(client1.pubkey, client1.peers)
+      await client1.deleteSession(client1.pubkey, client1.peers)
 
       doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
       doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
       doLet(await client3.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
     })
 
-    it("successfully logouts other sessions", async () => {
+    it("successfully deletes other sessions", async () => {
       const secret = makeSecret()
       const client1 = await Client.register(1, 2, secret)
       const client2 = await Client.register(1, 2, secret)
       const client3 = await Client.register(1, 2, secret)
 
-      await client1.logout(client2.pubkey, client2.peers)
-      await client1.logout(client3.pubkey, client3.peers)
+      await client1.deleteSession(client2.pubkey, client2.peers)
+      await client1.deleteSession(client3.pubkey, client3.peers)
 
       doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
       doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
@@ -126,20 +132,20 @@ describe("protocol flows", () => {
 
       const client = await Client.register(1, 2, makeSecret())
 
-      await client.setRecoveryMethodRequest("test@example.com", mailer.pubkey)
+      await client.recoveryMethodSet("test@example.com", mailer.pubkey)
       await sleep(10)
 
       expect(payloads[0].inbox).toBe("test@example.com")
       expect(payloads[0].challenge.length).toBeGreaterThan(90)
 
-      const confirmed1 = await client.setRecoveryMethodFinalize(payloads[0].challenge)
+      const confirmed1 = await client.recoveryMethodFinalize(payloads[0].challenge)
 
       expect(confirmed1.ok).toBe(true)
 
-      await client.setRecoveryMethodRequest("test2@example.com", mailer.pubkey)
+      await client.recoveryMethodSet("test2@example.com", mailer.pubkey)
       await sleep(10)
 
-      const confirmed2 = await client.setRecoveryMethodFinalize(payloads[1].challenge)
+      const confirmed2 = await client.recoveryMethodFinalize(payloads[1].challenge)
 
       expect(confirmed2.ok).toBe(true)
     })
@@ -156,10 +162,10 @@ describe("protocol flows", () => {
       const client1 = await Client.register(1, 2, makeSecret())
       const client2 = await Client.register(1, 2, makeSecret())
 
-      await client1.setRecoveryMethodRequest("test@example.com", mailer.pubkey)
+      await client1.recoveryMethodSet("test@example.com", mailer.pubkey)
       await sleep(10)
 
-      const confirmed = await client2.setRecoveryMethodFinalize(challenge)
+      const confirmed = await client2.recoveryMethodFinalize(challenge)
 
       await expect(confirmed.ok).toBe(false)
     })
@@ -169,10 +175,10 @@ describe("protocol flows", () => {
       const client = await Client.register(1, 2, makeSecret())
       const challenge = buildChallenge(context.signerPubkeys.map(pk => [pk, generateOTP()]))
 
-      await client.setRecoveryMethodRequest("test@example.com", mailer.pubkey)
+      await client.recoveryMethodSet("test@example.com", mailer.pubkey)
       await sleep(10)
 
-      const confirmed = await client.setRecoveryMethodFinalize(challenge)
+      const confirmed = await client.recoveryMethodFinalize(challenge)
 
       await expect(confirmed.ok).toBe(false)
     })
@@ -180,7 +186,7 @@ describe("protocol flows", () => {
     it("rejects disabled recovery", async () => {
       const mailer = makeMailer(makeSecret())
       const client = await Client.register(1, 2, makeSecret(), false)
-      const res = await client.setRecoveryMethodRequest("test@example.com", mailer.pubkey)
+      const res = await client.recoveryMethodSet("test@example.com", mailer.pubkey)
 
       expect(res.ok).toBe(false)
     })
@@ -198,26 +204,63 @@ describe("protocol flows", () => {
 
       const secret = makeSecret()
 
-      await Client.recoverRequest(secret, "test@example.com")
+      await Client.startRecovery(RecoveryType.Recovery, secret, "test@example.com")
       await sleep(10)
 
       expect(payload.inbox).toBe("test@example.com")
       expect(payload.challenge.length).toBeGreaterThan(90)
 
-      const res = await Client.recoverFinalize(secret, payload.challenge)
+      const {ok, getSecret} = await Client.finalizeRecovery(secret, payload.challenge)
 
-      expect(res.ok).toBe(true)
-      expect(getPubkey(res.secret)).toBe(client.group.group_pk.slice(2))
+      expect(ok).toBe(true)
+      expect(getPubkey(getSecret())).toBe(client.group.group_pk.slice(2))
+    })
+
+    it("successfully allows login", async () => {
+      let payload
+
+      const client = await makeClientWithRecovery("test@example.com", {
+        sendRecover: payload_ => {
+          payload = payload_
+        },
+      })
+
+      const secret = makeSecret()
+
+      await Client.startRecovery(RecoveryType.Login, secret, "test@example.com")
+      await sleep(10)
+
+      expect(payload.inbox).toBe("test@example.com")
+      expect(payload.challenge.length).toBeGreaterThan(190)
+
+      const {ok, group} = await Client.finalizeRecovery(secret, payload.challenge)
+
+      expect(ok).toBe(true)
+      expect(group.group_pk).toBe(client.group.group_pk)
+
+      const peers = parseChallenge(payload.challenge).map(c => c[0])
+      const client2 = await new Client({group, secret, peers})
+      const result = await client2.sign(makeEvent(1))
+
+      expect(result.ok).toBe(true)
+      expect(verifyEvent(result.event)).toBe(true)
     })
 
     it("prevents probing for session", async () => {
       const client = await makeClientWithRecovery("test@example.com")
 
-      doLet(await Client.recoverRequest(makeSecret(), "test@example.com"), res =>
-        expect(res.ok).toBe(true),
+      doLet(
+        await Client.startRecovery(RecoveryType.Recovery, makeSecret(), "test@example.com"),
+        res => expect(res.ok).toBe(true),
       )
-      doLet(await Client.recoverRequest(makeSecret(), "test@example.com", client.pubkey), res =>
-        expect(res.ok).toBe(true),
+      doLet(
+        await Client.startRecovery(
+          RecoveryType.Recovery,
+          makeSecret(),
+          "test@example.com",
+          client.pubkey,
+        ),
+        res => expect(res.ok).toBe(true),
       )
     })
 
@@ -226,12 +269,12 @@ describe("protocol flows", () => {
 
       const secret = makeSecret()
 
-      await Client.recoverRequest(secret, "test@example.com")
+      await Client.startRecovery(RecoveryType.Recovery, secret, "test@example.com")
       await sleep(10)
 
       const challenge = buildChallenge(context.signerPubkeys.map(pk => [pk, generateOTP()]))
 
-      const res = await Client.recoverFinalize(secret, challenge)
+      const res = await Client.finalizeRecovery(secret, challenge)
 
       expect(res.ok).toBe(false)
     })
@@ -245,10 +288,10 @@ describe("protocol flows", () => {
         },
       })
 
-      await Client.recoverRequest(makeSecret(), "test@example.com")
+      await Client.startRecovery(RecoveryType.Recovery, makeSecret(), "test@example.com")
       await sleep(10)
 
-      const res = await Client.recoverFinalize(makeSecret(), challenge)
+      const res = await Client.finalizeRecovery(makeSecret(), challenge)
 
       expect(res.ok).toBe(false)
     })
@@ -266,13 +309,13 @@ describe("protocol flows", () => {
       await makeClientWithRecovery("test@example.com", provider)
 
       const secret = makeSecret()
-      const res1 = await Client.recoverRequest(secret, "test@example.com")
+      const res1 = await Client.startRecovery(RecoveryType.Recovery, secret, "test@example.com")
       await sleep(10)
 
       expect(payloads.length).toBe(2)
       expect(res1.ok).toBe(true)
 
-      const res2 = await Client.recoverFinalize(secret, payloads[1].challenge)
+      const res2 = await Client.finalizeRecovery(secret, payloads[1].challenge)
 
       expect(res2.ok).toBe(true)
     })
@@ -307,21 +350,21 @@ describe("protocol flows", () => {
       const client1Secret = makeSecret()
       const client1 = await Client.register(1, 2, client1Secret)
 
-      await client1.setRecoveryMethodRequest(inbox, mailer1.pubkey)
+      await client1.recoveryMethodSet(inbox, mailer1.pubkey)
       await sleep(10)
-      await client1.setRecoveryMethodFinalize(challenge1)
+      await client1.recoveryMethodFinalize(challenge1)
 
       // Register second client with 2/3 threshold and mailer2
       const client2Secret = makeSecret()
       const client2 = await Client.register(2, 3, client2Secret)
 
-      await client2.setRecoveryMethodRequest(inbox, mailer2.pubkey)
+      await client2.recoveryMethodSet(inbox, mailer2.pubkey)
       await sleep(10)
-      await client2.setRecoveryMethodFinalize(challenge2)
+      await client2.recoveryMethodFinalize(challenge2)
 
       // Initiate recovery for the shared inbox - should trigger both mailers
       const recoverySecret = makeSecret()
-      const res = await Client.recoverRequest(recoverySecret, inbox)
+      const res = await Client.startRecovery(RecoveryType.Recovery, recoverySecret, inbox)
       await sleep(10)
 
       // Should have received challenges from both mailers
@@ -339,15 +382,15 @@ describe("protocol flows", () => {
       expect(payload2?.challenge.length).toBeGreaterThan(90)
 
       // Test recovery using first client's challenge
-      const result1 = await Client.recoverFinalize(recoverySecret, payload1!.challenge)
+      const result1 = await Client.finalizeRecovery(recoverySecret, payload1!.challenge)
       expect(result1.ok).toBe(true)
-      expect(getPubkey(result1.secret)).toBe(client1.group.group_pk.slice(2))
+      expect(getPubkey(result1.getSecret())).toBe(client1.group.group_pk.slice(2))
 
       // Test recovery using second client's challenge with the same recovery secret
       // A single recovery request generates challenges for all clients with the inbox
-      const result2 = await Client.recoverFinalize(recoverySecret, payload2!.challenge)
+      const result2 = await Client.finalizeRecovery(recoverySecret, payload2!.challenge)
       expect(result2.ok).toBe(true)
-      expect(getPubkey(result2.secret)).toBe(client2.group.group_pk.slice(2))
+      expect(getPubkey(result2.getSecret())).toBe(client2.group.group_pk.slice(2))
     })
   })
 })

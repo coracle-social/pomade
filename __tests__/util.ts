@@ -1,10 +1,7 @@
+import {LOCAL_RELAY_URL} from "@welshman/net"
 import {range, sleep, noop} from "@welshman/lib"
 import {getPubkey, makeSecret} from "@welshman/util"
-import {LOCAL_RELAY_URL} from "@welshman/net"
-import {defaultStorageFactory, context} from "../src/lib"
-import {Client} from "../src/client"
-import {Signer} from "../src/signer"
-import {Mailer} from "../src/mailer"
+import {inMemoryStorageFactory, context, Client, Signer, Mailer} from "../src"
 
 export const signerSecrets = Array.from(range(0, 8)).map(() => makeSecret())
 export const signerPubkeys = signerSecrets.map(secret => getPubkey(secret))
@@ -18,7 +15,7 @@ export function makeSigner(secret: string) {
   return new Signer({
     secret,
     relays: [LOCAL_RELAY_URL],
-    storage: defaultStorageFactory,
+    storage: inMemoryStorageFactory,
   })
 }
 
@@ -26,7 +23,7 @@ export function makeMailer(secret: string, provider: Partial<MailerProvider> = {
   return new Mailer({
     secret,
     relays: [LOCAL_RELAY_URL],
-    storage: defaultStorageFactory,
+    storage: inMemoryStorageFactory,
     provider: {
       sendValidation: noop,
       sendRecover: noop,
@@ -58,9 +55,9 @@ export async function makeClientWithRecovery(
 
   const client = await Client.register(2, 3, makeSecret())
 
-  await client.setRecoveryMethodRequest(inbox, mailer.pubkey)
+  await client.recoveryMethodSet(inbox, mailer.pubkey)
   await sleep(10)
-  await client.setRecoveryMethodFinalize(challenge)
+  await client.recoveryMethodFinalize(challenge)
 
   return client
 }

@@ -1,8 +1,7 @@
 import * as z from "zod"
 import {
-  Maybe,
+  removeUndefined,
   pushToMapKey,
-  tryCatch,
   shuffle,
   sortBy,
   fromPairs,
@@ -18,10 +17,12 @@ import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
 import {prep, makeSecret, getPubkey, makeHttpAuth} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Lib} from "@frostr/bifrost"
-import type {SharePackage, GroupPackage, ECDHPackage} from "@frostr/bifrost"
+import type {GroupPackage, ECDHPackage} from "@frostr/bifrost"
+import {Schema, Method, RecoveryType} from "./schema"
+import {parseChallenge} from "./misc"
+import {RPC, WithEvent} from "./rpc"
+import {context} from "./context"
 import {
-  context,
-  Method,
   SessionListResult,
   isSessionListResult,
   isEcdhResult,
@@ -43,15 +44,11 @@ import {
   makeRecoveryMethodSet,
   makeSignRequest,
   makeSessionDelete,
-  parseChallenge,
-  RPC,
-  Schema,
   RecoveryMethodFinalizeResult,
   RecoveryMethodSetResult,
   SignResult,
   SessionDeleteResult,
-  WithEvent,
-} from "../lib/index.js"
+} from "./message"
 
 export type ClientOptions = {
   group: GroupPackage
@@ -129,14 +126,14 @@ export class Client {
     })
   }
 
-  static async recoverRequest(secret: string, inbox: string, pubkey?: string) {
+  static async startRecovery(type: RecoveryType, secret: string, inbox: string, pubkey?: string) {
     const rpc = new RPC(secret)
 
     const messages = await Promise.all(
       context.signerPubkeys.map((peer, i) => {
         return rpc
           .channel(peer)
-          .send(makeRecoveryStart({inbox, pubkey}))
+          .send(makeRecoveryStart({type, inbox, pubkey}))
           .receive<RecoveryStartResult>((message, resolve) => {
             if (isRecoveryStartResult(message)) {
               resolve(message)
@@ -150,7 +147,7 @@ export class Client {
     return {ok: messages.every(m => m?.payload.ok), messages}
   }
 
-  static async recoverFinalize(secret: string, challenge: string) {
+  static async finalizeRecovery(secret: string, challenge: string) {
     const rpc = new RPC(secret)
 
     const messages = await Promise.all(
@@ -168,34 +165,22 @@ export class Client {
 
     rpc.stop()
 
-    let group: Maybe<GroupPackage> = undefined
-    const peers: string[] = []
-    const shares: SharePackage[] = []
+    return {
+      messages,
+      ok: messages.every(m => m?.payload.ok),
+      group: messages.find(m => m?.payload.group)?.payload.group,
+      getSecret: () => {
+        const msgs = removeUndefined(messages)
+        const group = msgs?.[0]?.payload.group
+        const shares = msgs.map(m => m.payload.share!)
+        const secret = Lib.recover_secret_key(group!, shares)
 
-    for (const m of messages) {
-      if (!m?.payload.ok || !m.payload.group || !m.payload.share) {
-        continue
-      }
-
-      if (group && m.payload.group.group_pk !== group.group_pk) {
-        continue
-      }
-
-      group = m.payload.group
-      peers.push(m.event.pubkey)
-      shares.push(m.payload.share)
+        return secret
+      },
     }
-
-    const userSecret = tryCatch(() => Lib.recover_secret_key(group!, shares))
-
-    if (userSecret) {
-      return {ok: true, secret: userSecret, messages}
-    }
-
-    return {ok: false, messages}
   }
 
-  async setRecoveryMethodRequest(inbox: string, mailer: string) {
+  async recoveryMethodSet(inbox: string, mailer: string) {
     const messages = await Promise.all(
       this.peers.map((peer, i) => {
         return this.rpc
@@ -212,7 +197,7 @@ export class Client {
     return {ok: messages.every(m => m?.payload.ok), messages}
   }
 
-  async setRecoveryMethodFinalize(challenge: string) {
+  async recoveryMethodFinalize(challenge: string) {
     const otpsByPeer = fromPairs(parseChallenge(challenge))
 
     const messages = await Promise.all(
@@ -236,6 +221,7 @@ export class Client {
   }
 
   async sign(stampedEvent: StampedEvent) {
+    // TODO: optimize this so that all signers are asked, but only the fastest results get used
     const {threshold, commits} = this.group
     const event = prep(stampedEvent, this.userPubkey)
     const members = sample(threshold, commits).map(c => c.idx)
@@ -274,6 +260,7 @@ export class Client {
   }
 
   async getConversationKey(ecdh_pk: string) {
+    // TODO: optimize this so that all signers are asked, but only the fastest results get used
     const {threshold, commits} = this.group
     const members = sample(threshold, commits).map(c => c.idx)
 
@@ -340,7 +327,7 @@ export class Client {
     return sessionsByClient
   }
 
-  async logout(client: string, peers: string[]) {
+  async deleteSession(client: string, peers: string[]) {
     const messages = await Promise.all(
       peers.map(async (peer, i) => {
         const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.SessionDelete))

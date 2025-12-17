@@ -23,6 +23,11 @@ export enum Method {
   SignResult = "sign/result",
 }
 
+export enum RecoveryType {
+  Login = "login",
+  Recovery = "recovery",
+}
+
 const hex = z
   .string()
   .regex(/^[0-9a-fA-F]*$/)
@@ -95,6 +100,7 @@ export const Schema = {
     pubkey: hex32,
     items: z.array(
       z.object({
+        idx: z.number(),
         otp: z.string(),
         client: hex32,
         threshold: z.int().positive(),
@@ -139,6 +145,7 @@ export const Schema = {
     prev: hex32,
   }),
   recoveryStart: z.object({
+    type: z.enum(Object.values(RecoveryType)),
     inbox: z.string(),
     pubkey: hex32.optional(),
     callback_url: z.string().optional(),
