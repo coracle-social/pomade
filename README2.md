@@ -1,18 +1,2 @@
-New plan: adapt bifrost signer stuff so that it supports email recovery and login.
-
-- Do sharing as usual
-- Add an additional endpoint that authorizes a recovery email
-- Implement mailer component as planned
-- Add session deletion
-- Add email-based recovery and login
-- We can avoid copying a huge blob by always doing otp and having bunkers return a bunker url (for login) or the key (for recovery)
-
-- When doing any otp flow, bunkers MUST validate that the same client secret is used for the entire flow, and invalidate the challenge after a very small number of otps are attempted.
-
-The initial email validation provides no security, because the user is the one specifying the email service. It must be done with a valid registration, where the user has already proved they have access to the key, or access to the email using a past email service. The OTP flow is still valuable to give users a familiar experience, and to ensure they don't associate the wrong email with their key.
-
 - optimize sign/ecdh so that all signers are asked, but only the fastest results get used
-- just in case, invalidate otps immediately, just in case of replay attacks
-- recovery/re-register is going to trigger a re-validation, especially if new signers are used. Build a way to re-use previous signers? Or bring back login?
-- Add login again. Use the same events for the otp challenge, just specify a type somewhere. Probably early to lock it in, and so that the mailer can swap templates up
-- rename logout to session/delete
+- recovery/re-register is going to trigger a re-validation, especially if new signers are used. Add login again. Use the same events for the otp challenge, just specify a flow type somewhere. Probably early to lock it in, and so that the mailer can swap templates up

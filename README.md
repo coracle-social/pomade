@@ -24,7 +24,7 @@ A _mailer_ is a headless application that can be trusted to send messages contai
 
 ## Protocol Overview
 
-In order to protect message metadata, this protocol uses a single event kind, `28350`, for all requests. These events are `p`-tagged to the recipient, and their `content` is set to the nip44-encrypted JSON-encoded message. Massages contain a `method` that determines the semantics of its `payload`.
+In order to protect message metadata, this protocol uses a single event kind, `28350`, for all requests. These events are `p`-tagged to the recipient, and their `content` is set to the nip44-encrypted JSON-encoded message. Messages contain a `method` that determines the semantics of its `payload`.
 
 ```typescript
 {
@@ -107,14 +107,14 @@ Signers must respond as follows:
   payload: {
     ok: boolean // whether the flow was successful
     message: string // human-readable error/success message
-    prev: string // 32 byte hex encoded recoveryMethod/finalize event id
+    prev: string // 32 byte hex encoded recoveryMethod/set event id
   }
 }
 ```
 
-A recovery method MUST be set within a short time (e.g., 5 minutes) of registration. Otherwise, if an attacker is able to provider their own recovery method a compromised session can lead to key compromise. Both `mailer` and `inbox` are bound to the session in advance of recovery to prevent an attacker from providing a MITM mailer.
+A recovery method MUST be set within a short time (e.g., 5 minutes) of registration. Otherwise, if an attacker is able to provide their own recovery method a compromised session can lead to key compromise. Both `mailer` and `inbox` are bound to the session in advance of recovery to prevent an attacker from providing a MITM mailer.
 
-A recovery method may be any out of band communcation method in which the user is uniquely identifiable by a non-sensitive token (for example, an email address).
+A recovery method may be any out of band communication method in which the user is uniquely identifiable by a non-sensitive token (for example, an email address).
 
 In order to validate a user's inbox, signers must generate an OTP and send it to the given `mailer`:
 
@@ -123,10 +123,11 @@ In order to validate a user's inbox, signers must generate an OTP and send it to
   method: "recoveryMethod/challenge"
   payload: {
     otp: string            // 6+ digit one time password
+    client: string         // 32 byte hex public key of the user's client (for batching emails)
     inbox: string          // the user's email address or other inbox identifier
     pubkey: string         // 32 byte hex public key of the user
     threshold: number      // number of signers that need to validate the email (not the signing threshold)
-    callback_url?: string  // callback url provided in recoveryMethod/request
+    callback_url?: string  // callback url provided in recoveryMethod/set
   }
 }
 ```
@@ -171,13 +172,15 @@ When a client wants to sign an event, it must choose at least `threshold` signer
 {
   method: "sign/request"
   payload: {
-    content?: string  // optional metadata about the signing session
-    hashes: string[]  // array of sighash vectors: [sighash, ...tweaks] for each message to sign
-    members: number[] // array of participating member indices (commit indices)
-    stamp: number     // unix timestamp when the session was created
-    type: string      // session type identifier (e.g., "nostr-event", "message")
-    gid: string       // group id: 32 byte hash identifying the signing group
-    sid: string       // session id: 32 byte hash uniquely identifying this signing session
+    request: {
+      content: string | null   // optional metadata about the signing session
+      hashes: string[][]       // array of sighash vectors: [sighash, ...tweaks] for each message to sign
+      members: number[]        // array of participating member indices (commit indices)
+      stamp: number            // unix timestamp when the session was created
+      type: string             // session type identifier (e.g., "nostr-event", "message")
+      gid: string              // group id: 32 byte hash identifying the signing group
+      sid: string              // session id: 32 byte hash uniquely identifying this signing session
+    }
   }
 }
 ```
@@ -188,15 +191,15 @@ The signer must then look up the session corresponding to the client's pubkey an
 {
   method: "sign/result"
   payload: {
-    request: {
-      idx: number            // signer index
-      pubkey: string         // signer's hex public key (compressed, 33 bytes)
-      sid: string            // session id
-      psigs: string[][]      // array of partial signatures: [sighash, partial_signature]
-      ok: boolean            // whether the flow was successful
-      message: string        // human-readable error/success message
-      prev: string           // 32 byte hex encoded sign/request event id
+    result?: {
+      idx: number        // signer index
+      pubkey: string     // signer's hex public key (compressed, 33 bytes)
+      sid: string        // session id
+      psigs: string[][]  // array of partial signatures: [sighash, partial_signature]
     }
+    ok: boolean          // whether the flow was successful
+    message: string      // human-readable error/success message
+    prev: string         // 32 byte hex encoded sign/request event id
   }
 }
 ```
@@ -207,7 +210,7 @@ The client then combines the partial signatures into an aggregated signature whi
 
 In order asymmetrically encrypt or decrypt a payload, a shared secret must be derived. Encryption/decryption can't be done in a directly multiparty way, so this spec instead supports conversation key generation and sharing.
 
-When a client wants to encrypt or an event, it must choose at least `threshold` signers and as for a shared secret:
+When a client wants to encrypt or an event, it must choose at least `threshold` signers and ask for a shared secret:
 
 ```typescript
 {
@@ -230,7 +233,7 @@ The signer must then look up the session corresponding to the client's pubkey an
       idx: number            // signer index
       keyshare: string       // shared secret for use in encryption
       members: number[]      // array of participating member indices (commit indices)
-      ecdh_pk: string        // 32 byte hex encoded counterparty pubkey
+      ecdh_pk: string        // hex encoded counterparty pubkey
     },
     ok: boolean              // whether the flow was successful
     message: string          // human-readable error/success message
@@ -270,7 +273,7 @@ To recover the user's original `secret key` by email alone without access to an 
 }
 ```
 
-Signers then responsd:
+Signers then respond:
 
 ```typescript
 {
@@ -278,7 +281,7 @@ Signers then responsd:
   payload: {
     ok: boolean // whether the flow was successful
     message: string // human-readable error/success message
-    prev: string // 32 byte hex encoded recovery/finalize event id
+    prev: string // 32 byte hex encoded recovery/start event id
   }
 }
 ```
@@ -324,19 +327,21 @@ Once the user's client receives the challenge, it should parse it and send each 
 }
 ```
 
+*IMPORTANT*: In order for recovery completion to be valid, it MUST be signed by the **same client pubkey** that initiated the recovery flow. Signers MUST also invalidate OTPs after a small number of attempts to prevent brute force attacks. OTPs MUST be invalidated after a short period of time as well (e.g., 15 minutes).
+
 The signer must then indicate whether the flow was successful by returning the `group` and `commit` originally generated on the user's client:
 
 ```typescript
 {
   method: "recovery/finalize/result"
   payload: {
-    share: {
+    share?: {
       idx: number // commit index
       binder_sn: string // 32 byte hex string
       hidden_sn: string // 32 byte hex string
       seckey: string // 32 byte hex string
     }
-    group: {
+    group?: {
       commits: Array<{
         idx: number // commit index
         pubkey: string // 33 byte hex string
@@ -381,8 +386,8 @@ Each signer must then respond with a list of sessions for the given user:
   method: "session/list/result"
   payload: {
     sessions: {
-      client: hex32          // client pubkey for the session (doubles as session id)
-      inbox: string          // the user's recovery method
+      client: string         // 32 byte hex encoded client pubkey (doubles as session id)
+      inbox?: string         // the user's recovery method
       created_at: number     // seconds-resolution timestamp when the session was created
       last_activity: number  // seconds-resolution timestamp when the session was last used
     }[],
@@ -393,11 +398,11 @@ Each signer must then respond with a list of sessions for the given user:
 }
 ```
 
-These results may then be aggregated across all signers and displayed to the user. If a user wishes to log out of a session, they may send a session deletion request to the signers in question. This message is authenticated not based on the signing `client`, but based on a NIP 98 event signed by the user's own key with the signer's pubkey as the `u` tag and "session/delete/request" as the `method`. The event's timestamp MUST be current to avoid replay attacks.
+These results may then be aggregated across all signers and displayed to the user. If a user wishes to log out of a session, they may send a session deletion request to the signers in question. This message is authenticated not based on the signing `client`, but based on a NIP 98 event signed by the user's own key with the signer's pubkey as the `u` tag and "session/delete" as the `method`. The event's timestamp MUST be current to avoid replay attacks.
 
 ```typescript
 {
-  method: "session/delete/request"
+  method: "session/delete"
   payload: {
     client: string // 32 byte hex encoded client pubkey
     auth: SignedEvent // NIP 98 auth event signed by user
@@ -409,11 +414,11 @@ Signers should then respond by confirming the deletion:
 
 ```typescript
 {
-  method: "session/delete/request"
+  method: "session/delete/result"
   payload: {
     ok: boolean // whether the deletion was successful
     message: string // human-readable error/success message
-    prev: string // 32 byte hex encoded session/delete/request event id
+    prev: string // 32 byte hex encoded session/delete event id
   }
 }
 ```
@@ -426,7 +431,7 @@ This implementation uses @frostr/bifrost for all cryptographic functionality.
 
 Signers are the most trusted party in this setup. It is assumed that they are run by reputable people, and carefully selected by clients based on this reputation. If `threshold` signers collude, they are necessarily able to steal key material. This can be mitigated by having clients store one key share, reducing the surface area of attack, but this comes at the trade-off of making recovery more fragile.
 
-Mailers are trusted to the extent that they have access to user metadata (e.g. linking nostr pubkeys with user emails), but are not capable of executing a man-in-the-middle attack. In addition, since recovery is triggered using only publicly available information, anyone can initiate a recovery flow, spamming the mailer service and the end user's inbox.
+Mailers are trusted to the extent that they have access to user metadata (e.g. linking nostr pubkeys, user emails, and client pubkeys which can be used for traffic analysis), but are not capable of executing a man-in-the-middle attack. In addition, since recovery is triggered using only publicly available information, anyone can initiate a recovery flow, spamming the mailer service and the end user's inbox.
 
 However, both signers and mailers have the ability to perform a denial-of-service attack by refusing to respond to messages or relay challenges to the user's `inbox`. User key shares are also held on servers accessible to the internet, which likely are running the same code, and so if one signer is vulnerable, all of them are.
 
