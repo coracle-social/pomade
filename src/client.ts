@@ -1,6 +1,6 @@
 import * as z from "zod"
 import {
-  Maybe,
+  tryCatch,
   removeUndefined,
   pushToMapKey,
   shuffle,
@@ -77,12 +77,7 @@ export class Client {
     this.rpc.stop()
   }
 
-  static async register(
-    threshold: number,
-    n: number,
-    userSecret: string,
-    recovery = true,
-  ): Promise<ClientOptions & {ok: boolean; messages: Maybe<RegisterResult>[]}> {
+  static async register(threshold: number, n: number, userSecret: string, recovery = true) {
     if (context.signerPubkeys.length < n) {
       console.log("[pomade]: You can configure available signer pubkeys using setSignerPubkeys")
       throw new Error("Not enough signer pubkeys available")
@@ -126,28 +121,31 @@ export class Client {
     const ok = peersByIndex.size === n
     const peers = sortBy(first, peersByIndex).map(last) as string[]
 
-    return {ok, messages, group, secret, peers}
+    return {
+      ok,
+      messages,
+      clientOptions: {
+        peers,
+        group,
+        secret,
+      },
+    }
   }
 
-  static async startRecovery(
-    type: RecoveryType,
-    secret: string,
-    inbox: string,
-    callback_url?: string,
-    pubkey?: string,
-  ) {
+  static async startRecovery(inbox: string, callback_url?: string, pubkey?: string) {
     if (context.signerPubkeys.length === 0) {
       console.log("[pomade]: You can configure available signer pubkeys using setSignerPubkeys")
       throw new Error("No signer pubkeys available")
     }
 
-    const rpc = new RPC(secret)
+    const clientSecret = makeSecret()
+    const rpc = new RPC(clientSecret)
 
     const messages = await Promise.all(
       context.signerPubkeys.map((peer, i) => {
         return rpc
           .channel(peer)
-          .send(makeRecoveryStart({type, inbox, callback_url, pubkey}))
+          .send(makeRecoveryStart({type: RecoveryType.Recovery, inbox, callback_url, pubkey}))
           .receive<RecoveryStartResult>((message, resolve) => {
             if (isRecoveryStartResult(message)) {
               resolve(message)
@@ -158,11 +156,11 @@ export class Client {
 
     rpc.stop()
 
-    return {ok: messages.every(m => m?.payload.ok), messages}
+    return {ok: messages.every(m => m?.payload.ok), messages, clientSecret}
   }
 
-  static async finalizeRecovery(secret: string, challenge: string) {
-    const rpc = new RPC(secret)
+  static async finalizeRecovery(clientSecret: string, challenge: string) {
+    const rpc = new RPC(clientSecret)
 
     const messages = await Promise.all(
       parseChallenge(challenge).map(([peer, otp]) => {
@@ -179,18 +177,68 @@ export class Client {
 
     rpc.stop()
 
+    const group = messages.find(m => m?.payload.group)?.payload.group
+    const shares = removeUndefined(messages.map(m => m?.payload.share))
+    const userSecret = tryCatch(() => Lib.recover_secret_key(group!, shares))
+
+    return {ok: Boolean(userSecret), messages, userSecret}
+  }
+
+  static async startLogin(inbox: string, callback_url?: string, pubkey?: string) {
+    if (context.signerPubkeys.length === 0) {
+      console.log("[pomade]: You can configure available signer pubkeys using setSignerPubkeys")
+      throw new Error("No signer pubkeys available")
+    }
+
+    const clientSecret = makeSecret()
+    const rpc = new RPC(clientSecret)
+
+    const messages = await Promise.all(
+      context.signerPubkeys.map((peer, i) => {
+        return rpc
+          .channel(peer)
+          .send(makeRecoveryStart({type: RecoveryType.Login, inbox, callback_url, pubkey}))
+          .receive<RecoveryStartResult>((message, resolve) => {
+            if (isRecoveryStartResult(message)) {
+              resolve(message)
+            }
+          })
+      }),
+    )
+
+    rpc.stop()
+
+    return {ok: messages.every(m => m?.payload.ok), messages, clientSecret}
+  }
+
+  static async finalizeLogin(clientSecret: string, challenge: string) {
+    const rpc = new RPC(clientSecret)
+
+    const messages = await Promise.all(
+      parseChallenge(challenge).map(([peer, otp]) => {
+        return rpc
+          .channel(peer)
+          .send(makeRecoveryFinalize({otp}))
+          .receive<WithEvent<RecoveryFinalizeResult>>((message, resolve) => {
+            if (isRecoveryFinalizeResult(message)) {
+              resolve(message)
+            }
+          })
+      }),
+    )
+
+    rpc.stop()
+
+    const group = messages.find(m => m?.payload.group)?.payload.group!
+    const peers = removeUndefined(messages.map(m => m?.event.pubkey))
+
     return {
       messages,
       ok: messages.every(m => m?.payload.ok),
-      group: messages.find(m => m?.payload.group)?.payload.group,
-      peers: removeUndefined(messages.map(m => m?.event.pubkey)),
-      getSecret: () => {
-        const msgs = removeUndefined(messages)
-        const group = msgs?.[0]?.payload.group
-        const shares = msgs.map(m => m.payload.share!)
-        const secret = Lib.recover_secret_key(group!, shares)
-
-        return secret
+      clientOptions: {
+        secret: clientSecret,
+        group,
+        peers,
       },
     }
   }

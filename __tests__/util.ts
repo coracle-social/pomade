@@ -53,7 +53,8 @@ export async function makeClientWithRecovery(
     },
   })
 
-  const client = new Client(await Client.register(2, 3, makeSecret()))
+  const clientRegister = await Client.register(2, 3, makeSecret())
+  const client = new Client(clientRegister.clientOptions)
 
   await client.setRecoveryMethod(inbox, mailer.pubkey)
   await sleep(10)

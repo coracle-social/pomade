@@ -39,7 +39,7 @@ export type MailerValidationItem = {
 }
 
 export type MailerValidation = {
-  send_at?: number
+  sent_at?: number
   created_at: number
   items: MailerValidationItem[]
 }
@@ -53,7 +53,7 @@ export type MailerRecoveryItem = {
 }
 
 export type MailerRecovery = {
-  send_at?: number
+  sent_at?: number
   created_at: number
   items: MailerRecoveryItem[]
 }
