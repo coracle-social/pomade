@@ -4,6 +4,14 @@ import {RELAYS, getTagValues} from "@welshman/util"
 import {prepAndSign} from "./misc.js"
 import {context} from "./context.js"
 
+export function setSignerPubkeys(pubkeys: string[]) {
+  context.signerPubkeys = pubkeys
+
+  for (const pubkey of pubkeys) {
+    fetchRelays(pubkey, AbortSignal.timeout(10_000))
+  }
+}
+
 export const fetchRelays = cached({
   maxSize: 100,
   getKey: ([pubkey, signal]) => pubkey,

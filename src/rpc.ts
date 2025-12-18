@@ -4,6 +4,7 @@ import {publish, request, PublishStatus} from "@welshman/net"
 import type {HashedEvent, TrustedEvent} from "@welshman/util"
 import {prep, sign, getPubkey} from "@welshman/util"
 import {nip44} from "./misc.js"
+import {debug} from "./context.js"
 import {Message, parseMessage} from "./message.js"
 import {fetchRelays, publishRelays} from "./relays.js"
 
@@ -34,6 +35,8 @@ export class RPC {
 
   publishRelays() {
     if (this.relays) {
+      debug("[rpc.publishRelays]", this.relays)
+
       publishRelays({
         secret: this.secret,
         relays: this.relays,
@@ -97,11 +100,11 @@ export class RPC {
     return nip44.decrypt(peer, this.secret, payload)
   }
 
-  channel(peer: string) {
+  channel(peer: string, usePeerRelays = true) {
     let channel = this.channels.get(peer)
 
     if (!channel) {
-      channel = new RPCChannel(this, peer)
+      channel = new RPCChannel(this, peer, usePeerRelays)
 
       this.channels.set(peer, channel)
     }
@@ -136,10 +139,11 @@ export class RPCChannel {
   constructor(
     private rpc: RPC,
     readonly peer: string,
+    readonly usePeerRelays = true,
   ) {
     const {signal} = this.controller
 
-    this.relays = fetchRelays(peer, signal)
+    this.relays = usePeerRelays ? fetchRelays(peer, signal) : Promise.resolve([])
     this.relays.then(relays => {
       if (!signal.aborted) {
         const uniqueRelays = without(this.rpc.relays, relays)

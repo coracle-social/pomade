@@ -126,20 +126,20 @@ export const Schema = {
     threshold: z.number(),
     callback_url: z.string().optional(),
   }),
-  recoveryMethodFinalize: z.object({
+  finalizeRecoveryMethod: z.object({
     otp: z.string(),
   }),
-  recoveryMethodFinalizeResult: z.object({
+  finalizeRecoveryMethodResult: z.object({
     ok: z.boolean(),
     message: z.string(),
     prev: hex32,
   }),
-  recoveryMethodSet: z.object({
+  setRecoveryMethod: z.object({
     mailer: hex32,
     inbox: z.string(),
     callback_url: z.string().optional(),
   }),
-  recoveryMethodSetResult: z.object({
+  setRecoveryMethodResult: z.object({
     ok: z.boolean(),
     message: z.string(),
     prev: hex32,

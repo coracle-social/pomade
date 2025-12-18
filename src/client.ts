@@ -1,5 +1,6 @@
 import * as z from "zod"
 import {
+  Maybe,
   removeUndefined,
   pushToMapKey,
   shuffle,
@@ -23,31 +24,32 @@ import {parseChallenge} from "./misc.js"
 import {RPC, WithEvent} from "./rpc.js"
 import {context} from "./context.js"
 import {
-  SessionListResult,
-  isSessionListResult,
   isEcdhResult,
   isRecoveryFinalizeResult,
-  isRecoveryStartResult,
-  isRegisterResult,
   isRecoveryMethodFinalizeResult,
   isRecoveryMethodSetResult,
-  isSignResult,
+  isRecoveryStartResult,
+  isRegisterResult,
   isSessionDeleteResult,
-  RecoveryFinalizeResult,
-  RecoveryStartResult,
-  makeSessionList,
+  isSessionListResult,
+  isSignResult,
   makeEcdhRequest,
   makeRecoveryFinalize,
-  makeRecoveryStart,
-  makeRegisterRequest,
   makeRecoveryMethodFinalize,
   makeRecoveryMethodSet,
-  makeSignRequest,
+  makeRecoveryStart,
+  makeRegisterRequest,
   makeSessionDelete,
+  makeSessionList,
+  makeSignRequest,
+  RecoveryFinalizeResult,
   RecoveryMethodFinalizeResult,
   RecoveryMethodSetResult,
-  SignResult,
+  RecoveryStartResult,
+  RegisterResult,
   SessionDeleteResult,
+  SessionListResult,
+  SignResult,
 } from "./message.js"
 
 export type ClientOptions = {
@@ -71,9 +73,15 @@ export class Client {
     this.userPubkey = this.group.group_pk.slice(2)
   }
 
-  static async register(threshold: number, n: number, userSecret: string, recovery = true) {
+  static async register(
+    threshold: number,
+    n: number,
+    userSecret: string,
+    recovery = true,
+  ): Promise<ClientOptions & {ok: boolean; messages: Maybe<RegisterResult>[]}> {
     if (context.signerPubkeys.length < n) {
-      throw new Error("Not enough signers available")
+      console.log("[pomade]: You can configure available signer pubkeys using setSignerPubkeys")
+      throw new Error("Not enough signer pubkeys available")
     }
 
     if (threshold <= 0) {
@@ -84,56 +92,58 @@ export class Client {
     const rpc = new RPC(secret)
     const {group, shares} = Lib.generate_dealer_pkg(threshold, n, [userSecret])
     const remainingSignerPubkeys = shuffle(context.signerPubkeys)
-    const errorsByPeer = new Map<string, string>()
     const peersByIndex = new Map<number, string>()
 
-    await Promise.all(
+    const messages = await Promise.all(
       shares.map(async (share, i) => {
-        while (remainingSignerPubkeys.length > 0 && !peersByIndex.has(i)) {
-          await rpc
+        while (remainingSignerPubkeys.length > 0) {
+          const messages = await rpc
             .channel(remainingSignerPubkeys.shift()!)
             .send(makeRegisterRequest({share, group, recovery}))
-            .receive((message, resolve) => {
+            .receive<RegisterResult>((message, resolve) => {
               if (isRegisterResult(message)) {
                 if (message.payload.ok) {
                   peersByIndex.set(i, message.event.pubkey)
-                } else {
-                  errorsByPeer.set(message.event.pubkey, message.payload.message)
                 }
 
-                resolve()
+                resolve(message)
               }
             })
+
+          if (peersByIndex.has(i)) {
+            return messages
+          }
         }
       }),
     )
 
     rpc.stop()
 
-    // Check if we have enough successful registrations
-    if (peersByIndex.size < n) {
-      const errors = Array.from(errorsByPeer.entries())
-        .map(([pubkey, error]) => `${pubkey}: ${error}`)
-        .join("\n")
+    const ok = peersByIndex.size === n
+    const peers = sortBy(first, peersByIndex).map(last) as string[]
 
-      throw new Error(`Failed to register all shards:\n${errors}`)
-    }
-
-    return new Client({
-      secret,
-      group,
-      peers: sortBy(first, peersByIndex).map(last) as string[],
-    })
+    return {ok, messages, group, secret, peers}
   }
 
-  static async startRecovery(type: RecoveryType, secret: string, inbox: string, pubkey?: string) {
+  static async startRecovery(
+    type: RecoveryType,
+    secret: string,
+    inbox: string,
+    callback_url?: string,
+    pubkey?: string,
+  ) {
+    if (context.signerPubkeys.length === 0) {
+      console.log("[pomade]: You can configure available signer pubkeys using setSignerPubkeys")
+      throw new Error("No signer pubkeys available")
+    }
+
     const rpc = new RPC(secret)
 
     const messages = await Promise.all(
       context.signerPubkeys.map((peer, i) => {
         return rpc
           .channel(peer)
-          .send(makeRecoveryStart({type, inbox, pubkey}))
+          .send(makeRecoveryStart({type, inbox, callback_url, pubkey}))
           .receive<RecoveryStartResult>((message, resolve) => {
             if (isRecoveryStartResult(message)) {
               resolve(message)
@@ -180,12 +190,12 @@ export class Client {
     }
   }
 
-  async recoveryMethodSet(inbox: string, mailer: string) {
+  async setRecoveryMethod(inbox: string, mailer: string, callback_url?: string) {
     const messages = await Promise.all(
       this.peers.map((peer, i) => {
         return this.rpc
           .channel(peer)
-          .send(makeRecoveryMethodSet({inbox, mailer}))
+          .send(makeRecoveryMethodSet({inbox, mailer, callback_url}))
           .receive<WithEvent<RecoveryMethodSetResult>>((message, resolve) => {
             if (isRecoveryMethodSetResult(message)) {
               resolve(message)
@@ -197,7 +207,7 @@ export class Client {
     return {ok: messages.every(m => m?.payload.ok), messages}
   }
 
-  async recoveryMethodFinalize(challenge: string) {
+  async finalizeRecoveryMethod(challenge: string) {
     const otpsByPeer = fromPairs(parseChallenge(challenge))
 
     const messages = await Promise.all(

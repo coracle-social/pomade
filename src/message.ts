@@ -27,19 +27,19 @@ export type RecoveryMethodChallenge = DefineMessage<
 >
 export type RecoveryMethodFinalize = DefineMessage<
   Method.RecoveryMethodFinalize,
-  typeof Schema.recoveryMethodFinalize
+  typeof Schema.finalizeRecoveryMethod
 >
 export type RecoveryMethodFinalizeResult = DefineMessage<
   Method.RecoveryMethodFinalizeResult,
-  typeof Schema.recoveryMethodFinalizeResult
+  typeof Schema.finalizeRecoveryMethodResult
 >
 export type RecoveryMethodSet = DefineMessage<
   Method.RecoveryMethodSet,
-  typeof Schema.recoveryMethodSet
+  typeof Schema.setRecoveryMethod
 >
 export type RecoveryMethodSetResult = DefineMessage<
   Method.RecoveryMethodSetResult,
-  typeof Schema.recoveryMethodSetResult
+  typeof Schema.setRecoveryMethodResult
 >
 export type RecoveryStart = DefineMessage<Method.RecoveryStart, typeof Schema.recoveryStart>
 export type RecoveryStartResult = DefineMessage<
@@ -124,7 +124,7 @@ export function makeRecoveryMethodFinalize(
 ): RecoveryMethodFinalize {
   return {
     method: Method.RecoveryMethodFinalize,
-    payload: Schema.recoveryMethodFinalize.parse(payload),
+    payload: Schema.finalizeRecoveryMethod.parse(payload),
   }
 }
 
@@ -133,14 +133,14 @@ export function makeRecoveryMethodFinalizeResult(
 ): RecoveryMethodFinalizeResult {
   return {
     method: Method.RecoveryMethodFinalizeResult,
-    payload: Schema.recoveryMethodFinalizeResult.parse(payload),
+    payload: Schema.finalizeRecoveryMethodResult.parse(payload),
   }
 }
 
 export function makeRecoveryMethodSet(payload: RecoveryMethodSet["payload"]): RecoveryMethodSet {
   return {
     method: Method.RecoveryMethodSet,
-    payload: Schema.recoveryMethodSet.parse(payload),
+    payload: Schema.setRecoveryMethod.parse(payload),
   }
 }
 
@@ -149,7 +149,7 @@ export function makeRecoveryMethodSetResult(
 ): RecoveryMethodSetResult {
   return {
     method: Method.RecoveryMethodSetResult,
-    payload: Schema.recoveryMethodSetResult.parse(payload),
+    payload: Schema.setRecoveryMethodResult.parse(payload),
   }
 }
 
@@ -207,10 +207,10 @@ export function getMessageSchema(method: Method) {
     [Method.RecoveryFinalize]: Schema.recoveryFinalize,
     [Method.RecoveryFinalizeResult]: Schema.recoveryFinalizeResult,
     [Method.RecoveryMethodChallenge]: Schema.recoveryMethodChallenge,
-    [Method.RecoveryMethodFinalize]: Schema.recoveryMethodFinalize,
-    [Method.RecoveryMethodFinalizeResult]: Schema.recoveryMethodFinalizeResult,
-    [Method.RecoveryMethodSet]: Schema.recoveryMethodSet,
-    [Method.RecoveryMethodSetResult]: Schema.recoveryMethodSetResult,
+    [Method.RecoveryMethodFinalize]: Schema.finalizeRecoveryMethod,
+    [Method.RecoveryMethodFinalizeResult]: Schema.finalizeRecoveryMethodResult,
+    [Method.RecoveryMethodSet]: Schema.setRecoveryMethod,
+    [Method.RecoveryMethodSetResult]: Schema.setRecoveryMethodResult,
     [Method.RecoveryStart]: Schema.recoveryStart,
     [Method.RecoveryStartResult]: Schema.recoveryStartResult,
     [Method.RegisterRequest]: Schema.registerRequest,
