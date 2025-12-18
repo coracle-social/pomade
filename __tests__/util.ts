@@ -26,7 +26,7 @@ export function makeMailer(secret: string, provider: Partial<MailerProvider> = {
     storage: inMemoryStorageFactory,
     provider: {
       sendValidation: noop,
-      sendRecover: noop,
+      sendRecovery: noop,
       ...provider,
     },
   })

@@ -222,7 +222,9 @@ export class RPCChannel {
       })
     })
 
-    const ok = res.then(r => Object.values(r).some(spec({status: PublishStatus.Success})))
+    const ok = res.then(r => {
+      return Object.values(r).some(spec({status: PublishStatus.Success}))
+    })
 
     const receive = <T>(handler: MessageHandlerWithCallback<T>) =>
       this.receive<T>((message, resolve) => {

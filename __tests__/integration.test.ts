@@ -197,7 +197,7 @@ describe("protocol flows", () => {
       let payload
 
       const client = await makeClientWithRecovery("test@example.com", {
-        sendRecover: payload_ => {
+        sendRecovery: payload_ => {
           payload = payload_
         },
       })
@@ -220,7 +220,7 @@ describe("protocol flows", () => {
       let payload
 
       const client = await makeClientWithRecovery("test@example.com", {
-        sendRecover: payload_ => {
+        sendRecovery: payload_ => {
           payload = payload_
         },
       })
@@ -283,7 +283,7 @@ describe("protocol flows", () => {
       let challenge
 
       await makeClientWithRecovery("test@example.com", {
-        sendRecover: payload => {
+        sendRecovery: payload => {
           challenge = payload.challenge
         },
       })
@@ -300,7 +300,7 @@ describe("protocol flows", () => {
       const payloads = []
 
       const provider = {
-        sendRecover: payload => {
+        sendRecovery: payload => {
           payloads.push(payload)
         },
       }
@@ -320,7 +320,7 @@ describe("protocol flows", () => {
       expect(res2.ok).toBe(true)
     })
 
-    it("handles recovery across multiple mailers", async () => {
+    it.only("handles recovery across multiple mailers", async () => {
       const payloads: RecoverPayload[] = []
       const inbox = "complex@example.com"
 
@@ -329,7 +329,7 @@ describe("protocol flows", () => {
 
       // Create two different mailers that will handle recovery and validation
       const mailer1 = makeMailer(makeSecret(), {
-        sendRecover: payload => {
+        sendRecovery: payload => {
           payloads.push(payload)
         },
         sendValidation: payload => {
@@ -338,7 +338,7 @@ describe("protocol flows", () => {
       })
 
       const mailer2 = makeMailer(makeSecret(), {
-        sendRecover: payload => {
+        sendRecovery: payload => {
           payloads.push(payload)
         },
         sendValidation: payload => {

@@ -1,6 +1,6 @@
 {
   "name": "pomade",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "author": "hodlbod",
   "license": "MIT",
   "description": "Recovery protocol and implementation for nostr multisig signers.",

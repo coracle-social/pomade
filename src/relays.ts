@@ -1,4 +1,4 @@
-import {uniq, cached} from "@welshman/lib"
+import {uniq} from "@welshman/lib"
 import {publish, request} from "@welshman/net"
 import {RELAYS, getTagValues} from "@welshman/util"
 import {prepAndSign} from "./misc.js"
@@ -8,24 +8,31 @@ export function setSignerPubkeys(pubkeys: string[]) {
   context.signerPubkeys = pubkeys
 
   for (const pubkey of pubkeys) {
-    fetchRelays(pubkey, AbortSignal.timeout(10_000))
+    fetchRelays(pubkey, AbortSignal.timeout(5000))
   }
 }
 
-export const fetchRelays = cached({
-  maxSize: 100,
-  getKey: ([pubkey, signal]) => pubkey,
-  getValue: async ([pubkey, signal]: [string, AbortSignal]) => {
+export const relayCache = new Map<string, string[]>()
+
+export const fetchRelays = async (pubkey: string, signal?: AbortSignal) => {
+  let relays = relayCache.get(pubkey)
+
+  if (!relays) {
+    const timeout = AbortSignal.timeout(5000)
     const [relayList] = await request({
       autoClose: true,
       relays: context.indexerRelays,
       filters: [{kinds: [RELAYS], authors: [pubkey]}],
-      signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     })
 
-    return getTagValues("r", relayList?.tags || [])
-  },
-})
+    relays = getTagValues("r", relayList?.tags || [])
+
+    relayCache.set(pubkey, relays)
+  }
+
+  return relays
+}
 
 export function publishRelays({
   secret,

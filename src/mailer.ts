@@ -1,4 +1,4 @@
-import {int, ms, now, sortBy, groupBy, ago, MINUTE} from "@welshman/lib"
+import {int, now, ms, sortBy, groupBy, ago, MINUTE} from "@welshman/lib"
 import {getPubkey} from "@welshman/util"
 import {IStorageFactory, IStorage} from "./storage.js"
 import {buildChallenge} from "./misc.js"
@@ -19,7 +19,7 @@ export type ValidationPayload = {
   callback_url?: string
 }
 
-export type RecoverPayload = {
+export type RecoveryPayload = {
   inbox: string
   pubkey: string
   challenge: string
@@ -28,7 +28,7 @@ export type RecoverPayload = {
 
 export type MailerProvider = {
   sendValidation: (payload: ValidationPayload) => Promise<void>
-  sendRecover: (payload: RecoverPayload) => Promise<void>
+  sendRecovery: (payload: RecoveryPayload) => Promise<void>
 }
 
 // Storage types
@@ -39,12 +39,12 @@ export type MailerValidationItem = {
 }
 
 export type MailerValidation = {
-  sent_at?: number
+  send_at?: number
   created_at: number
   items: MailerValidationItem[]
 }
 
-export type MailerRecoverItem = {
+export type MailerRecoveryItem = {
   idx: number
   otp: string
   peer: string
@@ -52,10 +52,10 @@ export type MailerRecoverItem = {
   threshold: number
 }
 
-export type MailerRecover = {
-  sent_at?: number
+export type MailerRecovery = {
+  send_at?: number
   created_at: number
-  items: MailerRecoverItem[]
+  items: MailerRecoveryItem[]
 }
 
 // Mailer
@@ -71,17 +71,15 @@ export class Mailer {
   rpc: RPC
   pubkey: string
   validations: IStorage<MailerValidation>
-  recovers: IStorage<MailerRecover>
+  recoveries: IStorage<MailerRecovery>
   intervals: number[]
 
   constructor(private options: MailerOptions) {
     this.pubkey = getPubkey(options.secret)
     this.validations = options.storage("validations")
-    this.recovers = options.storage("recovers")
+    this.recoveries = options.storage("recoveries")
     this.rpc = new RPC(options.secret, options.relays)
     this.rpc.subscribe(message => {
-      debug("[mailer.constructor]: received message", message.event.id)
-
       if (isRecoveryMethodChallenge(message)) this.handleRecoveryMethodChallenge(message)
       if (isRecoveryChallenge(message)) this.handleRecoveryChallenge(message)
     })
@@ -94,8 +92,8 @@ export class Mailer {
             if (validation.created_at < ago(15, MINUTE)) await this.validations.delete(k)
           }
 
-          for (const [k, recover] of await this.recovers.entries()) {
-            if (recover.created_at < ago(15, MINUTE)) await this.recovers.delete(k)
+          for (const [k, recovery] of await this.recoveries.entries()) {
+            if (recovery.created_at < ago(15, MINUTE)) await this.recoveries.delete(k)
           }
         },
         ms(int(5, MINUTE)),
@@ -119,12 +117,10 @@ export class Mailer {
       }
 
       if (validation.sent_at) {
-        debug("[mailer.handleRecoveryMethodChallenge]: validation already sent", event.pubkey)
-
-        return
+        return debug("[mailer]: validation already sent", event.pubkey)
       }
 
-      debug("[mailer.handleRecoveryMethodChallenge]: validation item recieved", event.pubkey)
+      debug("[mailer]: validation item recieved", event.pubkey)
 
       validation.items.push({otp, peer: event.pubkey})
 
@@ -133,9 +129,9 @@ export class Mailer {
 
         await this.options.provider.sendValidation({inbox, challenge, callback_url})
 
-        debug("[mailer.handleRecoveryMethodChallenge]: validation sent", event.pubkey)
-
         validation.sent_at = now()
+
+        debug("[mailer]: validation sent", event.pubkey)
       }
 
       await this.validations.set(key, validation)
@@ -146,36 +142,34 @@ export class Mailer {
     const {inbox, pubkey, items, callback_url} = payload
     const key = `${pubkey}:${inbox}`
 
-    await this.recovers.tx(async () => {
-      const recover = (await this.recovers.get(key)) || {created_at: event.created_at, items: []}
+    await this.recoveries.tx(async () => {
+      const recovery = (await this.recoveries.get(key)) || {created_at: event.created_at, items: []}
 
-      if (recover.sent_at) {
-        debug("[mailer.handleRecoveryMethodChallenge]: recovery already sent", event.pubkey)
-
-        return
+      if (recovery.sent_at) {
+        return debug("[mailer]: recovery already sent", event.pubkey)
       }
 
-      debug("[mailer.handleRecoveryMethodChallenge]: recovery item received", event.pubkey)
+      debug("[mailer]: recovery item received", event.pubkey)
 
       for (const {idx, otp, client, threshold} of items) {
-        recover.items.push({idx, otp, client, threshold, peer: event.pubkey})
+        recovery.items.push({idx, otp, client, threshold, peer: event.pubkey})
       }
 
-      for (const items of groupBy(o => o.client + o.threshold, recover.items).values()) {
+      for (const items of groupBy(o => o.client + o.threshold, recovery.items).values()) {
         if (items.length === items[0].threshold) {
           const challenge = buildChallenge(sortBy(x => x.idx, items).map(x => [x.peer, x.otp]))
 
-          await this.options.provider.sendRecover({inbox, pubkey, challenge, callback_url})
+          await this.options.provider.sendRecovery({inbox, pubkey, challenge, callback_url})
 
-          debug("[mailer.handleRecoveryMethodChallenge]: recovery sent", event.pubkey)
+          recovery.sent_at = now()
 
-          recover.sent_at = now()
+          debug("[mailer]: recovery sent", event.pubkey)
 
-          continue
+          break
         }
       }
 
-      await this.recovers.set(key, recover)
+      await this.recoveries.set(key, recovery)
     })
   }
 }

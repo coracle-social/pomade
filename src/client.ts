@@ -73,6 +73,10 @@ export class Client {
     this.userPubkey = this.group.group_pk.slice(2)
   }
 
+  stop() {
+    this.rpc.stop()
+  }
+
   static async register(
     threshold: number,
     n: number,
@@ -179,6 +183,7 @@ export class Client {
       messages,
       ok: messages.every(m => m?.payload.ok),
       group: messages.find(m => m?.payload.group)?.payload.group,
+      peers: removeUndefined(messages.map(m => m?.event.pubkey)),
       getSecret: () => {
         const msgs = removeUndefined(messages)
         const group = msgs?.[0]?.payload.group
