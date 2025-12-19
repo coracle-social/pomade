@@ -1,0 +1,32 @@
+{
+  "name": "@pomade/mailer",
+  "version": "0.0.2",
+  "author": "hodlbod",
+  "license": "MIT",
+  "description": "Standalone mailer service for pomade",
+  "private": true,
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "type": "module",
+  "bin": {
+    "pomade-mailer": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "pnpm run clean && pnpm run compile --force",
+    "clean": "rimraf ./dist",
+    "compile": "tsc -b",
+    "start": "node dist/index.js",
+    "dev": "tsc -b && node dist/index.js"
+  },
+  "devDependencies": {
+    "rimraf": "~6.0.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@pomade/core": "workspace:*",
+    "@pomade/sqlite": "workspace:*",
+    "dotenv": "^16.4.7",
+    "postmark": "^4.0.5"
+  }
+}

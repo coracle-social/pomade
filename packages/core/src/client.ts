@@ -20,9 +20,8 @@ import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Lib} from "@frostr/bifrost"
 import type {GroupPackage, ECDHPackage} from "@frostr/bifrost"
 import {Schema, Method, RecoveryType} from "./schema.js"
-import {parseChallenge} from "./misc.js"
+import {parseChallenge, context} from "./util.js"
 import {RPC, WithEvent} from "./rpc.js"
-import {context} from "./context.js"
 import {
   isEcdhResult,
   isRecoveryFinalizeResult,
@@ -229,7 +228,7 @@ export class Client {
 
     rpc.stop()
 
-    const group = messages.find(m => m?.payload.group)?.payload.group!
+    const group = messages.find(m => m?.payload.group)?.payload.group
     const peers = removeUndefined(messages.map(m => m?.event.pubkey))
 
     return {
@@ -237,7 +236,7 @@ export class Client {
       ok: messages.every(m => m?.payload.ok),
       clientOptions: {
         secret: clientSecret,
-        group,
+        group: group!,
         peers,
       },
     }

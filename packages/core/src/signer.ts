@@ -19,8 +19,7 @@ import type {TrustedEvent, SignedEvent} from "@welshman/util"
 import {IStorageFactory, IStorage} from "./storage.js"
 import {RecoveryType, Method} from "./schema.js"
 import {RPC, WithEvent} from "./rpc.js"
-import {generateOTP} from "./misc.js"
-import {debug} from "./context.js"
+import {generateOTP, debug} from "./util.js"
 import {
   EcdhRequest,
   isEcdhRequest,

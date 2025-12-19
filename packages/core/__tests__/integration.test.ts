@@ -3,7 +3,7 @@ import {describe, it, expect, beforeEach, afterEach} from "vitest"
 import {sleep, sortBy, hexToBytes, bytesToHex} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
 import {beforeHook, afterHook, makeMailer, makeClientWithRecovery} from "./util"
-import {buildChallenge, Client, context, generateOTP, parseChallenge, RecoverPayload} from "../src"
+import {buildChallenge, Client, context, generateOTP, RecoverPayload} from "../src"
 
 const doLet = <T>(x: T, f: <R>(x: T) => R) => f(x)
 

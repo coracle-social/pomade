@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@welshman/*": ["packages/*/src"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["__tests__/**/*", "**/*.test.ts"]
+}

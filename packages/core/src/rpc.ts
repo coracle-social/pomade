@@ -3,10 +3,8 @@ import {tryCatch, uniq, without, spec} from "@welshman/lib"
 import {publish, request, PublishStatus} from "@welshman/net"
 import type {HashedEvent, TrustedEvent} from "@welshman/util"
 import {prep, sign, getPubkey} from "@welshman/util"
-import {nip44} from "./misc.js"
-import {debug} from "./context.js"
+import {nip44, debug, fetchRelays, publishRelays, normalizeRelay} from "./util.js"
 import {Message, parseMessage} from "./message.js"
-import {fetchRelays, publishRelays} from "./relays.js"
 
 export type WithEvent<T extends Message> = T & {event: TrustedEvent}
 
@@ -20,21 +18,23 @@ export class RPC {
   static Kind = 28350
 
   pubkey: string
+  relays: string[]
   subscribers: MessageHandler[] = []
   controller = new AbortController()
   channels = new Map<string, RPCChannel>()
 
   constructor(
     private secret: string,
-    readonly relays: string[] = [],
+    relays: string[] = [],
   ) {
+    this.relays = relays.map(normalizeRelay)
     this.pubkey = getPubkey(secret)
     this.publishRelays()
     this.listenForEvents()
   }
 
   publishRelays() {
-    if (this.relays) {
+    if (this.relays.length > 0) {
       debug("[rpc.publishRelays]", this.relays)
 
       publishRelays({

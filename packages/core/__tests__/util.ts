@@ -6,8 +6,8 @@ import {inMemoryStorageFactory, context, Client, Signer, Mailer} from "../src"
 export const signerSecrets = Array.from(range(0, 8)).map(() => makeSecret())
 export const signerPubkeys = signerSecrets.map(secret => getPubkey(secret))
 
-context.signerPubkeys = signerPubkeys
-context.indexerRelays = [LOCAL_RELAY_URL]
+context.setSignerPubkeys(signerPubkeys)
+context.setIndexerRelays([LOCAL_RELAY_URL])
 
 let signers: Signer[]
 
