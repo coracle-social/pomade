@@ -13,9 +13,7 @@
     "pomade-mailer": "./dist/index.js"
   },
   "scripts": {
-    "build": "pnpm run clean && pnpm run compile --force",
-    "clean": "rimraf ./dist",
-    "compile": "tsc -b",
+    "build": "rimraf ./dist && tsc -b --force",
     "start": "node dist/index.js",
     "dev": "tsc -b && node dist/index.js"
   },

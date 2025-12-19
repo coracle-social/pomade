@@ -77,8 +77,7 @@ export function debug(...args: any) {
   }
 }
 
-export const isRelay = (url: string) =>
-  url === LOCAL_RELAY_URL ? true : isRelayUrl(url)
+export const isRelay = (url: string) => (url === LOCAL_RELAY_URL ? true : isRelayUrl(url))
 
 export const normalizeRelay = (url: string) =>
   url === LOCAL_RELAY_URL ? url : normalizeRelayUrl(url)
@@ -97,7 +96,9 @@ export const fetchRelays = async (pubkey: string, signal?: AbortSignal) => {
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     })
 
-    relays = getTagValues("r", relayList?.tags || []).filter(isRelay).map(normalizeRelay)
+    relays = getTagValues("r", relayList?.tags || [])
+      .filter(isRelay)
+      .map(normalizeRelay)
 
     relayCache.set(pubkey, relays)
   }

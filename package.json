@@ -18,9 +18,11 @@
     "lint:fix": "pnpm --filter @pomade/core lint:fix",
     "format": "pnpm --filter @pomade/core format",
     "check": "pnpm --filter @pomade/core check",
-    "bump": "node scripts/bump.ts"
+    "bump": "node scripts/bump.ts",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "husky": "^9.1.7",
     "rimraf": "~6.0.0",
     "typescript": "^5.9.3"
   },
@@ -30,4 +32,3 @@
     }
   }
 }
-
