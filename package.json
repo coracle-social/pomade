@@ -1,7 +1,8 @@
 {
   "name": "pomade-monorepo",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
+  "type": "module",
   "description": "Pomade monorepo - Recovery protocol and implementation for nostr multisig signers",
   "author": "hodlbod",
   "license": "MIT",
@@ -16,7 +17,8 @@
     "lint": "pnpm --filter @pomade/core lint",
     "lint:fix": "pnpm --filter @pomade/core lint:fix",
     "format": "pnpm --filter @pomade/core format",
-    "check": "pnpm --filter @pomade/core check"
+    "check": "pnpm --filter @pomade/core check",
+    "bump": "node scripts/bump.ts"
   },
   "devDependencies": {
     "rimraf": "~6.0.0",

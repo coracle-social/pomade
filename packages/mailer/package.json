@@ -1,6 +1,6 @@
 {
   "name": "@pomade/mailer",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "author": "hodlbod",
   "license": "MIT",
   "description": "Standalone mailer service for pomade",
