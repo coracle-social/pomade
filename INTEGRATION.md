@@ -246,7 +246,7 @@ async function recoverAccount(email: string): Promise<string | null> {
   )
 
   if (finalizeOk && userSecret) {
-    console.log("✓ Account recovered successfully!")
+    console.log("Account recovered successfully!")
 
     // User now has their private key back
     // You can re-register a new session or use the key directly
@@ -287,7 +287,7 @@ async function loginWithEmail(email: string): Promise<Client | null> {
   )
 
   if (finalizeOk && clientOptions) {
-    console.log("✓ Logged in successfully!")
+    console.log("Logged in successfully!")
 
     // Create new client with the recovered session
     const client = new Client(clientOptions)

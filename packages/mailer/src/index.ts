@@ -51,10 +51,8 @@ const mailer = new Mailer({
   provider,
 })
 
-console.log("Pomade Mailer Service started")
-console.log("Relays:", relays.join(", "))
-console.log("Provider:", providerType)
-console.log("Database:", dbPath)
+console.log(`Running as: ${mailer.pubkey}`)
+console.log(`Listening on relays: ${relays.join(", ")}`)
 
 // Handle shutdown gracefully
 process.on("SIGINT", () => {

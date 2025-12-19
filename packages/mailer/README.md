@@ -2,22 +2,7 @@
 
 Standalone mailer service for pomade. This service listens for recovery method challenges and recovery challenges on nostr relays and sends validation/recovery emails.
 
-## Installation
-
-From the monorepo root:
-
-```bash
-pnpm install
-pnpm --filter @pomade/mailer build
-```
-
 ## Configuration
-
-Copy `.env.example` to `.env` and configure:
-
-```bash
-cp .env.example .env
-```
 
 Required environment variables:
 - `POMADE_SECRET`: The mailer's hex nostr private key
@@ -33,54 +18,16 @@ Postmark provider configuration (required if `POMADE_PROVIDER=postmark`):
 
 ## Running
 
-### Development
+From the repository root:
 
-```bash
-pnpm --filter @pomade/mailer dev
+```sh
+mkdir -p data
+cp packages/mailer/.env{.example,} # Edit the env file to fill in your details
+docker build -f packages/mailer/Dockerfile -t pomade-mailer .
+docker run -v $(pwd)/data:/data --env-file packages/mailer/.env pomade-mailer
 ```
 
-### Production
+From dockerhub:
 
-```bash
-pnpm --filter @pomade/mailer start
+```sh
 ```
-
-### Docker
-
-```bash
-docker build -t pomade-mailer .
-docker run -v $(pwd)/data:/data --env-file .env pomade-mailer
-```
-
-## Providers
-
-### Console Provider
-
-Logs validation and recovery challenges to console. Useful for development and testing.
-
-```bash
-POMADE_PROVIDER=console
-```
-
-### Postmark Provider
-
-Sends validation and recovery emails using [Postmark](https://postmarkapp.com/), a transactional email service.
-
-**Setup:**
-1. Sign up for a Postmark account
-2. Create a server and get your Server API Token
-3. Add and verify a sender signature (your from email address)
-4. Configure environment variables:
-
-```bash
-POMADE_PROVIDER=postmark
-POMADE_POSTMARK_SERVER_TOKEN=your-server-token-here
-POMADE_POSTMARK_FROM_EMAIL=noreply@yourdomain.com
-```
-
-**Email Templates:**
-
-The provider sends both plain text and HTML emails:
-
-- **Validation emails**: Include the challenge code and optional callback URL
-- **Recovery emails**: Include the pubkey, challenge code, and optional callback URL

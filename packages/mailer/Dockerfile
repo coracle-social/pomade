@@ -6,18 +6,17 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
 # Copy workspace configuration
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.json ./
 
 # Copy all packages
 COPY packages ./packages
 
-# Install dependencies
+# Install dependencies (skip husky in Docker)
+ENV HUSKY=0
 RUN pnpm install --frozen-lockfile
 
 # Build packages
-RUN pnpm --filter @pomade/core build
-RUN pnpm --filter @pomade/sqlite build
-RUN pnpm --filter @pomade/mailer build
+RUN pnpm run build
 
 # Set working directory to mailer package
 WORKDIR /app/packages/mailer

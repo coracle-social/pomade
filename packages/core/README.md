@@ -2,7 +2,7 @@
 
 Core library for the Pomade protocol - recovery protocol and implementation for nostr multisig signers.
 
-> **📖 For protocol specification, see [PROTOCOL.md](../../PROTOCOL.md)**
+For protocol specification, see [PROTOCOL.md](../../PROTOCOL.md)
 
 ## Installation
 

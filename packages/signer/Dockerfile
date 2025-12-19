@@ -6,12 +6,13 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
 # Copy workspace configuration
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.json ./
 
 # Copy all packages
 COPY packages ./packages
 
-# Install dependencies
+# Install dependencies (skip husky in Docker)
+ENV HUSKY=0
 RUN pnpm install --frozen-lockfile
 
 # Build packages

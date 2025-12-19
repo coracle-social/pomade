@@ -1,10 +1,10 @@
-# Pomade Monorepo
+# Pomade
 
-Recovery protocol and implementation for nostr multisig signers.
+A recovery protocol and implementation for nostr multisig signers.
 
-> **📖 For protocol specification and implementation details, see [PROTOCOL.md](PROTOCOL.md)**
+For protocol specification and implementation details, see [PROTOCOL.md](PROTOCOL.md)
 
-## ⚠️ Security Warning
+## Security Warning
 
 **ALPHA SOFTWARE** - This project should be considered ALPHA and not ready for production use.
 
@@ -23,54 +23,29 @@ This monorepo contains four packages:
 
 ## Getting Started
 
-### Installation
+### Clients
 
-```bash
-pnpm install
+To add pomade support to your client, simply add it to your project:
+
+```sh
+pnpm install @pomade/core
 ```
 
-### Building
+Then, follow the guide [here](INTEGRATION.md).
 
-Build all packages:
+### Signers
 
-```bash
-pnpm build
-```
+To run your own signer, simply run:
 
-Build specific packages:
+You can then add the signer's pubkey to your client to use it. Note that signers MUST be run by trusted, independent third parties. A list of reputable signers is included below and in the source code - we recommend you use this list unless you have good reasons not to.
 
-```bash
-pnpm build:core
-pnpm build:sqlite
-pnpm build:mailer
-pnpm build:signer
-```
+-
 
-### Testing
+### Mailers
 
-```bash
-pnpm test
-```
+To run your own mailer, simply run:
 
-### Development
-
-Run the mailer service:
-
-```bash
-cd packages/mailer
-cp .env.example .env
-# Edit .env with your configuration
-pnpm dev
-```
-
-Run the signer service:
-
-```bash
-cd packages/signer
-cp .env.example .env
-# Edit .env with your configuration
-pnpm dev
-```
+We recommend running your own mailer so that the from address on emails makes sense to your users. It's also very easy to create your own mailer that uses a transport method other than email. See [MAILERS.md](MAILERS.md) for more details.
 
 ## Package Details
 
@@ -118,18 +93,16 @@ See [packages/signer/README.md](packages/signer/README.md) for configuration and
 
 ## Docker
 
-Both mailer and signer services include Dockerfiles for easy deployment:
+Both mailer and signer services include Dockerfiles for easy deployment. Build from the repository root:
 
 ```bash
 # Build and run mailer
-cd packages/mailer
-docker build -t pomade-mailer .
-docker run -v $(pwd)/data:/data --env-file .env pomade-mailer
+docker build -f packages/mailer/Dockerfile -t pomade-mailer .
+docker run -v $(pwd)/data:/data --env-file packages/mailer/.env pomade-mailer
 
 # Build and run signer
-cd packages/signer
-docker build -t pomade-signer .
-docker run -v $(pwd)/data:/data --env-file .env pomade-signer
+docker build -f packages/signer/Dockerfile -t pomade-signer .
+docker run -v $(pwd)/data:/data --env-file packages/signer/.env pomade-signer
 ```
 
 ## License

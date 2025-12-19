@@ -30,9 +30,8 @@ const signer = new Signer({
   storage,
 })
 
-console.log("Pomade Signer Service started")
-console.log("Relays:", relays.join(", "))
-console.log("Database:", dbPath)
+console.log(`Running as: ${signer.pubkey}`)
+console.log(`Listening on relays: ${relays.join(", ")}`)
 
 // Handle shutdown gracefully
 process.on("SIGINT", () => {

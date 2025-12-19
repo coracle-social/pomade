@@ -2,22 +2,7 @@
 
 Standalone signer service for pomade. This service manages multisig sessions, handles signing requests, and coordinates recovery flows.
 
-## Installation
-
-From the monorepo root:
-
-```bash
-pnpm install
-pnpm --filter @pomade/signer build
-```
-
 ## Configuration
-
-Copy `.env.example` to `.env` and configure:
-
-```bash
-cp .env.example .env
-```
 
 Required environment variables:
 - `POMADE_SECRET`: Your nostr private key (hex or nsec format)
@@ -28,30 +13,16 @@ Optional environment variables:
 
 ## Running
 
-### Development
+From the repository root:
 
-```bash
-pnpm --filter @pomade/signer dev
+```sh
+mkdir -p data
+cp packages/signer/.env{.example,} # Edit the env file to fill in your details
+docker build -f packages/signer/Dockerfile -t pomade-signer .
+docker run -v $(pwd)/data:/data --env-file packages/signer/.env pomade-signer
 ```
 
-### Production
+From dockerhub:
 
-```bash
-pnpm --filter @pomade/signer start
+```sh
 ```
-
-### Docker
-
-```bash
-docker build -t pomade-signer .
-docker run -v $(pwd)/data:/data --env-file .env pomade-signer
-```
-
-## Features
-
-- Session registration and management
-- Multisig signing requests
-- ECDH key exchange
-- Recovery method setup and validation
-- Account recovery flows
-- Session listing and deletion
