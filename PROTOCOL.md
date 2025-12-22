@@ -16,11 +16,7 @@ A _client_ is an application that can be trusted to (temporarily) handle key mat
 
 ### Signer
 
-A _signer_ is a headless application that can be trusted to store key shares and collaborate in building threshold signatures. A signer is identified by a nostr public key. Communication is brokered following NIP 65.
-
-### Mailer
-
-A _mailer_ is a headless application that can be trusted to send messages containing one time passwords to users, but not to access key material. Communication is brokered following NIP 65.
+A _signer_ is a headless application that can be trusted to store key shares and collaborate in building threshold signatures. A signer is identified by a nostr public key. Communication is brokered following NIP 65. Signers are also responsible for sending OTP codes over email in some flows.
 
 ## Protocol Overview
 
@@ -83,86 +79,6 @@ Each signer must then explicitly accept or (optionally) reject the share:
 If a session exists with the same pubkey, signers SHOULD create a new session rather than replacing the old one or rejecting the new one.
 
 The same signer MUST NOT be used multiple times for multiple shares of the same key. The same client key MUST NOT be used multiple times for different sessions.
-
-### Setting a Recovery Method
-
-Users MAY set a recovery method by sending a `recoveryMethod/set` to the signers for a given session.
-
-```typescript
-{
-  method: "recoveryMethod/set"
-  payload: {
-    mailer: string         // 32 byte hex pubkey of mailer service
-    inbox: string          // string identifying the user to the mailer service
-    callback_url?: string  // optional callback url to send users to
-  }
-}
-```
-
-Signers must respond as follows:
-
-```typescript
-{
-  method: "recoveryMethod/set/result"
-  payload: {
-    ok: boolean // whether the flow was successful
-    message: string // human-readable error/success message
-    prev: string // 32 byte hex encoded recoveryMethod/set event id
-  }
-}
-```
-
-A recovery method MUST be set within a short time (e.g., 5 minutes) of registration. Otherwise, if an attacker is able to provide their own recovery method a compromised session can lead to key compromise. Both `mailer` and `inbox` are bound to the session in advance of recovery to prevent an attacker from providing a MITM mailer.
-
-A recovery method may be any out of band communication method in which the user is uniquely identifiable by a non-sensitive token (for example, an email address).
-
-In order to validate a user's inbox, signers must generate an OTP and send it to the given `mailer`:
-
-```typescript
-{
-  method: "recoveryMethod/challenge"
-  payload: {
-    otp: string            // 6+ digit one time password
-    client: string         // 32 byte hex public key of the user's client (for batching emails)
-    inbox: string          // the user's email address or other inbox identifier
-    pubkey: string         // 32 byte hex public key of the user
-    threshold: number      // number of signers that need to validate the email (not the signing threshold)
-    callback_url?: string  // callback url provided in recoveryMethod/set
-  }
-}
-```
-
-The mailer then combines all the signer pubkeys and provided OTPs into a single base58 encoded url string and includes it in the message to the user:
-
-```typescript
-base58encode("<pubkey1>=<otp1>&<pubkey2>=<otp2>")
-```
-
-The mailer MAY include a link in the message by appending the base58 encoded challenge to the `callback_url`. This does not constitute a man-in-the-middle attack, because the client secret is held by the application the user is using to execute the recovery flow.
-
-Once the user's client receives the challenge, it should parse it and send each OTP to the correct signer:
-
-```typescript
-{
-  method: "recoveryMethod/finalize"
-  payload: {
-    otp: string // 6+ digit one time password provided for the signer
-  }
-}
-```
-
-The signer must then indicate whether the flow was successful:
-
-```typescript
-{
-  method: "recoveryMethod/finalize/result"
-  payload: {
-    ok: boolean // whether the flow was successful
-    message: string // human-readable error/success message
-    prev: string // 32 byte hex encoded recoveryMethod/finalize event id
-  }
-}
-```
 
 ### Signing
 
@@ -258,115 +174,253 @@ const nostrConversationKey = bytesToHex(
 )
 ```
 
+
+### Setting a Recovery Method
+
+Users MAY set a recovery method by sending a request to the signers for a given session.
+
+The `password` sent to a given signer MUST be the `sha256` hash of the user's password, concatenated with the signer's public key. This prevents signers from using the user's password to perform privileged actions with one another.
+
+```typescript
+{
+  method: "recoveryMethod/init"
+  payload: {
+    email: string          // user's email address
+    password: string       // sha256(password + signer pubkey)
+  }
+}
+```
+
+This event is authenticated by the request being signed by an active `client key`, and should result in the email/password being associated with that session.
+
+Clients SHOULD validate the user's email address prior to sending it to the signers.
+
+Signers must respond as follows:
+
+```typescript
+{
+  method: "recoveryMethod/init/result"
+  payload: {
+    ok: boolean      // whether the flow was successful
+    message: string  // human-readable error/success message
+    prev: string     // 32 byte hex encoded recoveryMethod/set event id
+  }
+}
+```
+
+A recovery method MUST be set within a short time (e.g., 15 minutes) of registration. Otherwise, if an attacker is able to provide their own recovery method a compromised session can lead to key compromise.
+
+From this point on, users can use EITHER their password or an email-based OTP flow to authenticate and authorize privileged actions.
+
+#### Password Authentication
+
+In order to authenticate with a password, the user must provide their `email` and their `password` to the client they are using. The client then calculates the `password` to be sent to a given signer as `sha256(password + signer pubkey)`.
+
+#### OTP Authentication
+
+In order to authenticate with only an email address (in the case of the user forgetting their password), *each* signer has to authenticate the user independently (in order to avoid a MITM attack by a trusted email service that can lead to account compromise).
+
+The client first chooses the signers it wishes to authenticate with and sends a request for an OTP to each one:
+
+```typescript
+{
+  method: "otp/request"
+  payload: {
+    email: string          // user's email address
+    callback_url?: string  // optional callback url to send users to
+  }
+}
+```
+
+Each signer then sends an email to the user containing the signer's pubkey and the OTP in the form: `base58(signer pubkey + otp)`. The user must then copy this into the requesting client (or follow a link in the email generated by appending the base58 challenge to the provided callback_url).
+
+The client can then temporarily act on behalf of the user's account by parsing the challenge and including the `otp` in a request to the correct signer. OTPs MUST be invalidated after a single use, and MUST expire after a short time (but long enough for users to complete a given flow, e.g. 15 minutes).
+
+#### Auth Payload
+
+Below is a definition for payloads' `auth` key, including either password-based or OTP authentication:
+
+```typescript
+type AuthPayload = {
+  email: string        // user's current email address
+  password: string     // sha256(current password + signer pubkey)
+} | {
+  email: string        // user's current email address
+  otp: string          // OTP obtained via email flow
+}
+```
+
+### Updating an Email or Password
+
+Users MAY update their recovery method by sending a request with their new password, authorized using either method above. This flow MUST NOT be authorized on the strength of a single session's `client key`, or else a single hijacked session can result in key compromise.
+
+```typescript
+{
+  method: "recoveryMethod/update"
+  payload: {
+    email: string          // user's new email address
+    password: string       // sha256(new password + signer pubkey)
+    auth: AuthPayload      // authentication information as described above
+  }
+}
+```
+
+Signers must respond as follows:
+
+```typescript
+{
+  method: "recoveryMethod/update/result"
+  payload: {
+    ok: boolean      // whether the flow was successful
+    message: string  // human-readable error/success message
+    prev: string     // 32 byte hex encoded recoveryMethod/set event id
+  }
+}
+```
+
+### Login
+
+To recover remote access to the user's secret by email alone without access to an active `client key`, a client can send a request to all known signers using a fresh `client key`.
+
+The `login/start` request is authenticated using the user's email and password/otp. Subsequent requests MUST use the same `client key` in order to be considered valid.
+
+```typescript
+{
+  method: "login/start"
+  payload: {
+    auth: AuthPayload
+  }
+}
+```
+
+Signers should respond with a list of sessions that the client can log into:
+
+```typescript
+{
+  method: "login/options"
+  payload: {
+    sessions?: {
+      pubkey: string         // 32 byte hex encoded user pubkey
+      client: string         // 32 byte hex encoded client pubkey (doubles as session id)
+      created_at: number     // seconds-resolution timestamp when the session was created
+      last_activity: number  // seconds-resolution timestamp when the session was last used
+      threshold: number      // signing threshold for the group
+      total: number          // how many total signers are in the group
+      idx: number            // the signer's index in the signing group
+      email?: string         // recovery email
+    }[],
+    ok: boolean              // whether the flow was successful
+    message: string          // human-readable error/success message
+    prev: string             // 32 byte hex encoded login/start event id
+  }
+}
+```
+
+Clients should then select a `client` and notify the signer:
+
+```typescript
+{
+  method: "login/select"
+  payload: {
+    client: string
+  }
+}
+```
+
+Signers should respond as follows:
+
+```typescript
+{
+  method: "login/result"
+  payload: {
+    ok: boolean              // whether the flow was successful
+    message: string          // human-readable error/success message
+    prev: string             // 32 byte hex encoded login/start event id
+  }
+}
+```
+
+Signers SHOULD NOT associate the new client key with the existing session, but instead should create an entirely new session with the key used to sign the request as the authorized `client key`.
+
 ### Recovery
 
-To recover access to the user's secret by email alone without access to an active `client key`, a client can send a recovery request to all known signers using a fresh client key. This recovery request can be either a `login` in which case the signer will create a new session for the user's client key, or a `recovery` in which case the signer will return the user's key shares.
+To recover a user's secret key by email alone without access to an active `client key`, a client can send a request to all known signers using a fresh `client key`.
+
+The `recovery/start` request is authenticated using the user's email and password/otp. Subsequent requests MUST use the same `client key` in order to be considered valid.
 
 ```typescript
 {
   method: "recovery/start"
   payload: {
-    type: "login" | "recovery"  // whether to return the shares or create a new session on completion
-    inbox: string               // the user's inbox identifier
-    pubkey?: string             // the user's pubkey (optional, useful if multiple pubkeys are associated with a single inbox)
-    callback_url?: string       // optional callback url to send users to
+    auth: AuthPayload
   }
 }
 ```
 
-Signers then respond:
+Signers should respond with a list of sessions that the client can recover from:
 
 ```typescript
 {
-  method: "recovery/start/result"
+  method: "recovery/options"
   payload: {
-    ok: boolean // whether the flow was successful
-    message: string // human-readable error/success message
-    prev: string // 32 byte hex encoded recovery/start event id
-  }
-}
-```
-
-Each signer then finds any sessions that were registered with the provided `inbox` and sends its `client`, `threshold`, and a newly generated `otp` to its `mailer` service.
-
-```typescript
-{
-  method: "recovery/challenge"
-  payload: {
-    idx: number           // the index of the signer's share
-    inbox: string         // the user's inbox identifier
-    pubkey: string        // the user's pubkey
-    items: {
-      otp: string         // a one-time code unique to this item
-      client: string      // 32 byte hex-encoded client pubkey
-      threshold: number   // minimum number of shares needed to recover the user's key
+    sessions?: {
+      pubkey: string         // 32 byte hex encoded user pubkey
+      client: string         // 32 byte hex encoded client pubkey (doubles as session id)
+      created_at: number     // seconds-resolution timestamp when the session was created
+      last_activity: number  // seconds-resolution timestamp when the session was last used
+      threshold: number      // signing threshold for the group
+      total: number          // how many total signers are in the group
+      idx: number            // the signer's index in the signing group
+      email?: string         // recovery email
     }[],
-    callback_url?: string // optional callback url to send users to
+    ok: boolean              // whether the flow was successful
+    message: string          // human-readable error/success message
+    prev: string             // 32 byte hex encoded login/start event id
   }
 }
 ```
 
-Because a user may have sessions across a disjunct set of signers, some of which may fail to forward their session info to the mailer, mailers will have to make a best-effort attempt to figure out which session to recover from. It can do this by grouping by `client`. If the number of peers that have responded is equal to the `threshold` for those options, the mailer can send a recovery message. If the recovery type is `login`, the mailer must sort signer pubkeys based on `idx` so that the client can send the correct requests to the correct signers.
-
-Signers should be careful to send items to the `mailer` designated by the user when the recovery method was registered. If multiple pubkeys have been registered for a single recovery method, it should send a separate recovery OTP to mailers for each pubkey. The mailer MAY then re-batch by `inbox` so that the user only receives one message with the option to restore any one of the registered pubkeys.
-
-Once `threshold` signers have sent OTPs to a `mailer` for a given pubkey/inbox combination, the `mailer` must then combine these OTPs into a single challenge as follows:
-
-```typescript
-base58encode("<pubkey1>=<otp1>&<pubkey2>=<otp2>")
-```
-
-The mailer MAY include a link in the message by appending the base58 encoded challenge to the `callback_url`. This does not constitute a man-in-the-middle attack, because the client secret is held by the application the user is using to execute the recovery flow.
-
-Once the user's client receives the challenge, it should parse it and send each OTP to the correct signer:
+Clients should then select a `client` and notify the signer:
 
 ```typescript
 {
-  method: "recovery/finalize"
+  method: "recovery/select"
   payload: {
-    otp: string // 6+ digit one time password provided for the signer
+    client: string
   }
 }
 ```
 
-_IMPORTANT_: In order for recovery completion to be valid, it MUST be signed by the **same client pubkey** that initiated the recovery flow. Signers MUST also invalidate OTPs after a small number of attempts to prevent brute force attacks. OTPs MUST be invalidated after a short period of time as well (e.g., 15 minutes).
-
-If this was a `login` flow, the signer should create a new session with the same group/share using the newly-generated client key, and NOT return them. If this was a `recovery` flow, the signer must return the `group` and `commit` originally generated on the user's client:
+Signers should respond as follows:
 
 ```typescript
 {
-  method: "recovery/finalize/result"
+  method: "recovery/result"
   payload: {
     share?: {
-      idx: number // commit index
-      binder_sn: string // 32 byte hex string
-      hidden_sn: string // 32 byte hex string
-      seckey: string // 32 byte hex string
+      idx: number            // commit index
+      binder_sn: string      // 32 byte hex string
+      hidden_sn: string      // 32 byte hex string
+      seckey: string         // 32 byte hex string
     }
     group?: {
       commits: Array<{
-        idx: number // commit index
-        pubkey: string // 33 byte hex string
-        hidden_pn: string // 33 byte hex string
-        binder_pn: string // 33 byte hex string
+        idx: number          // commit index
+        pubkey: string       // 33 byte hex string
+        hidden_pn: string    // 33 byte hex string
+        binder_pn: string    // 33 byte hex string
       }>
-      group_pk: string // 33 byte hex string
-      threshold: number // integer signing threshold
+      group_pk: string       // 33 byte hex string
+      threshold: number      // integer signing threshold
     }
-    ok: boolean // whether the flow was successful
-    message: string // human-readable error/success message
-    prev: string // 32 byte hex encoded recovery/finalize event id
+    ok: boolean              // whether the flow was successful
+    message: string          // human-readable error/success message
+    prev: string             // 32 byte hex encoded login/start event id
   }
 }
 ```
 
-The client can then reconstruct the user's secret key from the `group` and `share`.
-
-```typescript
-import {Lib} from "@frostr/bifrost"
-
-Lib.recover_secret_key(group, shares)
-```
+The client can then reconstitute the user's private key. This flow does not result in a new session being associated with the current `client key`.
 
 ### Session management
 
@@ -388,11 +442,15 @@ Each signer must then respond with a list of sessions for the given user:
   method: "session/list/result"
   payload: {
     sessions: {
+      pubkey: string         // 32 byte hex encoded user pubkey
       client: string         // 32 byte hex encoded client pubkey (doubles as session id)
-      inbox?: string         // the user's recovery method
       created_at: number     // seconds-resolution timestamp when the session was created
       last_activity: number  // seconds-resolution timestamp when the session was last used
-    }[],
+      threshold: number      // signing threshold for the group
+      total: number          // how many total signers are in the group
+      idx: number            // the signer's index in the signing group
+      email?: string         // recovery email
+    }[]
     ok: boolean              // whether the flow was successful
     message: string          // human-readable error/success message
     prev: string             // 32 byte hex encoded session/list event id
@@ -431,10 +489,14 @@ This implementation uses @frostr/bifrost for all cryptographic functionality.
 
 ## Threat model
 
-Signers are the most trusted party in this setup. It is assumed that they are run by reputable people, and carefully selected by clients based on this reputation. If `threshold` signers collude, they are necessarily able to steal key material. This can be mitigated by having clients store one key share, reducing the surface area of attack, but this comes at the trade-off of making recovery more fragile.
+It is assumed that signers are run by reputable people and carefully selected by clients based on this reputation. If `threshold` signers collude, they are necessarily able to steal key material.
 
-Mailers are trusted to the extent that they have access to user metadata (e.g. linking nostr pubkeys, user emails, and client pubkeys which can be used for traffic analysis), but are not capable of executing a man-in-the-middle attack. In addition, since recovery is triggered using only publicly available information, anyone can initiate a recovery flow, spamming the mailer service and the end user's inbox.
+Email providers are completely trusted since they can login to a user's session or even steal key material by requesting an OTP on a given user's behalf and using that to recover key material.
 
-However, both signers and mailers have the ability to perform a denial-of-service attack by refusing to respond to messages or relay challenges to the user's `inbox`. User key shares are also held on servers accessible to the internet, which likely are running the same code, and so if one signer is vulnerable, all of them are.
+Signers and email service providers also have the ability to perform a denial-of-service attack by refusing to respond to messages or relay OTPs to the user.
 
-For this reason, this scheme is not recommended for users who are capable of holding their own keys, but for users who are completely new to nostr and the concept of keys. Even still, clients that use this scheme should encourage their users to migrate to self-custody once they have established their value proposition. Other clients may choose to use this scheme for signing, but disable key recovery, opting for an encrypted backup instead.
+User key shares and passwords are held on servers accessible to the internet which are likely running the same code, which means if one signer is vulnerable to a given attack, all of them are.
+
+This scheme is **not** recommended for users who are capable of holding their own keys, but for users who are completely new to nostr and the concept of keys. Clients that use this scheme should encourage their users to migrate to self-custody once they have established their value proposition, deleting signer sessions on migration.
+
+Other clients may choose to use this scheme for signing but disable key recovery, opting for an encrypted backup instead.
