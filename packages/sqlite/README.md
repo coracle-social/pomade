@@ -17,7 +17,7 @@ const storageFactory = sqliteStorageFactory({
   path: "./data.db",
 })
 
-// Use with pomade client, mailer, or signer
+// Use with pomade signer
 const storage = storageFactory("my-storage")
 
 await storage.set("key", {some: "value"})

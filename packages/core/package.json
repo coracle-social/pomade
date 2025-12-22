@@ -26,6 +26,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@typescript-eslint/eslint-plugin": "^8.49.0",
     "@typescript-eslint/parser": "^8.49.0",
     "eslint": "^9.39.1",
@@ -42,6 +43,7 @@
     "@welshman/net": "^0.7.1",
     "@welshman/util": "^0.7.1",
     "base58-js": "^3.0.3",
+    "bcrypt": "^6.0.0",
     "nostr-tools": "^2.19.3",
     "vitest": "^4.0.15",
     "zod": "^4.1.13"

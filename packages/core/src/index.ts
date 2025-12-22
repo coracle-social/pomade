@@ -1,5 +1,4 @@
 export * from "./client.js"
-export * from "./mailer.js"
 export * from "./message.js"
 export * from "./rpc.js"
 export * from "./schema.js"

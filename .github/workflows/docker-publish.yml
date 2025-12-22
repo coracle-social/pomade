@@ -19,8 +19,6 @@ jobs:
     strategy:
       matrix:
         service:
-          - name: mailer
-            dockerfile: packages/mailer/Dockerfile
           - name: signer
             dockerfile: packages/signer/Dockerfile
 

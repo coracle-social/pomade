@@ -1,7 +1,7 @@
 import {LOCAL_RELAY_URL} from "@welshman/net"
-import {range, sleep, noop} from "@welshman/lib"
+import {range, sleep} from "@welshman/lib"
 import {getPubkey, makeSecret} from "@welshman/util"
-import {inMemoryStorageFactory, context, Client, Signer, Mailer} from "../src"
+import {inMemoryStorageFactory, context, Client, Signer} from "../src"
 
 export const signerSecrets = Array.from(range(0, 8)).map(() => makeSecret())
 export const signerPubkeys = signerSecrets.map(secret => getPubkey(secret))
@@ -9,25 +9,30 @@ export const signerPubkeys = signerSecrets.map(secret => getPubkey(secret))
 context.setSignerPubkeys(signerPubkeys)
 context.setIndexerRelays([LOCAL_RELAY_URL])
 
+type ChallengeSubscriber = (payload: ChallengePayload) => void
+
 let signers: Signer[]
+let challengeSubscribers: ChallengeSubscriber[] = []
+
+export function onChallenge(cb: ChallengeSubscriber) {
+  challengeSubscribers.push(cb)
+
+  return () => {
+    challengeSubscribers = without(cb, challengeSubscribers)
+  }
+}
 
 export function makeSigner(secret: string) {
   return new Signer({
     secret,
     relays: [LOCAL_RELAY_URL],
     storage: inMemoryStorageFactory,
-  })
-}
-
-export function makeMailer(secret: string, provider: Partial<MailerProvider> = {}) {
-  return new Mailer({
-    secret,
-    relays: [LOCAL_RELAY_URL],
-    storage: inMemoryStorageFactory,
-    provider: {
-      sendValidation: noop,
-      sendRecovery: noop,
-      ...provider,
+    mailer: {
+      sendChallenge: payload => {
+        for (const cb of challengeSubscribers) {
+          cb(payload)
+        }
+      },
     },
   })
 }
@@ -38,6 +43,7 @@ export function beforeHook() {
 
 export function afterHook() {
   signers.forEach(signer => signer.stop())
+  challengeSubscribers = []
 }
 
 export async function makeClientWithRecovery(

@@ -1,14 +1,15 @@
-import * as z from "zod"
+import * as b58 from "base58-js"
 import {
   tryCatch,
+  textDecoder,
   removeUndefined,
-  pushToMapKey,
+  splitAt,
   shuffle,
   sortBy,
-  fromPairs,
   first,
   last,
   isDefined,
+  identity,
   sample,
   textEncoder,
 } from "@welshman/lib"
@@ -19,32 +20,36 @@ import {prep, makeSecret, getPubkey, makeHttpAuth} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Lib} from "@frostr/bifrost"
 import type {GroupPackage, ECDHPackage} from "@frostr/bifrost"
-import {Schema, Method, RecoveryType} from "./schema.js"
-import {parseChallenge, context} from "./util.js"
+import {Method} from "./schema.js"
+import {context, hashArgon} from "./util.js"
 import {RPC, WithEvent} from "./rpc.js"
 import {
   isEcdhResult,
-  isRecoveryFinalizeResult,
-  isRecoveryMethodFinalizeResult,
-  isRecoveryMethodSetResult,
-  isRecoveryStartResult,
+  isLoginOptions,
+  isLoginResult,
+  isRecoveryOptions,
+  isRecoveryResult,
+  isRecoveryMethodInitResult,
   isRegisterResult,
   isSessionDeleteResult,
   isSessionListResult,
   isSignResult,
+  makeChallengeRequest,
   makeEcdhRequest,
-  makeRecoveryFinalize,
-  makeRecoveryMethodFinalize,
-  makeRecoveryMethodSet,
+  makeLoginStart,
+  makeLoginSelect,
   makeRecoveryStart,
+  makeRecoverySelect,
+  makeRecoveryMethodInit,
   makeRegisterRequest,
   makeSessionDelete,
   makeSessionList,
   makeSignRequest,
-  RecoveryFinalizeResult,
-  RecoveryMethodFinalizeResult,
-  RecoveryMethodSetResult,
-  RecoveryStartResult,
+  LoginOptions,
+  LoginResult,
+  RecoveryOptions,
+  RecoveryResult,
+  RecoveryMethodInitResult,
   RegisterResult,
   SessionDeleteResult,
   SessionListResult,
@@ -75,6 +80,17 @@ export class Client {
   stop() {
     this.rpc.stop()
   }
+
+  static getKnownPeers() {
+    if (context.signerPubkeys.length === 0) {
+      console.log("[pomade]: You can configure available signer pubkeys using setSignerPubkeys")
+      throw new Error("No signer pubkeys available")
+    }
+
+    return context.signerPubkeys
+  }
+
+  // Register
 
   static async register(threshold: number, n: number, userSecret: string, recovery = true) {
     if (context.signerPubkeys.length < n) {
@@ -131,22 +147,64 @@ export class Client {
     }
   }
 
-  static async startRecovery(inbox: string, callback_url?: string, pubkey?: string) {
-    if (context.signerPubkeys.length === 0) {
-      console.log("[pomade]: You can configure available signer pubkeys using setSignerPubkeys")
-      throw new Error("No signer pubkeys available")
-    }
+  // Recovery setup
 
+  async initializeRecoveryMethod(email: string, userPassword: string) {
+    const messages = await Promise.all(
+      this.peers.map(async (peer, i) => {
+        const password = await hashArgon(userPassword, peer)
+
+        return this.rpc
+          .channel(peer)
+          .send(makeRecoveryMethodInit({email, password}))
+          .receive<WithEvent<RecoveryMethodInitResult>>((message, resolve) => {
+            if (isRecoveryMethodInitResult(message)) {
+              resolve(message)
+            }
+          })
+      }),
+    )
+
+    return {ok: messages.every(m => m?.payload.ok), messages}
+  }
+
+  // Challenge
+
+  static async requestChallenge(email: string) {
+    const clientSecret = makeSecret()
+    const rpc = new RPC(clientSecret)
+
+    const oks = await Promise.all(
+      Client.getKnownPeers().map(async (peer, i) => {
+        const email_hash = await hashArgon(email, peer)
+
+        return rpc.channel(peer).send(makeChallengeRequest({email_hash})).ok
+      }),
+    )
+
+    rpc.stop()
+
+    return {ok: oks.every(identity)}
+  }
+
+  // Login
+
+  static async loginWithPassword(email: string, userPassword: string) {
     const clientSecret = makeSecret()
     const rpc = new RPC(clientSecret)
 
     const messages = await Promise.all(
-      context.signerPubkeys.map((peer, i) => {
+      Client.getKnownPeers().map(async (peer, i) => {
+        const auth = {
+          email_hash: await hashArgon(email, peer),
+          password: await hashArgon(userPassword, peer),
+        }
+
         return rpc
           .channel(peer)
-          .send(makeRecoveryStart({type: RecoveryType.Recovery, inbox, callback_url, pubkey}))
-          .receive<RecoveryStartResult>((message, resolve) => {
-            if (isRecoveryStartResult(message)) {
+          .send(makeLoginStart({auth}))
+          .receive<LoginOptions>((message, resolve) => {
+            if (isLoginOptions(message)) {
               resolve(message)
             }
           })
@@ -158,16 +216,124 @@ export class Client {
     return {ok: messages.every(m => m?.payload.ok), messages, clientSecret}
   }
 
-  static async finalizeRecovery(clientSecret: string, challenge: string) {
+  static async loginWithChallenge(email: string, challenges: string[]) {
+    const clientSecret = makeSecret()
     const rpc = new RPC(clientSecret)
 
     const messages = await Promise.all(
-      parseChallenge(challenge).map(([peer, otp]) => {
+      challenges.map(async base58 => {
+        const challenge = textDecoder.decode(b58.base58_to_binary(base58))
+        const peer = challenge.slice(0, 64)
+        const otp = challenge.slice(64)
+        const email_hash = await hashArgon(email, peer)
+        const auth = {email_hash, otp}
+
         return rpc
           .channel(peer)
-          .send(makeRecoveryFinalize({otp}))
-          .receive<WithEvent<RecoveryFinalizeResult>>((message, resolve) => {
-            if (isRecoveryFinalizeResult(message)) {
+          .send(makeLoginStart({auth}))
+          .receive<LoginOptions>((message, resolve) => {
+            if (isLoginOptions(message)) {
+              resolve(message)
+            }
+          })
+      }),
+    )
+
+    rpc.stop()
+
+    return {ok: messages.every(m => m?.payload.ok), messages, clientSecret}
+  }
+
+  static async selectLogin(clientSecret: string, client: string, peers: string[]) {
+    const rpc = new RPC(clientSecret)
+
+    const messages = await Promise.all(
+      peers.map((peer, i) => {
+        return rpc
+          .channel(peer)
+          .send(makeLoginSelect({client}))
+          .receive<LoginResult>((message, resolve) => {
+            if (isLoginResult(message)) {
+              resolve(message)
+            }
+          })
+      }),
+    )
+
+    rpc.stop()
+
+    const group = messages.find(m => m?.payload.group)?.payload.group
+
+    return {ok: messages.every(m => m?.payload.ok), messages, group, clientSecret}
+  }
+
+  // Recovery
+
+  static async recoverWithPassword(email: string, userPassword: string) {
+    const clientSecret = makeSecret()
+    const rpc = new RPC(clientSecret)
+
+    const messages = await Promise.all(
+      Client.getKnownPeers().map(async (peer, i) => {
+        const auth = {
+          email_hash: await hashArgon(email, peer),
+          password: await hashArgon(userPassword, peer),
+        }
+
+        return rpc
+          .channel(peer)
+          .send(makeRecoveryStart({auth}))
+          .receive<RecoveryOptions>((message, resolve) => {
+            if (isRecoveryOptions(message)) {
+              resolve(message)
+            }
+          })
+      }),
+    )
+
+    rpc.stop()
+
+    return {ok: messages.every(m => m?.payload.ok), messages, clientSecret}
+  }
+
+  static async recoverWithChallenge(email: string, challenges: string[]) {
+    const clientSecret = makeSecret()
+    const rpc = new RPC(clientSecret)
+
+    const messages = await Promise.all(
+      challenges.map(async base58 => {
+        const challenge = textDecoder.decode(b58.base58_to_binary(base58))
+        const peer = challenge.slice(0, 64)
+        const otp = challenge.slice(64)
+        const email_hash = await hashArgon(email, peer)
+        const auth = {email_hash, otp}
+
+        return rpc
+          .channel(peer)
+          .send(makeRecoveryStart({auth}))
+          .receive<RecoveryOptions>((message, resolve) => {
+            if (isRecoveryOptions(message)) {
+              resolve(message)
+            }
+          })
+      }),
+    )
+
+    rpc.stop()
+
+    return {ok: messages.every(m => m?.payload.ok), messages, clientSecret}
+  }
+
+  static async selectRecovery(clientSecret: string, client: string, peers: string[]) {
+    const rpc = new RPC(clientSecret)
+
+    const messages = await Promise.all(
+      peers.map(peer => {
+        return rpc
+          .channel(peer)
+          .send(makeRecoverySelect({client}))
+          .receive<WithEvent<RecoveryResult>>((message, resolve) => {
+            if (isRecoveryResult(message)) {
               resolve(message)
             }
           })
@@ -181,105 +347,6 @@ export class Client {
     const userSecret = tryCatch(() => Lib.recover_secret_key(group!, shares))
 
     return {ok: Boolean(userSecret), messages, userSecret}
-  }
-
-  static async startLogin(inbox: string, callback_url?: string, pubkey?: string) {
-    if (context.signerPubkeys.length === 0) {
-      console.log("[pomade]: You can configure available signer pubkeys using setSignerPubkeys")
-      throw new Error("No signer pubkeys available")
-    }
-
-    const clientSecret = makeSecret()
-    const rpc = new RPC(clientSecret)
-
-    const messages = await Promise.all(
-      context.signerPubkeys.map((peer, i) => {
-        return rpc
-          .channel(peer)
-          .send(makeRecoveryStart({type: RecoveryType.Login, inbox, callback_url, pubkey}))
-          .receive<RecoveryStartResult>((message, resolve) => {
-            if (isRecoveryStartResult(message)) {
-              resolve(message)
-            }
-          })
-      }),
-    )
-
-    rpc.stop()
-
-    return {ok: messages.every(m => m?.payload.ok), messages, clientSecret}
-  }
-
-  static async finalizeLogin(clientSecret: string, challenge: string) {
-    const rpc = new RPC(clientSecret)
-
-    const messages = await Promise.all(
-      parseChallenge(challenge).map(([peer, otp]) => {
-        return rpc
-          .channel(peer)
-          .send(makeRecoveryFinalize({otp}))
-          .receive<WithEvent<RecoveryFinalizeResult>>((message, resolve) => {
-            if (isRecoveryFinalizeResult(message)) {
-              resolve(message)
-            }
-          })
-      }),
-    )
-
-    rpc.stop()
-
-    const group = messages.find(m => m?.payload.group)?.payload.group
-    const peers = removeUndefined(messages.map(m => m?.event.pubkey))
-
-    return {
-      messages,
-      ok: messages.every(m => m?.payload.ok),
-      clientOptions: {
-        secret: clientSecret,
-        group: group!,
-        peers,
-      },
-    }
-  }
-
-  async setRecoveryMethod(inbox: string, mailer: string, callback_url?: string) {
-    const messages = await Promise.all(
-      this.peers.map((peer, i) => {
-        return this.rpc
-          .channel(peer)
-          .send(makeRecoveryMethodSet({inbox, mailer, callback_url}))
-          .receive<WithEvent<RecoveryMethodSetResult>>((message, resolve) => {
-            if (isRecoveryMethodSetResult(message)) {
-              resolve(message)
-            }
-          })
-      }),
-    )
-
-    return {ok: messages.every(m => m?.payload.ok), messages}
-  }
-
-  async finalizeRecoveryMethod(challenge: string) {
-    const otpsByPeer = fromPairs(parseChallenge(challenge))
-
-    const messages = await Promise.all(
-      this.peers.map((peer, i) => {
-        const otp = otpsByPeer[peer] || ""
-
-        if (otp) {
-          return this.rpc
-            .channel(peer)
-            .send(makeRecoveryMethodFinalize({otp}))
-            .receive<WithEvent<RecoveryMethodFinalizeResult>>((message, resolve) => {
-              if (isRecoveryMethodFinalizeResult(message)) {
-                resolve(message)
-              }
-            })
-        }
-      }),
-    )
-
-    return {ok: messages.every(m => m?.payload.ok), messages}
   }
 
   async sign(stampedEvent: StampedEvent) {
@@ -354,7 +421,7 @@ export class Client {
 
   async listSessions() {
     const messages = await Promise.all(
-      context.signerPubkeys.map(async (peer, i) => {
+      Client.getKnownPeers().map(async (peer, i) => {
         const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.SessionList))
 
         if (auth) {
@@ -370,23 +437,7 @@ export class Client {
       }),
     )
 
-    const sessionsByClient = new Map<
-      string,
-      z.infer<typeof Schema.sessionItem> & {peer: string}[]
-    >()
-
-    for (const message of messages) {
-      if (!message) continue
-
-      for (const sessionItem of message.payload.sessions) {
-        pushToMapKey(sessionsByClient, sessionItem.client, {
-          peer: message.event.pubkey,
-          ...sessionItem,
-        })
-      }
-    }
-
-    return sessionsByClient
+    return {ok: messages.every(m => m?.payload.ok), messages}
   }
 
   async deleteSession(client: string, peers: string[]) {

@@ -1,6 +1,7 @@
 import * as nt44 from "nostr-tools/nip44"
-import * as b58 from "base58-js"
-import {cached, uniq, textDecoder, textEncoder, hexToBytes} from "@welshman/lib"
+import {argon2id} from "@noble/hashes/argon2.js"
+import {bytesToHex} from "@noble/hashes/utils.js"
+import {cached, uniq, textEncoder, hexToBytes} from "@welshman/lib"
 import type {EventTemplate} from "@welshman/util"
 import {
   prep,
@@ -12,6 +13,8 @@ import {
   isRelayUrl,
 } from "@welshman/util"
 import {publish, request, LOCAL_RELAY_URL} from "@welshman/net"
+
+// Signing and encryption
 
 export function prepAndSign(secret: string, event: EventTemplate) {
   return sign(prep(event, getPubkey(secret)), secret)
@@ -30,17 +33,13 @@ export const nip44 = {
     nt44.v2.decrypt(m, nip44.getSharedSecret(secret, pubkey)!),
 }
 
-export function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString()
+// Payload hashing
+
+export async function hashArgon(text: string, peer: string) {
+  return bytesToHex(argon2id(textEncoder.encode(text), hexToBytes(peer), {t: 3, m: 65536, p: 1}))
 }
 
-export function buildChallenge(otpsByPeer: [string, string][]) {
-  return b58.binary_to_base58(textEncoder.encode(new URLSearchParams(otpsByPeer).toString()))
-}
-
-export function parseChallenge(challenge: string): [string, string][] {
-  return Array.from(new URLSearchParams(textDecoder.decode(b58.base58_to_binary(challenge))))
-}
+// Context
 
 export type Context = {
   debug: boolean
@@ -76,6 +75,8 @@ export function debug(...args: any) {
     console.log(...args)
   }
 }
+
+// Relays
 
 export const isRelay = (url: string) => (url === LOCAL_RELAY_URL ? true : isRelayUrl(url))
 
