@@ -1,3 +1,4 @@
 --ignore-dir=context
+--ignore-dir=test-runner-profile
 --ignore-file=match:pnpm-lock.yaml
 --ignore-file=match:tsconfig.tsbuildinfo

@@ -178,21 +178,19 @@ const nostrConversationKey = bytesToHex(
 
 Users MAY set a recovery method by sending a request to the signers for a given session.
 
-The `password` sent to a given signer MUST be `argon2id(password, signer pubkey, iterations=3, memory=65536, parallelism=1)`.
+Clients SHOULD validate the user's email address prior to sending it to the signers.
 
 ```typescript
 {
   method: "recoveryMethod/init"
   payload: {
     email: string          // user's email address
-    password: string       // argon2id(password, signer pubkey)
+    password: string       // argon2id(email + password, signer pubkey, t=2, m=32768, p=1)
   }
 }
 ```
 
-This event is authenticated by the request being signed by an active `client key`, and should result in the email/password being associated with that session. Signers should also store `argon2id(email, signer pubkey)` for lookup later.
-
-Clients SHOULD validate the user's email address prior to sending it to the signers.
+This event is authenticated by the `client key` used to sign the request, and should result in the email/password being associated with that session.
 
 Signers must respond as follows:
 
@@ -202,18 +200,18 @@ Signers must respond as follows:
   payload: {
     ok: boolean      // whether the flow was successful
     message: string  // human-readable error/success message
-    prev: string     // 32 byte hex encoded recoveryMethod/set event id
+    prev: string     // 32 byte hex encoded recoveryMethod/init event id
   }
 }
 ```
 
 A recovery method MUST be set within a short time (e.g., 15 minutes) of registration. Otherwise, if an attacker is able to provide their own recovery method a compromised session can lead to key compromise.
 
-From this point on, users can use EITHER their password or an email-based OTP flow to trigger `login` or `recovery` flows.
-
 #### Password Authentication
 
-In order to authenticate with a password, the user must provide their `email` and their `password` to the client they are using. The client then sends `email` as `argon2id(email, signer pubkey)`, and `password` as `argon2id(password, signer pubkey)` with the same parameters specified above.
+In order to authenticate with a password, the user must calculate `argon2id(email + password, signer pubkey, t=2, m=32768, p=1)` and send it in the `auth` field.
+
+Because it's not known at this point which signers hold the user's key shares, clients will have to send this payload to all known signers. Hashing the email along with the password allows for quick lookups, at the same time making it more difficult to reveal either the email or the password.
 
 #### Challenge Authentication
 
@@ -225,12 +223,14 @@ The client first chooses the signers it wishes to authenticate with and sends a 
 {
   method: "challenge/request"
   payload: {
-    email: string          // argon2id(email, signer pubkey)
+    email_hash: string          // argon2id(email + password, signer pubkey, t=2, m=32768, p=1)
   }
 }
 ```
 
-Signers do not respond, since they should not indicate whether the user's email has been found anyway. Instead, each signer sends an email to the user containing the signer's pubkey and an OTP in the form: `base58(signer pubkey + otp)`. The user must then copy this into the requesting client.
+Because it's not known at this point which signers hold the user's key shares, clients will have to send this request to all known signers. In order to avoid leaking the user's email address to signers, the email should be hashed using `argon2id(email, signer pubkey, t=2, m=32768, p=1)`. This allows the signers that already know the user's email to look it up quickly, but makes it difficult to brute force it for others.
+
+Signers do not respond, since they should not indicate whether the user's email has been found anyway. Instead, each signer sends an email to the user containing the signer's pubkey and an OTP in the form: `base58(signer_pubkey_bytes || otp_utf8_bytes)` where `signer_pubkey_bytes` is the 32-byte raw public key and `otp_utf8_bytes` is the UTF-8 encoded OTP string. The user must then copy this into the requesting client.
 
 The client can then temporarily act on behalf of the user's account by parsing the challenge and including the `otp` in a request to the correct signer. OTPs MUST be invalidated after a single use, and MUST expire after a short time (but long enough for users to complete a given flow, e.g. 15 minutes).
 
@@ -239,13 +239,12 @@ The client can then temporarily act on behalf of the user's account by parsing t
 Below is a definition for payloads' `auth` key, including either password-based or OTP authentication:
 
 ```typescript
-type AuthPayload = {
-  email: string        // argon2id(current email, signer pubkey)
-  password: string     // argon2id(current password, signer pubkey)
-} | {
-  email: string        // argon2id(email, signer pubkey)
-  otp: string          // OTP obtained via email flow
-}
+type AuthPayload =
+  string            // argon2id(email + password, signer pubkey, t=2, m=32768, p=1)
+  | {
+    email: string   // user email address
+    otp: string     // OTP obtained via email flow
+  }
 ```
 
 ### Login
@@ -313,7 +312,7 @@ Signers should respond as follows:
     }
     ok: boolean              // whether the flow was successful
     message: string          // human-readable error/success message
-    prev: string             // 32 byte hex encoded login/start event id
+    prev: string             // 32 byte hex encoded login/select event id
   }
 }
 ```
@@ -391,7 +390,7 @@ Signers should respond as follows:
     }
     ok: boolean              // whether the flow was successful
     message: string          // human-readable error/success message
-    prev: string             // 32 byte hex encoded login/start event id
+    prev: string             // 32 byte hex encoded recovery/select event id
   }
 }
 ```
@@ -464,10 +463,6 @@ Signers should then respond by confirming the deletion:
 This implementation uses @frostr/bifrost for all cryptographic functionality.
 
 If a user wishes to change their email or password for a given session, they should go through the `login` flow and set their new recovery information on the new session, optionally deleting the previous session afterwards.
-
-In order to protect user metadata, emails are often hashed using signer pubkeys as a salt in order prevent metadata leakage, since all known signers need to be asked to start login/recovery flows, not just signers with an active session (since the client doesn't know which signers were used originally). For the same reason, signers should never indicate to an unauthenticated user whether a particular email has been registered or not.
-
-Because password hashes are sent to many signers on login/recovery start, passwords are hashed using argon2id with the signer pubkey as a salt. This prevents signers that receive these hashes from brute forcing the user's password or impersonating the user by sending it to other signers.
 
 ## Threat model
 

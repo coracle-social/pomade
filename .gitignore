@@ -4,3 +4,4 @@ dist
 *.tsbuildinfo
 .env
 *.db
+test-runner-profile

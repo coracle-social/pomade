@@ -1,9 +1,6 @@
-import * as b58 from "base58-js"
 import {
   tryCatch,
-  textDecoder,
   removeUndefined,
-  splitAt,
   shuffle,
   sortBy,
   first,
@@ -21,7 +18,7 @@ import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Lib} from "@frostr/bifrost"
 import type {GroupPackage, ECDHPackage} from "@frostr/bifrost"
 import {Method} from "./schema.js"
-import {context, hashArgon} from "./util.js"
+import {context, hashEmail, hashPassword, decodeChallenge} from "./util.js"
 import {RPC, WithEvent} from "./rpc.js"
 import {
   isEcdhResult,
@@ -149,14 +146,14 @@ export class Client {
 
   // Recovery setup
 
-  async initializeRecoveryMethod(email: string, userPassword: string) {
+  async initializeRecoveryMethod(email: string, password: string) {
     const messages = await Promise.all(
       this.peers.map(async (peer, i) => {
-        const password = await hashArgon(userPassword, peer)
+        const password_hash = await hashPassword(email, password, peer)
 
         return this.rpc
           .channel(peer)
-          .send(makeRecoveryMethodInit({email, password}))
+          .send(makeRecoveryMethodInit({email, password_hash}))
           .receive<WithEvent<RecoveryMethodInitResult>>((message, resolve) => {
             if (isRecoveryMethodInitResult(message)) {
               resolve(message)
@@ -176,7 +173,7 @@ export class Client {
 
     const oks = await Promise.all(
       Client.getKnownPeers().map(async (peer, i) => {
-        const email_hash = await hashArgon(email, peer)
+        const email_hash = await hashEmail(email, peer)
 
         return rpc.channel(peer).send(makeChallengeRequest({email_hash})).ok
       }),
@@ -189,16 +186,13 @@ export class Client {
 
   // Login
 
-  static async loginWithPassword(email: string, userPassword: string) {
+  static async loginWithPassword(email: string, password: string) {
     const clientSecret = makeSecret()
     const rpc = new RPC(clientSecret)
 
     const messages = await Promise.all(
       Client.getKnownPeers().map(async (peer, i) => {
-        const auth = {
-          email_hash: await hashArgon(email, peer),
-          password: await hashArgon(userPassword, peer),
-        }
+        const auth = await hashPassword(email, password, peer)
 
         return rpc
           .channel(peer)
@@ -213,7 +207,7 @@ export class Client {
 
     rpc.stop()
 
-    return {ok: messages.every(m => m?.payload.ok), messages, clientSecret}
+    return {ok: messages.some(m => m?.payload.ok), messages, clientSecret}
   }
 
   static async loginWithChallenge(email: string, challenges: string[]) {
@@ -221,12 +215,9 @@ export class Client {
     const rpc = new RPC(clientSecret)
 
     const messages = await Promise.all(
-      challenges.map(async base58 => {
-        const challenge = textDecoder.decode(b58.base58_to_binary(base58))
-        const peer = challenge.slice(0, 64)
-        const otp = challenge.slice(64)
-        const email_hash = await hashArgon(email, peer)
-        const auth = {email_hash, otp}
+      challenges.map(async challenge => {
+        const {peer, otp} = decodeChallenge(challenge)
+        const auth = {email, otp}
 
         return rpc
           .channel(peer)
@@ -269,16 +260,13 @@ export class Client {
 
   // Recovery
 
-  static async recoverWithPassword(email: string, userPassword: string) {
+  static async recoverWithPassword(email: string, password: string) {
     const clientSecret = makeSecret()
     const rpc = new RPC(clientSecret)
 
     const messages = await Promise.all(
       Client.getKnownPeers().map(async (peer, i) => {
-        const auth = {
-          email_hash: await hashArgon(email, peer),
-          password: await hashArgon(userPassword, peer),
-        }
+        const auth = await hashPassword(email, password, peer)
 
         return rpc
           .channel(peer)
@@ -293,7 +281,7 @@ export class Client {
 
     rpc.stop()
 
-    return {ok: messages.every(m => m?.payload.ok), messages, clientSecret}
+    return {ok: messages.some(m => m?.payload.ok), messages, clientSecret}
   }
 
   static async recoverWithChallenge(email: string, challenges: string[]) {
@@ -301,12 +289,9 @@ export class Client {
     const rpc = new RPC(clientSecret)
 
     const messages = await Promise.all(
-      challenges.map(async base58 => {
-        const challenge = textDecoder.decode(b58.base58_to_binary(base58))
-        const peer = challenge.slice(0, 64)
-        const otp = challenge.slice(64)
-        const email_hash = await hashArgon(email, peer)
-        const auth = {email_hash, otp}
+      challenges.map(async challenge => {
+        const {peer, otp} = decodeChallenge(challenge)
+        const auth = {email, otp}
 
         return rpc
           .channel(peer)

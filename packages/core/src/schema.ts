@@ -75,11 +75,13 @@ const sessionItem = z.object({
   email: z.string().optional(),
 })
 
-const authPayload = z.object({
-  email_hash: z.string(),
-  password: z.string().optional(),
-  otp: z.string().optional(),
-})
+const authPayload = z.union([
+  z.string(),
+  z.object({
+    email: z.string(),
+    otp: z.string(),
+  }),
+])
 
 export type SessionItem = z.infer<typeof sessionItem>
 export type AuthPayload = z.infer<typeof authPayload>
@@ -145,7 +147,7 @@ export const Schema = {
   }),
   initRecoveryMethod: z.object({
     email: z.string(),
-    password: z.string(),
+    password_hash: z.string(),
   }),
   initRecoveryMethodResult: z.object({
     ok: z.boolean(),

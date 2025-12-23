@@ -1,7 +1,6 @@
 import bcrypt from "bcrypt"
-import * as b58 from "base58-js"
 import {Lib} from "@frostr/bifrost"
-import {randomBytes, hexToBytes, bytesToHex} from '@noble/hashes/utils.js'
+import {randomBytes, bytesToHex} from "@noble/hashes/utils.js"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
 import {now, ms, uniq, between, call, int, ago, MINUTE, YEAR} from "@welshman/lib"
 import {getPubkey, verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
@@ -9,7 +8,7 @@ import type {TrustedEvent, SignedEvent} from "@welshman/util"
 import {IStorageFactory, IStorage} from "./storage.js"
 import {Method, SessionItem, AuthPayload} from "./schema.js"
 import {RPC, WithEvent} from "./rpc.js"
-import {hashArgon, debug} from "./util.js"
+import {hashEmail, bcryptOptions, encodeChallenge, debug} from "./util.js"
 import {
   ChallengeRequest,
   EcdhRequest,
@@ -48,18 +47,6 @@ import {
 
 // Utils
 
-export type BcryptData = {
-  salt: string
-  hash: string
-}
-
-export async function hashBcrypt(password: string, saltRounds = 10): Promise<BcryptData> {
-  const salt = await bcrypt.genSalt(saltRounds)
-  const hash = await bcrypt.hash(password, salt)
-
-  return {salt, hash}
-}
-
 function makeSessionItem(session: SignerSession): SessionItem {
   return {
     pubkey: session.group.group_pk.slice(2),
@@ -69,16 +56,11 @@ function makeSessionItem(session: SignerSession): SessionItem {
     threshold: session.group.threshold,
     total: session.group.commits.length,
     idx: session.share.idx,
-    email: session.email?.text,
+    email: session.email,
   }
 }
 
 // Storage types
-
-export type EmailData = {
-  text: string
-  hash: string
-}
 
 export type SignerSession = {
   client: string
@@ -87,8 +69,9 @@ export type SignerSession = {
   recovery: boolean
   event: TrustedEvent
   last_activity: number
-  email?: EmailData
-  password?: BcryptData
+  email?: string
+  email_hash?: string
+  password_hash?: string
 }
 
 export type SignerRecoverOption = {
@@ -120,15 +103,11 @@ export type ChallengePayload = {
   challenge: string
 }
 
-export type MailProvider = {
-  sendChallenge: (payload: ChallengePayload) => Promise<void>
-}
-
 export type SignerOptions = {
   secret: string
   relays: string[]
   storage: IStorageFactory
-  mailer: MailProvider
+  sendChallenge: (payload: ChallengePayload) => Promise<void>
 }
 
 export class Signer {
@@ -203,25 +182,37 @@ export class Signer {
 
   // Internal utils
 
+  async *_getAuthenticatedSessionsByPassword(password_hash: string): AsyncGenerator<SignerSession> {
+    for (const [_, session] of await this.sessions.entries()) {
+      if (session.password_hash && (await bcrypt.compare(password_hash, session.password_hash))) {
+        yield session
+      }
+    }
+  }
+
+  async *_getAuthenticatedSessionsByOTP(email: string, otp: string): AsyncGenerator<SignerSession> {
+    const challenge = await this.challenges.get(email)
+
+    await this.challenges.delete(email)
+
+    if (otp === challenge?.otp) {
+      for (const [_, session] of await this.sessions.entries()) {
+        if (email === session.email) {
+          yield session
+        }
+      }
+    }
+  }
+
   async _getAuthenticatedSessions(auth: AuthPayload): Promise<SignerSession[]> {
     const sessions: SignerSession[] = []
+    const generator =
+      typeof auth === "string"
+        ? this._getAuthenticatedSessionsByPassword(auth)
+        : this._getAuthenticatedSessionsByOTP(auth.email, auth.otp)
 
-    for (const [_, session] of await this.sessions.entries()) {
-      if (session.email?.hash !== auth.email_hash) continue
-
-      if (auth.password && session.password) {
-        if (await bcrypt.compare(auth.password, session.password.hash)) {
-          sessions.push(session)
-        }
-      } else if (auth.otp) {
-        const challenge = await this.challenges.get(session.email.text)
-
-        if (challenge && challenge.otp === auth.otp) {
-          sessions.push(session)
-        }
-
-        await this.challenges.delete(session.email.text)
-      }
+    for await (const session of generator) {
+      sessions.push(session)
     }
 
     return sessions
@@ -374,14 +365,24 @@ export class Signer {
         )
       }
 
+      if (session.email) {
+        debug("[signer]: recovery is already set", event.pubkey)
+
+        return this.rpc.channel(event.pubkey, false).send(
+          makeRecoveryMethodInitResult({
+            ok: false,
+            message: "Recovery has already been initialized.",
+            prev: event.id,
+          }),
+        )
+      }
+
       await sessions.set(event.pubkey, {
         ...session,
         last_activity: now(),
-        email: {
-          text: payload.email,
-          hash: await hashArgon(payload.email, this.pubkey),
-        },
-        password: await hashBcrypt(payload.password),
+        email: payload.email,
+        email_hash: await hashEmail(payload.email, this.pubkey),
+        password_hash: await bcrypt.hash(payload.password_hash, bcryptOptions.rounds),
       })
 
       debug("[signer]: recovery method initialized", event.pubkey)
@@ -399,27 +400,19 @@ export class Signer {
   async handleChallengeRequest({payload, event}: WithEvent<ChallengeRequest>) {
     let email: string | undefined = undefined
     for (const [_, session] of await this.sessions.entries()) {
-      if (session.email?.hash === payload.email_hash) {
-        email = session.email.text
+      if (session.email_hash === payload.email_hash) {
+        email = session.email
         break
       }
     }
 
     if (email) {
-      const otpBytes = randomBytes(12)
-      const pubkeyBytes = hexToBytes(this.pubkey)
-
-      const combined = new Uint8Array(pubkeyBytes.length + otpBytes.length)
-
-      combined.set(pubkeyBytes, 0)
-      combined.set(otpBytes, pubkeyBytes.length)
-
-      const otp = bytesToHex(otpBytes)
-      const challenge = b58.binary_to_base58(combined)
+      const otp = bytesToHex(randomBytes(12))
+      const challenge = encodeChallenge(this.pubkey, otp)
 
       await this.challenges.set(email, {otp, email, event})
 
-      this.options.mailer.sendChallenge({email, challenge})
+      this.options.sendChallenge({email, challenge})
     }
   }
 

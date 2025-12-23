@@ -28,6 +28,9 @@ const signer = new Signer({
   secret,
   relays,
   storage,
+  sendChallenge: async payload => {
+    console.log(payload)
+  }
 })
 
 console.log(`Running as: ${signer.pubkey}`)

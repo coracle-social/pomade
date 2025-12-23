@@ -1,9 +1,17 @@
 import * as nt44 from "nostr-tools/nip44"
+import {bytesToHex, hexToBytes, randomBytes} from "@noble/hashes/utils.js"
 import {describe, it, expect, beforeEach, afterEach} from "vitest"
-import {sleep, sortBy, hexToBytes, bytesToHex} from "@welshman/lib"
+import {sortBy, uniq} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
-import {beforeHook, afterHook, makeMailer, makeClientWithRecovery} from "./util"
-import {buildChallenge, Client, context, generateOTP, RecoverPayload} from "../src"
+import {
+  beforeHook,
+  makeEmail,
+  signerPubkeys,
+  challengePayloads,
+  afterHook,
+  makeClientWithRecovery,
+} from "./util"
+import {Client, encodeChallenge} from "../src"
 
 const doLet = <T>(x: T, f: <R>(x: T) => R) => f(x)
 
@@ -46,9 +54,9 @@ describe("protocol flows", () => {
       )
       const actual = sortBy(
         sortFn,
-        result
-          .entries()
-          .flatMap(([client, items]) => items.map(item => ({client, peer: item.peer}))),
+        result.messages.flatMap(m =>
+          m.payload.items.map(item => ({client: item.client, peer: m.event.pubkey})),
+        ),
       )
 
       expect(actual.length).toBe(6)
@@ -126,268 +134,328 @@ describe("protocol flows", () => {
   })
 
   describe("set recovery method", () => {
-    it("successfully sets user inbox multiple times", async () => {
-      let payloads = []
-
-      const mailer = makeMailer(makeSecret(), {
-        sendValidation: payload => {
-          payloads.push(payload)
-        },
-      })
-
+    it("rejects initializing recovery multiple times", async () => {
+      const email = makeEmail()
       const clientRegister = await Client.register(1, 2, makeSecret())
       const client = new Client(clientRegister.clientOptions)
+      const res1 = await client.initializeRecoveryMethod(email, makeSecret())
 
-      await client.setRecoveryMethod("test@example.com", mailer.pubkey)
-      await sleep(10)
+      expect(res1.ok).toBe(true)
 
-      expect(payloads[0].inbox).toBe("test@example.com")
-      expect(payloads[0].challenge.length).toBeGreaterThan(90)
+      const res2 = await client.initializeRecoveryMethod(email, makeSecret())
 
-      const confirmed1 = await client.finalizeRecoveryMethod(payloads[0].challenge)
-
-      expect(confirmed1.ok).toBe(true)
-
-      await client.setRecoveryMethod("test2@example.com", mailer.pubkey)
-      await sleep(10)
-
-      const confirmed2 = await client.finalizeRecoveryMethod(payloads[1].challenge)
-
-      expect(confirmed2.ok).toBe(true)
-    })
-
-    it("rejects inconsistent client", async () => {
-      let challenge
-
-      const mailer = makeMailer(makeSecret(), {
-        sendValidation: payload => {
-          challenge = payload.challenge
-        },
-      })
-
-      const client1Register = await Client.register(1, 2, makeSecret())
-      const client1 = new Client(client1Register.clientOptions)
-      const client2Register = await Client.register(1, 2, makeSecret())
-      const client2 = new Client(client2Register.clientOptions)
-
-      await client1.setRecoveryMethod("test@example.com", mailer.pubkey)
-      await sleep(10)
-
-      const confirmed = await client2.finalizeRecoveryMethod(challenge)
-
-      await expect(confirmed.ok).toBe(false)
-    })
-
-    it("rejects invalid challenge", async () => {
-      const mailer = makeMailer(makeSecret())
-      const clientRegister = await Client.register(1, 2, makeSecret())
-      const client = new Client(clientRegister.clientOptions)
-      const challenge = buildChallenge(context.signerPubkeys.map(pk => [pk, generateOTP()]))
-
-      await client.setRecoveryMethod("test@example.com", mailer.pubkey)
-      await sleep(10)
-
-      const confirmed = await client.finalizeRecoveryMethod(challenge)
-
-      await expect(confirmed.ok).toBe(false)
+      expect(res2.ok).toBe(false)
     })
 
     it("rejects disabled recovery", async () => {
-      const mailer = makeMailer(makeSecret())
       const clientRegister = await Client.register(1, 2, makeSecret(), false)
       const client = new Client(clientRegister.clientOptions)
-      const res = await client.setRecoveryMethod("test@example.com", mailer.pubkey)
+      const res = await client.initializeRecoveryMethod("test@example.com", makeSecret())
 
       expect(res.ok).toBe(false)
     })
   })
 
-  describe("recovery", () => {
-    it("successfully allows recovery", async () => {
-      let payload
+  describe("password-based login", () => {
+    it("works", async () => {
+      const email = makeEmail()
+      const password = makeSecret()
 
-      const client = await makeClientWithRecovery("test@example.com", {
-        sendRecovery: payload_ => {
-          payload = payload_
-        },
-      })
+      await makeClientWithRecovery(email, password)
 
-      const {clientSecret} = await Client.startRecovery("test@example.com")
-      await sleep(10)
+      const res1 = await Client.loginWithPassword(email, password)
+      const messages = res1.messages.filter(m => m.payload.ok)
+      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m.event.pubkey)
 
-      expect(payload.inbox).toBe("test@example.com")
-      expect(payload.challenge.length).toBeGreaterThan(90)
+      expect(clients.length).toBe(1)
+      expect(peers.length).toBe(3)
 
-      const {ok, userSecret} = await Client.finalizeRecovery(clientSecret, payload.challenge)
+      const res2 = await Client.selectLogin(res1.clientSecret, clients[0], peers)
 
-      expect(ok).toBe(true)
-      expect(getPubkey(userSecret)).toBe(client.group.group_pk.slice(2))
+      expect(res2.ok).toBe(true)
+      expect(res2.messages.every(m => m.payload.group)).toBe(true)
     })
 
-    it("successfully allows login", async () => {
-      let payload
+    it("rejects invalid password without revealing registration", async () => {
+      const email = makeEmail()
+      const password = makeSecret()
 
-      const client = await makeClientWithRecovery("test@example.com", {
-        sendRecovery: payload_ => {
-          payload = payload_
-        },
-      })
+      await makeClientWithRecovery(email, password)
 
-      const {clientSecret} = await Client.startLogin("test@example.com")
-      await sleep(10)
-
-      expect(payload.inbox).toBe("test@example.com")
-      expect(payload.challenge.length).toBeGreaterThan(190)
-
-      const {ok, clientOptions} = await Client.finalizeLogin(clientSecret, payload.challenge)
-
-      expect(ok).toBe(true)
-      expect(clientOptions.group.group_pk).toBe(client.group.group_pk)
-
-      const client2 = await new Client(clientOptions)
-      const result = await client2.sign(makeEvent(1))
-
-      expect(result.ok).toBe(true)
-      expect(verifyEvent(result.event)).toBe(true)
-    })
-
-    it("prevents probing for session", async () => {
-      const client = await makeClientWithRecovery("test@example.com")
-
-      const res1 = await Client.startRecovery("test@example.com")
+      const res1 = await Client.loginWithPassword(email, password)
 
       expect(res1.ok).toBe(true)
 
-      const res2 = await Client.startRecovery("test@example.com", client.pubkey)
+      const res2 = await Client.loginWithPassword(email, makeSecret())
 
-      expect(res2.ok).toBe(true)
-    })
+      expect(res2.ok).toBe(false)
 
-    it("rejects invalid challenge", async () => {
-      await makeClientWithRecovery("test@example.com")
+      const res3 = await Client.loginWithPassword(makeEmail(), makeSecret())
 
-      const {clientSecret} = await Client.startRecovery("test@example.com")
-      await sleep(10)
-
-      const challenge = buildChallenge(context.signerPubkeys.map(pk => [pk, generateOTP()]))
-
-      const res = await Client.finalizeRecovery(clientSecret, challenge)
-
-      expect(res.ok).toBe(false)
+      expect(res3.ok).toBe(false)
     })
 
     it("rejects inconsistent client secret", async () => {
-      let challenge
+      const email = makeEmail()
+      const password = makeSecret()
 
-      await makeClientWithRecovery("test@example.com", {
-        sendRecovery: payload => {
-          challenge = payload.challenge
-        },
-      })
+      await makeClientWithRecovery(email, password)
 
-      await Client.startRecovery("test@example.com")
-      await sleep(10)
+      const res1 = await Client.loginWithPassword(email, password)
+      const messages = res1.messages.filter(m => m.payload.ok)
+      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m.event.pubkey)
+      const res2 = await Client.selectLogin(makeSecret(), clients[0], peers)
 
-      const res = await Client.finalizeRecovery(makeSecret(), challenge)
+      expect(res2.ok).toBe(false)
+    })
+  })
 
-      expect(res.ok).toBe(false)
+  describe("challenge-based login", () => {
+    it("works", async () => {
+      const email = makeEmail()
+
+      await makeClientWithRecovery(email)
+
+      const res1 = await Client.requestChallenge(email)
+
+      expect(res1.ok).toBe(true)
+      expect(challengePayloads.length).toBe(3)
+      expect(challengePayloads[0].email).toBe(email)
+      expect(challengePayloads[0].challenge.length).toBeGreaterThan(50)
+
+      const challenges = challengePayloads.map(p => p.challenge)
+      const res2 = await Client.loginWithChallenge(email, challenges)
+      const messages = res2.messages.filter(m => m.payload.ok)
+      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m.event.pubkey)
+
+      expect(clients.length).toBe(1)
+      expect(peers.length).toBe(3)
+
+      const res3 = await Client.selectLogin(res2.clientSecret, clients[0], peers)
+
+      expect(res3.ok).toBe(true)
+      expect(res3.messages.every(m => m.payload.group)).toBe(true)
     })
 
-    it("handles multiple pubkeys associated with a single inbox", async () => {
-      const payloads = []
+    it("rejects invalid challenge without revealing registration", async () => {
+      const email = makeEmail()
 
-      const provider = {
-        sendRecovery: payload => {
-          payloads.push(payload)
-        },
-      }
+      await makeClientWithRecovery(email)
 
-      await makeClientWithRecovery("test@example.com", provider)
-      await makeClientWithRecovery("test@example.com", provider)
+      const res1 = await Client.requestChallenge(email)
 
-      const res1 = await Client.startRecovery("test@example.com")
-      await sleep(10)
-
-      expect(payloads.length).toBe(2)
       expect(res1.ok).toBe(true)
 
-      const res2 = await Client.finalizeRecovery(res1.clientSecret, payloads[1].challenge)
+      const challenges = [encodeChallenge(signerPubkeys[0], bytesToHex(randomBytes(12)))]
+      const res2 = await Client.loginWithChallenge(email, challenges)
+
+      expect(res2.ok).toBe(false)
+    })
+
+    it("rejects inconsistent client secret", async () => {
+      const email = makeEmail()
+
+      await makeClientWithRecovery(email)
+
+      const res1 = await Client.requestChallenge(email)
+
+      expect(res1.ok).toBe(true)
+      expect(challengePayloads.length).toBe(3)
+      expect(challengePayloads[0].email).toBe(email)
+      expect(challengePayloads[0].challenge.length).toBeGreaterThan(50)
+
+      const challenges = challengePayloads.map(p => p.challenge)
+      const res2 = await Client.loginWithChallenge(email, challenges)
+      const messages = res2.messages.filter(m => m.payload.ok)
+      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m.event.pubkey)
+
+      expect(clients.length).toBe(1)
+      expect(peers.length).toBe(3)
+
+      const res3 = await Client.selectLogin(makeSecret(), clients[0], peers)
+
+      expect(res3.ok).toBe(false)
+    })
+  })
+
+  describe("password-based recovery", () => {
+    it("works", async () => {
+      const email = makeEmail()
+      const password = makeSecret()
+
+      await makeClientWithRecovery(email, password)
+
+      const res1 = await Client.recoverWithPassword(email, password)
+      const messages = res1.messages.filter(m => m.payload.ok)
+      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m.event.pubkey)
+
+      expect(clients.length).toBe(1)
+      expect(peers.length).toBe(3)
+
+      const res2 = await Client.selectRecovery(res1.clientSecret, clients[0], peers)
 
       expect(res2.ok).toBe(true)
+      expect(res2.messages.every(m => m.payload.share && m.payload.group)).toBe(true)
     })
 
-    it("handles recovery across multiple mailers", async () => {
-      const payloads: RecoverPayload[] = []
-      const inbox = "complex@example.com"
+    it("rejects invalid password without revealing registration", async () => {
+      const email = makeEmail()
+      const password = makeSecret()
 
-      let challenge1
-      let challenge2
+      await makeClientWithRecovery(email, password)
 
-      // Create two different mailers that will handle recovery and validation
-      const mailer1 = makeMailer(makeSecret(), {
-        sendRecovery: payload => {
-          payloads.push(payload)
-        },
-        sendValidation: payload => {
-          challenge1 = payload.challenge
-        },
-      })
+      const res1 = await Client.recoverWithPassword(email, password)
 
-      const mailer2 = makeMailer(makeSecret(), {
-        sendRecovery: payload => {
-          payloads.push(payload)
-        },
-        sendValidation: payload => {
-          challenge2 = payload.challenge
-        },
-      })
+      expect(res1.ok).toBe(true)
 
-      // Register first client with 1/2 threshold and mailer1
-      const userSecret1 = makeSecret()
-      const client1Register = await Client.register(1, 2, userSecret1)
-      const client1 = new Client(client1Register.clientOptions)
+      const res2 = await Client.recoverWithPassword(email, makeSecret())
 
-      await client1.setRecoveryMethod(inbox, mailer1.pubkey)
-      await sleep(10)
-      await client1.finalizeRecoveryMethod(challenge1)
+      expect(res2.ok).toBe(false)
 
-      // Register second client with 2/3 threshold and mailer2
-      const userSecret2 = makeSecret()
-      const client2Register = await Client.register(2, 3, userSecret2)
-      const client2 = new Client(client2Register.clientOptions)
+      const res3 = await Client.recoverWithPassword(makeEmail(), makeSecret())
 
-      await client2.setRecoveryMethod(inbox, mailer2.pubkey)
-      await sleep(10)
-      await client2.finalizeRecoveryMethod(challenge2)
-
-      // Initiate recovery for the shared inbox - should trigger both mailers
-      const res = await Client.startRecovery(inbox)
-      await sleep(10)
-
-      // Should have received challenges from both mailers
-      expect(res.ok).toBe(true)
-      expect(payloads.length).toBe(2)
-
-      // Verify first payload is for client1 with correct threshold
-      const payload1 = payloads.find(p => p.pubkey === client1.group.group_pk.slice(2))
-      expect(payload1?.inbox).toBe(inbox)
-      expect(payload1?.challenge.length).toBeGreaterThan(90)
-
-      // Verify second payload is for client2 with correct threshold
-      const payload2 = payloads.find(p => p.pubkey === client2.group.group_pk.slice(2))
-      expect(payload2?.inbox).toBe(inbox)
-      expect(payload2?.challenge.length).toBeGreaterThan(90)
-
-      // Test recovery using first client's challenge
-      const result1 = await Client.finalizeRecovery(res.clientSecret, payload1!.challenge)
-      expect(result1.ok).toBe(true)
-      expect(getPubkey(result1.userSecret)).toBe(client1.group.group_pk.slice(2))
-
-      // Test recovery using second client's challenge with the same recovery secret
-      // A single recovery request generates challenges for all clients with the inbox
-      const result2 = await Client.finalizeRecovery(res.clientSecret, payload2!.challenge)
-      expect(result2.ok).toBe(true)
-      expect(getPubkey(result2.userSecret)).toBe(client2.group.group_pk.slice(2))
+      expect(res3.ok).toBe(false)
     })
+
+    it("rejects inconsistent client secret", async () => {
+      const email = makeEmail()
+      const password = makeSecret()
+
+      await makeClientWithRecovery(email, password)
+
+      const res1 = await Client.recoverWithPassword(email, password)
+      const messages = res1.messages.filter(m => m.payload.ok)
+      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m.event.pubkey)
+      const res2 = await Client.selectRecovery(makeSecret(), clients[0], peers)
+
+      expect(res2.ok).toBe(false)
+    })
+  })
+
+  describe("challenge-based recovery", () => {
+    it("works", async () => {
+      const email = makeEmail()
+
+      await makeClientWithRecovery(email)
+
+      const res1 = await Client.requestChallenge(email)
+
+      expect(res1.ok).toBe(true)
+      expect(challengePayloads.length).toBe(3)
+      expect(challengePayloads[0].email).toBe(email)
+      expect(challengePayloads[0].challenge.length).toBeGreaterThan(50)
+
+      const challenges = challengePayloads.map(p => p.challenge)
+      const res2 = await Client.recoverWithChallenge(email, challenges)
+      const messages = res2.messages.filter(m => m.payload.ok)
+      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m.event.pubkey)
+
+      expect(clients.length).toBe(1)
+      expect(peers.length).toBe(3)
+
+      const res3 = await Client.selectRecovery(res2.clientSecret, clients[0], peers)
+
+      expect(res3.ok).toBe(true)
+      expect(res3.messages.every(m => m.payload.share && m.payload.group)).toBe(true)
+    })
+
+    it("rejects invalid challenge without revealing registration", async () => {
+      const email = makeEmail()
+
+      await makeClientWithRecovery(email)
+
+      const res1 = await Client.requestChallenge(email)
+
+      expect(res1.ok).toBe(true)
+
+      const challenges = [encodeChallenge(signerPubkeys[0], bytesToHex(randomBytes(12)))]
+      const res2 = await Client.loginWithChallenge(email, challenges)
+
+      expect(res2.ok).toBe(false)
+    })
+
+    it("rejects inconsistent client secret", async () => {
+      const email = makeEmail()
+
+      await makeClientWithRecovery(email)
+
+      const res1 = await Client.requestChallenge(email)
+
+      expect(res1.ok).toBe(true)
+      expect(challengePayloads.length).toBe(3)
+      expect(challengePayloads[0].email).toBe(email)
+      expect(challengePayloads[0].challenge.length).toBeGreaterThan(50)
+
+      const challenges = challengePayloads.map(p => p.challenge)
+      const res2 = await Client.recoverWithChallenge(email, challenges)
+      const messages = res2.messages.filter(m => m.payload.ok)
+      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m.event.pubkey)
+
+      expect(clients.length).toBe(1)
+      expect(peers.length).toBe(3)
+
+      const res3 = await Client.selectRecovery(makeSecret(), clients[0], peers)
+
+      expect(res3.ok).toBe(false)
+    })
+  })
+
+  describe("recovery and login edge cases", () => {
+    it("Switching between login and recovery fails", async () => {
+      const email = makeEmail()
+      const password = makeSecret()
+
+      await makeClientWithRecovery(email, password)
+
+      const res1 = await Client.loginWithPassword(email, password)
+      const messages = res1.messages.filter(m => m.payload.ok)
+      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m.event.pubkey)
+
+      expect(clients.length).toBe(1)
+      expect(peers.length).toBe(3)
+
+      const res2 = await Client.selectRecovery(res1.clientSecret, clients[0], peers)
+
+      expect(res2.ok).toBe(false)
+    })
+
+    it("handles multiple pubkeys associated with a single email", async () => {
+      const email = makeEmail()
+      const password1 = makeSecret()
+      const password2 = makeSecret()
+      await makeClientWithRecovery(email, password1)
+      await makeClientWithRecovery(email, password1)
+      await makeClientWithRecovery(email, password2)
+
+      const res1 = await Client.loginWithPassword(email, password1)
+      const messages1 = res1.messages.filter(m => m.payload.ok)
+      const clients1 = uniq(messages1.flatMap(m => m.payload.items.map(it => it.client)))
+
+      expect(clients1.length).toBe(2)
+
+      const res2 = await Client.recoverWithPassword(email, password2)
+      const messages2 = res2.messages.filter(m => m.payload.ok)
+      const clients2 = uniq(messages2.flatMap(m => m.payload.items.map(it => it.client)))
+
+      expect(clients2.length).toBe(1)
+
+      await Client.requestChallenge(email)
+
+      const challenges = challengePayloads.map(p => p.challenge)
+      const res3 = await Client.loginWithChallenge(email, challenges)
+      const messages3 = res3.messages.filter(m => m.payload.ok)
+      const clients3 = uniq(messages3.flatMap(m => m.payload.items.map(it => it.client)))
+
+      expect(clients3.length).toBe(3)
+    }, 10_000)
   })
 })

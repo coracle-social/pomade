@@ -1,3 +1,4 @@
+import * as b58 from "base58-js"
 import * as nt44 from "nostr-tools/nip44"
 import {argon2id} from "@noble/hashes/argon2.js"
 import {bytesToHex} from "@noble/hashes/utils.js"
@@ -16,6 +17,10 @@ import {publish, request, LOCAL_RELAY_URL} from "@welshman/net"
 
 // Signing and encryption
 
+export const bcryptOptions = {
+  rounds: 10,
+}
+
 export function prepAndSign(secret: string, event: EventTemplate) {
   return sign(prep(event, getPubkey(secret)), secret)
 }
@@ -33,10 +38,38 @@ export const nip44 = {
     nt44.v2.decrypt(m, nip44.getSharedSecret(secret, pubkey)!),
 }
 
+// Challenges
+
+export function encodeChallenge(peer: string, otp: string) {
+  const otpBytes = hexToBytes(otp)
+  const peerBytes = hexToBytes(peer)
+
+  const combined = new Uint8Array(peerBytes.length + otpBytes.length)
+
+  combined.set(peerBytes, 0)
+  combined.set(otpBytes, peerBytes.length)
+
+  return b58.binary_to_base58(combined)
+}
+
+export function decodeChallenge(challenge: string) {
+  const challengeBytes = b58.base58_to_binary(challenge)
+  const peer = bytesToHex(challengeBytes.slice(0, 32))
+  const otp = bytesToHex(challengeBytes.slice(32))
+
+  return {peer, otp}
+}
+
 // Payload hashing
 
-export async function hashArgon(text: string, peer: string) {
-  return bytesToHex(argon2id(textEncoder.encode(text), hexToBytes(peer), {t: 3, m: 65536, p: 1}))
+export const argonOptions = {t: 2, m: 32 * 1024, p: 1}
+
+export async function hashEmail(email: string, peer: string) {
+  return bytesToHex(argon2id(textEncoder.encode(email), hexToBytes(peer), argonOptions))
+}
+
+export async function hashPassword(email: string, password: string, peer: string) {
+  return bytesToHex(argon2id(textEncoder.encode(email + password), hexToBytes(peer), argonOptions))
 }
 
 // Context
