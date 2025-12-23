@@ -44,7 +44,7 @@ export async function makeClientWithRecovery(email: string, password = makeSecre
   const clientRegister = await Client.register(2, 3, makeSecret())
   const client = new Client(clientRegister.clientOptions)
 
-  await client.initializeRecoveryMethod(email, password)
+  await client.setupRecovery(email, password)
 
   return client
 }

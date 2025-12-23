@@ -21,13 +21,10 @@ export type RecoveryStart = DefineMessage<Method.RecoveryStart, typeof Schema.re
 export type RecoveryOptions = DefineMessage<Method.RecoveryOptions, typeof Schema.recoveryOptions>
 export type RecoverySelect = DefineMessage<Method.RecoverySelect, typeof Schema.recoverySelect>
 export type RecoveryResult = DefineMessage<Method.RecoveryResult, typeof Schema.recoveryResult>
-export type RecoveryMethodInit = DefineMessage<
-  Method.RecoveryMethodInit,
-  typeof Schema.initRecoveryMethod
->
-export type RecoveryMethodInitResult = DefineMessage<
-  Method.RecoveryMethodInitResult,
-  typeof Schema.initRecoveryMethodResult
+export type RecoverySetup = DefineMessage<Method.RecoverySetup, typeof Schema.recoverySetup>
+export type RecoverySetupResult = DefineMessage<
+  Method.RecoverySetupResult,
+  typeof Schema.recoverySetupResult
 >
 export type RegisterRequest = DefineMessage<Method.RegisterRequest, typeof Schema.registerRequest>
 export type RegisterResult = DefineMessage<Method.RegisterResult, typeof Schema.registerResult>
@@ -56,8 +53,8 @@ export type Message =
   | RecoveryOptions
   | RecoverySelect
   | RecoveryResult
-  | RecoveryMethodInit
-  | RecoveryMethodInitResult
+  | RecoverySetup
+  | RecoverySetupResult
   | RegisterRequest
   | RegisterResult
   | SessionDelete
@@ -113,19 +110,19 @@ export function makeRecoveryResult(payload: RecoveryResult["payload"]): Recovery
   return {method: Method.RecoveryResult, payload: Schema.recoveryResult.parse(payload)}
 }
 
-export function makeRecoveryMethodInit(payload: RecoveryMethodInit["payload"]): RecoveryMethodInit {
+export function makeRecoverySetup(payload: RecoverySetup["payload"]): RecoverySetup {
   return {
-    method: Method.RecoveryMethodInit,
-    payload: Schema.initRecoveryMethod.parse(payload),
+    method: Method.RecoverySetup,
+    payload: Schema.recoverySetup.parse(payload),
   }
 }
 
-export function makeRecoveryMethodInitResult(
-  payload: RecoveryMethodInitResult["payload"],
-): RecoveryMethodInitResult {
+export function makeRecoverySetupResult(
+  payload: RecoverySetupResult["payload"],
+): RecoverySetupResult {
   return {
-    method: Method.RecoveryMethodInitResult,
-    payload: Schema.initRecoveryMethodResult.parse(payload),
+    method: Method.RecoverySetupResult,
+    payload: Schema.recoverySetupResult.parse(payload),
   }
 }
 
@@ -178,8 +175,8 @@ export function getMessageSchema(method: Method) {
     [Method.RecoveryOptions]: Schema.recoveryOptions,
     [Method.RecoverySelect]: Schema.recoverySelect,
     [Method.RecoveryResult]: Schema.recoveryResult,
-    [Method.RecoveryMethodInit]: Schema.initRecoveryMethod,
-    [Method.RecoveryMethodInitResult]: Schema.initRecoveryMethodResult,
+    [Method.RecoverySetup]: Schema.recoverySetup,
+    [Method.RecoverySetupResult]: Schema.recoverySetupResult,
     [Method.RegisterRequest]: Schema.registerRequest,
     [Method.RegisterResult]: Schema.registerResult,
     [Method.SessionDelete]: Schema.sessionDelete,
@@ -217,10 +214,9 @@ export const isRecoverySelect = (m: Message): m is RecoverySelect =>
   m.method === Method.RecoverySelect
 export const isRecoveryResult = (m: Message): m is RecoveryResult =>
   m.method === Method.RecoveryResult
-export const isRecoveryMethodInit = (m: Message): m is RecoveryMethodInit =>
-  m.method === Method.RecoveryMethodInit
-export const isRecoveryMethodInitResult = (m: Message): m is RecoveryMethodInitResult =>
-  m.method === Method.RecoveryMethodInitResult
+export const isRecoverySetup = (m: Message): m is RecoverySetup => m.method === Method.RecoverySetup
+export const isRecoverySetupResult = (m: Message): m is RecoverySetupResult =>
+  m.method === Method.RecoverySetupResult
 export const isRegisterRequest = (m: Message): m is RegisterRequest =>
   m.method === Method.RegisterRequest
 export const isRegisterResult = (m: Message): m is RegisterResult =>

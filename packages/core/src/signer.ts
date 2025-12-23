@@ -16,7 +16,7 @@ import {
   isEcdhRequest,
   isLoginSelect,
   isLoginStart,
-  isRecoveryMethodInit,
+  isRecoverySetup,
   isRecoverySelect,
   isRecoveryStart,
   isRegisterRequest,
@@ -28,14 +28,14 @@ import {
   makeEcdhResult,
   makeLoginOptions,
   makeLoginResult,
-  makeRecoveryMethodInitResult,
+  makeRecoverySetupResult,
   makeRecoveryOptions,
   makeRecoveryResult,
   makeRegisterResult,
   makeSessionDeleteResult,
   makeSessionListResult,
   makeSignResult,
-  RecoveryMethodInit,
+  RecoverySetup,
   RecoverySelect,
   RecoveryStart,
   RegisterRequest,
@@ -133,7 +133,7 @@ export class Signer {
       }
 
       if (isRegisterRequest(message)) this.handleRegisterRequest(message)
-      if (isRecoveryMethodInit(message)) this.handleRecoveryMethodInit(message)
+      if (isRecoverySetup(message)) this.handleRecoverySetup(message)
       if (isChallengeRequest(message)) this.handleChallengeRequest(message)
       if (isRecoveryStart(message)) this.handleRecoveryStart(message)
       if (isRecoverySelect(message)) this.handleRecoverySelect(message)
@@ -323,7 +323,7 @@ export class Signer {
 
   // Recovery setup
 
-  async handleRecoveryMethodInit({payload, event}: WithEvent<RecoveryMethodInit>) {
+  async handleRecoverySetup({payload, event}: WithEvent<RecoverySetup>) {
     return this.sessions.tx(async sessions => {
       const session = await sessions.get(event.pubkey)
 
@@ -331,7 +331,7 @@ export class Signer {
         debug("[signer]: no session found for recovery setup", event.pubkey)
 
         return this.rpc.channel(event.pubkey, false).send(
-          makeRecoveryMethodInitResult({
+          makeRecoverySetupResult({
             ok: false,
             message: "No session found.",
             prev: event.id,
@@ -343,7 +343,7 @@ export class Signer {
         debug("[signer]: recovery is disabled for session", event.pubkey)
 
         return this.rpc.channel(event.pubkey, false).send(
-          makeRecoveryMethodInitResult({
+          makeRecoverySetupResult({
             ok: false,
             message: "Recovery is disabled on this session.",
             prev: event.id,
@@ -357,7 +357,7 @@ export class Signer {
         debug("[signer]: recovery method set too late", event.pubkey)
 
         return this.rpc.channel(event.pubkey, false).send(
-          makeRecoveryMethodInitResult({
+          makeRecoverySetupResult({
             ok: false,
             message: "Recovery method must be set within 5 minutes of session.",
             prev: event.id,
@@ -369,7 +369,7 @@ export class Signer {
         debug("[signer]: recovery is already set", event.pubkey)
 
         return this.rpc.channel(event.pubkey, false).send(
-          makeRecoveryMethodInitResult({
+          makeRecoverySetupResult({
             ok: false,
             message: "Recovery has already been initialized.",
             prev: event.id,
@@ -388,7 +388,7 @@ export class Signer {
       debug("[signer]: recovery method initialized", event.pubkey)
 
       this.rpc.channel(event.pubkey, false).send(
-        makeRecoveryMethodInitResult({
+        makeRecoverySetupResult({
           ok: true,
           message: "Recovery method successfully initialized.",
           prev: event.id,

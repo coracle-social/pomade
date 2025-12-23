@@ -26,7 +26,7 @@ import {
   isLoginResult,
   isRecoveryOptions,
   isRecoveryResult,
-  isRecoveryMethodInitResult,
+  isRecoverySetupResult,
   isRegisterResult,
   isSessionDeleteResult,
   isSessionListResult,
@@ -37,7 +37,7 @@ import {
   makeLoginSelect,
   makeRecoveryStart,
   makeRecoverySelect,
-  makeRecoveryMethodInit,
+  makeRecoverySetup,
   makeRegisterRequest,
   makeSessionDelete,
   makeSessionList,
@@ -46,7 +46,7 @@ import {
   LoginResult,
   RecoveryOptions,
   RecoveryResult,
-  RecoveryMethodInitResult,
+  RecoverySetupResult,
   RegisterResult,
   SessionDeleteResult,
   SessionListResult,
@@ -146,16 +146,16 @@ export class Client {
 
   // Recovery setup
 
-  async initializeRecoveryMethod(email: string, password: string) {
+  async setupRecovery(email: string, password: string) {
     const messages = await Promise.all(
       this.peers.map(async (peer, i) => {
         const password_hash = await hashPassword(email, password, peer)
 
         return this.rpc
           .channel(peer)
-          .send(makeRecoveryMethodInit({email, password_hash}))
-          .receive<WithEvent<RecoveryMethodInitResult>>((message, resolve) => {
-            if (isRecoveryMethodInitResult(message)) {
+          .send(makeRecoverySetup({email, password_hash}))
+          .receive<WithEvent<RecoverySetupResult>>((message, resolve) => {
+            if (isRecoverySetupResult(message)) {
               resolve(message)
             }
           })

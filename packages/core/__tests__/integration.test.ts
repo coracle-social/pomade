@@ -138,11 +138,11 @@ describe("protocol flows", () => {
       const email = makeEmail()
       const clientRegister = await Client.register(1, 2, makeSecret())
       const client = new Client(clientRegister.clientOptions)
-      const res1 = await client.initializeRecoveryMethod(email, makeSecret())
+      const res1 = await client.setupRecovery(email, makeSecret())
 
       expect(res1.ok).toBe(true)
 
-      const res2 = await client.initializeRecoveryMethod(email, makeSecret())
+      const res2 = await client.setupRecovery(email, makeSecret())
 
       expect(res2.ok).toBe(false)
     })
@@ -150,7 +150,7 @@ describe("protocol flows", () => {
     it("rejects disabled recovery", async () => {
       const clientRegister = await Client.register(1, 2, makeSecret(), false)
       const client = new Client(clientRegister.clientOptions)
-      const res = await client.initializeRecoveryMethod("test@example.com", makeSecret())
+      const res = await client.setupRecovery("test@example.com", makeSecret())
 
       expect(res.ok).toBe(false)
     })

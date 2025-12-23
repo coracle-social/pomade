@@ -182,7 +182,7 @@ Clients SHOULD validate the user's email address prior to sending it to the sign
 
 ```typescript
 {
-  method: "recoveryMethod/init"
+  method: "recovery/setup"
   payload: {
     email: string          // user's email address
     password: string       // argon2id(email + password, signer pubkey, t=2, m=32768, p=1)
@@ -196,11 +196,11 @@ Signers must respond as follows:
 
 ```typescript
 {
-  method: "recoveryMethod/init/result"
+  method: "recovery/setup/result"
   payload: {
     ok: boolean      // whether the flow was successful
     message: string  // human-readable error/success message
-    prev: string     // 32 byte hex encoded recoveryMethod/init event id
+    prev: string     // 32 byte hex encoded recovery/setup event id
   }
 }
 ```

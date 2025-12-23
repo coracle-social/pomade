@@ -12,8 +12,8 @@ export enum Method {
   RecoveryOptions = "recovery/options",
   RecoverySelect = "recovery/select",
   RecoveryResult = "recovery/result",
-  RecoveryMethodInit = "recoveryMethod/init",
-  RecoveryMethodInitResult = "recoveryMethod/init/result",
+  RecoverySetup = "recovery/setup",
+  RecoverySetupResult = "recovery/setup/result",
   RegisterRequest = "register/request",
   RegisterResult = "register/result",
   SessionDelete = "session/delete",
@@ -145,11 +145,11 @@ export const Schema = {
     message: z.string(),
     prev: hex32,
   }),
-  initRecoveryMethod: z.object({
+  recoverySetup: z.object({
     email: z.string(),
     password_hash: z.string(),
   }),
-  initRecoveryMethodResult: z.object({
+  recoverySetupResult: z.object({
     ok: z.boolean(),
     message: z.string(),
     prev: hex32,
