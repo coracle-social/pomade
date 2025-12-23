@@ -2,7 +2,7 @@
 
 import "dotenv/config"
 import {Signer} from "@pomade/core"
-import {sqliteStorageFactory} from "@pomade/sqlite"
+import {sqliteStorageFactory} from "./storage.js"
 
 // Load configuration from environment variables
 const secret = process.env.POMADE_SECRET

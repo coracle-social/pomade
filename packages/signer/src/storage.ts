@@ -1,5 +1,4 @@
 import Database from "better-sqlite3"
-import type {Maybe} from "@welshman/lib"
 import type {IBaseStorage, IStorage, IStorageFactory} from "@pomade/core"
 
 export type SqliteStorageFactoryOptions = {
@@ -40,7 +39,7 @@ export const sqliteStorageFactory = (
     }
 
     const storage: IBaseStorage<T> = {
-      get: async (key: string): Promise<Maybe<T>> => {
+      get: async (key: string): Promise<T | undefined> => {
         const row = getStmt.get(key) as {value: string} | undefined
 
         return row ? JSON.parse(row.value) : undefined

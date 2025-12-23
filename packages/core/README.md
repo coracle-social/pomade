@@ -38,9 +38,7 @@ const signer = new Signer({
 })
 ```
 
-For persistent storage, use [@pomade/sqlite](../sqlite) or implement your own `IStorageFactory`.
-
-For ready-to-run services, see [@pomade/signer](../signer).
+For a batteries-included signer, see [@pomade/signer](../signer).
 
 ## License
 

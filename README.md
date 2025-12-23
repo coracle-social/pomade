@@ -16,9 +16,7 @@ For protocol specification and implementation details, see [PROTOCOL.md](PROTOCO
 
 This monorepo contains four packages:
 
-- **[@pomade/core](packages/core)** - Core library with client, mailer, and signer classes, types, and interfaces
-- **[@pomade/sqlite](packages/sqlite)** - SQLite storage adapter implementation
-- **[@pomade/mailer](packages/mailer)** - Standalone mailer service for handling recovery challenges
+- **[@pomade/core](packages/core)** - Core library with client and signer classes, types, and interfaces
 - **[@pomade/signer](packages/signer)** - Standalone signer service for managing multisig sessions
 
 ## Getting Started
@@ -41,11 +39,7 @@ You can then add the signer's pubkey to your client to use it. Note that signers
 
 -
 
-### Mailers
-
-To run your own mailer, simply run:
-
-We recommend running your own mailer so that the from address on emails makes sense to your users. It's also very easy to create your own mailer that uses a transport method other than email. See [MAILERS.md](MAILERS.md) for more details.
+Also note that when logging in, all signers need to be contacted, which involves some pretty computationally-intensive hashing operations. For that reason, you should avoid adding a large number of signers to your app; 7-10 should be enough.
 
 ## Package Details
 
@@ -53,11 +47,9 @@ We recommend running your own mailer so that the from address on emails makes se
 
 The core library that can be integrated into any project. Provides:
 
+- Protocol type definitions and schemas
 - Client API for interacting with signers
-- Mailer class for handling recovery method challenges
 - Signer class for managing multisig sessions
-- Storage interfaces (IStorage, IStorageFactory)
-- Type definitions and schemas
 
 **Installation:**
 
@@ -67,24 +59,6 @@ npm install @pomade/core
 
 See [packages/core/README.md](packages/core/README.md) for detailed documentation.
 
-### @pomade/sqlite
-
-SQLite storage adapter for pomade. Provides a persistent storage implementation using better-sqlite3.
-
-**Installation:**
-
-```bash
-npm install @pomade/sqlite
-```
-
-See [packages/sqlite/README.md](packages/sqlite/README.md) for usage examples.
-
-### @pomade/mailer
-
-Standalone mailer service that listens for recovery challenges and sends validation/recovery notifications. Supports console logging and webhook providers.
-
-See [packages/mailer/README.md](packages/mailer/README.md) for configuration and deployment.
-
 ### @pomade/signer
 
 Standalone signer service that manages multisig sessions, handles signing requests, and coordinates recovery flows.
@@ -93,13 +67,9 @@ See [packages/signer/README.md](packages/signer/README.md) for configuration and
 
 ## Docker
 
-Both mailer and signer services include Dockerfiles for easy deployment. Build from the repository root:
+The signer service includes a Dockerfile for easy deployment. Build from the repository root:
 
 ```bash
-# Build and run mailer
-docker build -f packages/mailer/Dockerfile -t pomade-mailer .
-docker run -v $(pwd)/data:/data --env-file packages/mailer/.env pomade-mailer
-
 # Build and run signer
 docker build -f packages/signer/Dockerfile -t pomade-signer .
 docker run -v $(pwd)/data:/data --env-file packages/signer/.env pomade-signer
