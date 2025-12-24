@@ -1,7 +1,7 @@
 import {LOCAL_RELAY_URL} from "@welshman/net"
 import {range, randomId} from "@welshman/lib"
 import {getPubkey, makeSecret} from "@welshman/util"
-import {inMemoryStorageFactory, argonOptions, bcryptOptions, context, Client, Signer} from "../src"
+import {inMemoryStorageFactory, argonOptions, context, Client, Signer} from "../src"
 
 export const signerSecrets = Array.from(range(0, 8)).map(() => makeSecret())
 export const signerPubkeys = signerSecrets.map(secret => getPubkey(secret))
@@ -16,6 +16,8 @@ export function makeSigner(secret: string) {
     secret,
     relays: [LOCAL_RELAY_URL],
     storage: inMemoryStorageFactory,
+    hash: async (password: string) => password,
+    compare: async (password: string, hash: string) => password === hash,
     sendChallenge: payload => {
       challengePayloads.push(payload)
     },
@@ -24,11 +26,9 @@ export function makeSigner(secret: string) {
 
 let signers: Signer[]
 let argonOptionsCopy = {...argonOptions}
-let bcryptOptionsCopy = {...bcryptOptions}
 
 export function beforeHook() {
   argonOptions.m = 1024
-  bcryptOptions.rounds = 1
   signers = signerSecrets.map(makeSigner)
   challengePayloads.splice(0)
 }
@@ -36,7 +36,6 @@ export function beforeHook() {
 export function afterHook() {
   signers.forEach(signer => signer.stop())
   argonOptions.m = argonOptionsCopy.m
-  bcryptOptions.rounds = bcryptOptionsCopy.rounds
   challengePayloads.splice(0)
 }
 

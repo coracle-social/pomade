@@ -7,10 +7,9 @@
   "author": "hodlbod",
   "license": "MIT",
   "scripts": {
-    "build": "pnpm --filter @pomade/core build && pnpm --filter @pomade/sqlite build && pnpm --filter @pomade/mailer build && pnpm --filter @pomade/signer build",
+    "build": "pnpm --filter @pomade/core build && pnpm --filter @pomade/sqlite build && pnpm --filter @pomade/signer build",
     "build:core": "pnpm --filter @pomade/core build",
     "build:sqlite": "pnpm --filter @pomade/sqlite build",
-    "build:mailer": "pnpm --filter @pomade/mailer build",
     "build:signer": "pnpm --filter @pomade/signer build",
     "clean": "pnpm --recursive run clean",
     "test": "pnpm --filter @pomade/core test",

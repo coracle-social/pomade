@@ -1,5 +1,8 @@
 import {
+  nth,
+  Maybe,
   tryCatch,
+  groupBy,
   removeUndefined,
   shuffle,
   sortBy,
@@ -78,7 +81,28 @@ export class Client {
     this.rpc.stop()
   }
 
-  static getKnownPeers() {
+  static _buildOptions<T extends WithEvent<LoginOptions | RecoveryOptions>>(
+    clientSecret: string,
+    messages: Maybe<T>[],
+  ): {
+    ok: boolean
+    options: [string, string[]][]
+    messages: Maybe<T>[]
+    clientSecret: string
+  } {
+    const items = messages.flatMap(
+      m => m?.payload.items?.map(item => [item.client, m.event.pubkey]) || [],
+    )
+    const itemsByClient = Array.from(groupBy(([client, peer]) => client, items))
+    const options = itemsByClient.map(
+      ([client, items]) => [client, items.map(nth(1))] as [string, string[]],
+    )
+    const ok = messages.some(m => m?.payload.ok) && options.length > 0
+
+    return {ok, options, messages, clientSecret}
+  }
+
+  static _getKnownPeers() {
     if (context.signerPubkeys.length === 0) {
       console.log("[pomade]: You can configure available signer pubkeys using setSignerPubkeys")
       throw new Error("No signer pubkeys available")
@@ -167,12 +191,12 @@ export class Client {
 
   // Challenge
 
-  static async requestChallenge(email: string) {
+  static async requestChallenge(email: string, peers = Client._getKnownPeers()) {
     const clientSecret = makeSecret()
     const rpc = new RPC(clientSecret)
 
     const oks = await Promise.all(
-      Client.getKnownPeers().map(async (peer, i) => {
+      peers.map(async (peer, i) => {
         const email_hash = await hashEmail(email, peer)
 
         return rpc.channel(peer).send(makeChallengeRequest({email_hash})).ok
@@ -191,13 +215,13 @@ export class Client {
     const rpc = new RPC(clientSecret)
 
     const messages = await Promise.all(
-      Client.getKnownPeers().map(async (peer, i) => {
+      Client._getKnownPeers().map(async (peer, i) => {
         const auth = await hashPassword(email, password, peer)
 
         return rpc
           .channel(peer)
           .send(makeLoginStart({auth}))
-          .receive<LoginOptions>((message, resolve) => {
+          .receive<WithEvent<LoginOptions>>((message, resolve) => {
             if (isLoginOptions(message)) {
               resolve(message)
             }
@@ -207,7 +231,7 @@ export class Client {
 
     rpc.stop()
 
-    return {ok: messages.some(m => m?.payload.ok), messages, clientSecret}
+    return this._buildOptions(clientSecret, messages)
   }
 
   static async loginWithChallenge(email: string, challenges: string[]) {
@@ -222,7 +246,7 @@ export class Client {
         return rpc
           .channel(peer)
           .send(makeLoginStart({auth}))
-          .receive<LoginOptions>((message, resolve) => {
+          .receive<WithEvent<LoginOptions>>((message, resolve) => {
             if (isLoginOptions(message)) {
               resolve(message)
             }
@@ -232,7 +256,7 @@ export class Client {
 
     rpc.stop()
 
-    return {ok: messages.every(m => m?.payload.ok), messages, clientSecret}
+    return this._buildOptions(clientSecret, messages)
   }
 
   static async selectLogin(clientSecret: string, client: string, peers: string[]) {
@@ -243,7 +267,7 @@ export class Client {
         return rpc
           .channel(peer)
           .send(makeLoginSelect({client}))
-          .receive<LoginResult>((message, resolve) => {
+          .receive<WithEvent<LoginResult>>((message, resolve) => {
             if (isLoginResult(message)) {
               resolve(message)
             }
@@ -254,8 +278,10 @@ export class Client {
     rpc.stop()
 
     const group = messages.find(m => m?.payload.group)?.payload.group
+    const ok = Boolean(group && messages.every(m => m?.payload.ok))
+    const clientOptions = ok ? {group, peers, secret: clientSecret} : undefined
 
-    return {ok: messages.every(m => m?.payload.ok), messages, group, clientSecret}
+    return {ok, messages, clientOptions}
   }
 
   // Recovery
@@ -265,13 +291,13 @@ export class Client {
     const rpc = new RPC(clientSecret)
 
     const messages = await Promise.all(
-      Client.getKnownPeers().map(async (peer, i) => {
+      Client._getKnownPeers().map(async (peer, i) => {
         const auth = await hashPassword(email, password, peer)
 
         return rpc
           .channel(peer)
           .send(makeRecoveryStart({auth}))
-          .receive<RecoveryOptions>((message, resolve) => {
+          .receive<WithEvent<RecoveryOptions>>((message, resolve) => {
             if (isRecoveryOptions(message)) {
               resolve(message)
             }
@@ -281,7 +307,7 @@ export class Client {
 
     rpc.stop()
 
-    return {ok: messages.some(m => m?.payload.ok), messages, clientSecret}
+    return this._buildOptions(clientSecret, messages)
   }
 
   static async recoverWithChallenge(email: string, challenges: string[]) {
@@ -296,7 +322,7 @@ export class Client {
         return rpc
           .channel(peer)
           .send(makeRecoveryStart({auth}))
-          .receive<RecoveryOptions>((message, resolve) => {
+          .receive<WithEvent<RecoveryOptions>>((message, resolve) => {
             if (isRecoveryOptions(message)) {
               resolve(message)
             }
@@ -306,7 +332,7 @@ export class Client {
 
     rpc.stop()
 
-    return {ok: messages.every(m => m?.payload.ok), messages, clientSecret}
+    return this._buildOptions(clientSecret, messages)
   }
 
   static async selectRecovery(clientSecret: string, client: string, peers: string[]) {
@@ -406,7 +432,7 @@ export class Client {
 
   async listSessions() {
     const messages = await Promise.all(
-      Client.getKnownPeers().map(async (peer, i) => {
+      Client._getKnownPeers().map(async (peer, i) => {
         const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.SessionList))
 
         if (auth) {

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import "dotenv/config"
+import bcrypt from 'bcrypt'
 import {Signer} from "@pomade/core"
 import {sqliteStorageFactory} from "./storage.js"
 
@@ -28,9 +29,11 @@ const signer = new Signer({
   secret,
   relays,
   storage,
+  hash: p => bcrypt.hash(p, 10),
+  compare: bcrypt.compare,
   sendChallenge: async payload => {
     console.log(payload)
-  }
+  },
 })
 
 console.log(`Running as: ${signer.pubkey}`)

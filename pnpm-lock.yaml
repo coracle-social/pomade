@@ -44,9 +44,6 @@ importers:
       base58-js:
         specifier: ^3.0.3
         version: 3.0.3
-      bcrypt:
-        specifier: ^6.0.0
-        version: 6.0.0
       nostr-tools:
         specifier: ^2.19.3
         version: 2.19.4(typescript@5.9.3)
@@ -54,9 +51,6 @@ importers:
         specifier: ^4.1.13
         version: 4.2.1
     devDependencies:
-      '@types/bcrypt':
-        specifier: ^6.0.0
-        version: 6.0.0
       '@typescript-eslint/eslint-plugin':
         specifier: ^8.49.0
         version: 8.50.0(@typescript-eslint/parser@8.50.0(eslint@9.39.2)(typescript@5.9.3))(eslint@9.39.2)(typescript@5.9.3)
@@ -87,6 +81,9 @@ importers:
       '@pomade/core':
         specifier: workspace:*
         version: link:../core
+      bcrypt:
+        specifier: ^6.0.0
+        version: 6.0.0
       better-sqlite3:
         specifier: ^11.10.0
         version: 11.10.0
@@ -94,6 +91,9 @@ importers:
         specifier: ^16.4.7
         version: 16.6.1
     devDependencies:
+      '@types/bcrypt':
+        specifier: ^6.0.0
+        version: 6.0.0
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13

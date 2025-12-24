@@ -13,13 +13,9 @@ import {
   normalizeRelayUrl,
   isRelayUrl,
 } from "@welshman/util"
-import {publish, request, LOCAL_RELAY_URL} from "@welshman/net"
+import {publish, request} from "@welshman/net"
 
 // Signing and encryption
-
-export const bcryptOptions = {
-  rounds: 10,
-}
 
 export function prepAndSign(secret: string, event: EventTemplate) {
   return sign(prep(event, getPubkey(secret)), secret)
@@ -110,6 +106,8 @@ export function debug(...args: any) {
 }
 
 // Relays
+
+export const LOCAL_RELAY_URL = "local://welshman.relay/"
 
 export const isRelay = (url: string) => (url === LOCAL_RELAY_URL ? true : isRelayUrl(url))
 

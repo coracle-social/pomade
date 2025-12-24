@@ -18,12 +18,14 @@
     "dev": "tsc -b && node dist/index.js"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "rimraf": "~6.0.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "@pomade/core": "workspace:*",
+    "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.10.0",
     "dotenv": "^16.4.7"
   }

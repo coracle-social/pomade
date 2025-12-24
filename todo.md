@@ -1,7 +1,11 @@
 - mjml
-- Make docker images
+- publish docker images
 - add login with other session
+- make sure client/signer actually stop
+- review integration.md
+- put argon in a worker
+- take idx into account when building login options
 - refactor storage to be more efficient
   - make bcrypt hashing configurable (for testing)
   - allow querying by hashed password to avoid enumerating everything
-  - other enumerations
+  - avoid other enumerations

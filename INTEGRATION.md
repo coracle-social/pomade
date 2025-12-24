@@ -21,18 +21,16 @@ This guide provides complete documentation and examples for integrating the Poma
 
 Before integrating Pomade, ensure you have:
 
-1. **Running Signer Services**: At least 2-3 signer services running and accessible via Nostr relays. These **must** be run by multiple independent parties who are not likely to collude to steal user keys.
-2. **Running Mailer Service**: A mailer service configured to send validation/recovery emails. You may want to run this yourself if you want control over how emails are branded. It's also possible to create a mailer that uses a recovery method other than email.
-3. **Nostr Relay Access**: Configured relays that both your client and signers can access
-4. **User's Nostr Key**: A nostr private key (either existing or newly generated)
+1. **Running Signer Services**: At least 2-3 signer services running and accessible via Nostr relays. These **must** be run by multiple independent parties who are not likely to collude to steal user keys. Signers handle email delivery directly.
+2. **Nostr Relay Access**: Configured relays that both your client and signers can access
+3. **User's Nostr Key**: A nostr private key (either existing or newly generated)
 
 ## Core Concepts
 
 ### Components
 
 - **Client**: Your application that requests signatures on behalf of users. Each session uses a temporary session-specific key.
-- **Signer**: Headless services that store key shares and collaborate to create threshold signatures. Identified by Nostr public keys.
-- **Mailer**: Service that sends one-time passwords to users via email (or other methods) but never accesses key material.
+- **Signer**: Headless services that store key shares and collaborate to create threshold signatures. Identified by Nostr public keys. Signers also handle sending OTP codes via email for recovery flows.
 
 ### Threshold Signatures
 
@@ -163,133 +161,72 @@ if (conversationKey) {
 
 ## Recovery Methods
 
-Setting up email recovery allows users to regain access to their keys using only their email address.
+Setting up email-based recovery allows users to regain access to their keys using their email address and password (or OTP).
 
 **Important Security Notes:**
-- Recovery methods MUST be set within 5 minutes of registration, which prevents attackers from hijacking compromised sessions and adding their own recovery method
-- The mailer and inbox are permanently bound to the session
+- Recovery methods MUST be set within 15 minutes of registration, which prevents attackers from hijacking compromised sessions and adding their own recovery method
+- The email is permanently bound to the session
 
 ### Setting a Recovery Method
 
 ```typescript
-const inbox = "user@example.com"
-const mailerPubkey = "mailer_service_pubkey_hex"
-const callbackUrl = "https://myapp.com/recover?challenge="
+const email = "user@example.com"
+const password = "user_chosen_password"
 
-// Set recovery method
-const {ok, messages} = await client.setRecoveryMethod(
-  inbox,
-  mailerPubkey,
-  callbackUrl, // optional - where to send users after email click
-)
+// Set recovery method with email and password
+const {ok, messages} = await client.setupRecovery(email, password)
 
 if (ok) {
-  console.log("Recovery method set, waiting for validation email...")
-
-  // User will receive an email with a challenge code
-  // Your app should have a way to receive this challenge
-  // (either via callback URL or manual user input)
+  console.log("Recovery method set successfully!")
+  // No email validation required - user can immediately use email/password to recover
 } else {
   console.error("Failed to set recovery method:", messages)
 }
 ```
 
-### Finalizing Recovery Method
-
-After the user receives the validation email:
-
-```typescript
-// User provides the challenge from their email
-const challenge = "base58_encoded_challenge_from_email"
-
-const {ok, messages} = await client.finalizeRecoveryMethod(challenge)
-
-if (ok) {
-  console.log("Email validated! Recovery method is now active.")
-} else {
-  console.error("Validation failed:", messages)
-}
-```
+**Note**: The password is hashed using argon2id before being sent to signers, so the plaintext password never leaves the client.
 
 ## Account Recovery
 
-Recovery allows users to regain access to their keys using only their email.
+Recovery allows users to regain access to their accounts using their email and password, or via OTP if they've forgotten their password.
 
-### Recovery Flow
+### Login Flow (Create New Session with Password)
 
-Use this when users need to recover their actual private key:
+Use this when users need to sign in on a new device using their email and password:
 
 ```typescript
-import {Client, parseChallenge} from "@pomade/core"
+async function loginWithPassword(
+  email: string,
+  password: string,
+): Promise<Client | null> {
+  // Step 1: Start login with email and password
+  const result = await Client.login(email, password)
 
-async function recoverAccount(email: string): Promise<string | null> {
-  // Step 1: Start recovery
-  const {ok, clientSecret, messages} = await Client.startRecovery(
-    email,
-    "https://myapp.com/recover?challenge=", // optional callback URL
-  )
-
-  if (!ok) {
-    console.error("Failed to start recovery:", messages)
+  if (!result.ok) {
+    console.error("Failed to start login:", result.messages)
     return null
   }
 
-  console.log(`Recovery email sent to ${email}`)
-
-  // Step 2: Wait for user to receive email and provide challenge
-  const challenge = await waitForUserChallenge() // Your UI implementation
-
-  // Step 3: Finalize recovery
-  const {ok: finalizeOk, userSecret} = await Client.finalizeRecovery(
-    clientSecret,
-    challenge,
-  )
-
-  if (finalizeOk && userSecret) {
-    console.log("Account recovered successfully!")
-
-    // User now has their private key back
-    // You can re-register a new session or use the key directly
-    return userSecret
-  }
-
-  console.error("Recovery failed")
-  return null
-}
-```
-
-### Login Flow (Create New Session)
-
-Use this when users just need to sign in on a new device (more secure than key recovery):
-
-```typescript
-async function loginWithEmail(email: string): Promise<Client | null> {
-  // Step 1: Start login
-  const {ok, clientSecret, messages} = await Client.startLogin(
-    email,
-    "https://myapp.com/login?challenge=", // optional callback URL
-  )
-
-  if (!ok) {
-    console.error("Failed to start login:", messages)
+  // Step 2: Select which session to log into (if multiple exist)
+  const sessions = result.sessions
+  if (!sessions || sessions.length === 0) {
+    console.error("No sessions found")
     return null
   }
 
-  console.log(`Login email sent to ${email}`)
+  // Let user choose or automatically pick the first one
+  const selectedSession = sessions[0]
 
-  // Step 2: Wait for user to receive email and provide challenge
-  const challenge = await waitForUserChallenge() // Your UI implementation
-
-  // Step 3: Finalize login
-  const {ok: finalizeOk, clientOptions} = await Client.finalizeLogin(
-    clientSecret,
-    challenge,
+  // Step 3: Complete login for selected session
+  const {ok, clientOptions} = await Client.loginSelect(
+    result.clientSecret,
+    selectedSession.client,
   )
 
-  if (finalizeOk && clientOptions) {
+  if (ok && clientOptions) {
     console.log("Logged in successfully!")
 
-    // Create new client with the recovered session
+    // Create new client with the new session
     const client = new Client(clientOptions)
 
     // Store clientOptions for this device
@@ -303,29 +240,120 @@ async function loginWithEmail(email: string): Promise<Client | null> {
 }
 ```
 
-### Recovery with Multiple Accounts
+### Login Flow with OTP (Forgot Password)
 
-If multiple pubkeys are associated with the same email:
+Use this when users have forgotten their password and need to use one-time passwords sent to their email:
 
 ```typescript
-// Start recovery for specific pubkey
-const {ok, clientSecret} = await Client.startRecovery(
-  "user@example.com",
-  undefined, // no callback URL
-  "specific_user_pubkey_hex", // specify which account to recover
-)
+async function loginWithOTP(email: string): Promise<Client | null> {
+  // Step 1: Request OTPs from all signers
+  await Client.requestChallenges(email)
 
-// If pubkey is not specified, mailer may send multiple challenges
-// User can choose which account to recover
+  console.log(`OTP codes sent to ${email}`)
+
+  // Step 2: Wait for user to receive emails and provide OTPs
+  // Each signer sends a separate email with format: base58(signer_pubkey || otp)
+  const otps = await waitForUserOTPs() // Your UI implementation - collect multiple OTPs
+
+  // Step 3: Start login with OTPs
+  const result = await Client.loginWithOTPs(email, otps)
+
+  if (!result.ok) {
+    console.error("Failed to start login:", result.messages)
+    return null
+  }
+
+  // Step 4: Select session and complete login (same as password flow)
+  const selectedSession = result.sessions[0]
+  const {ok, clientOptions} = await Client.loginSelect(
+    result.clientSecret,
+    selectedSession.client,
+  )
+
+  if (ok && clientOptions) {
+    const client = new Client(clientOptions)
+    await storeClientOptions(clientOptions)
+    return client
+  }
+
+  return null
+}
 ```
 
-### Handling Callback URLs
+### Recovery Flow (Recover Private Key with Password)
 
-If you provide a callback URL, the mailer will append the challenge:
+Use this when users need to recover their actual private key (less secure than login):
 
+```typescript
+async function recoverPrivateKey(
+  email: string,
+  password: string,
+): Promise<string | null> {
+  // Step 1: Start recovery with email and password
+  const result = await Client.recover(email, password)
+
+  if (!result.ok) {
+    console.error("Failed to start recovery:", result.messages)
+    return null
+  }
+
+  // Step 2: Select which account to recover
+  const sessions = result.sessions
+  const selectedSession = sessions[0]
+
+  // Step 3: Complete recovery for selected session
+  const {ok, userSecret} = await Client.recoverSelect(
+    result.clientSecret,
+    selectedSession.client,
+  )
+
+  if (ok && userSecret) {
+    console.log("Account recovered successfully!")
+    // User now has their private key back
+    return userSecret
+  }
+
+  console.error("Recovery failed")
+  return null
+}
 ```
-https://myapp.com/recover?challenge=base58_encoded_challenge
+
+### Recovery Flow with OTP
+
+Similar to login with OTP, but returns the private key instead of creating a new session:
+
+```typescript
+async function recoverWithOTP(email: string): Promise<string | null> {
+  // Request OTPs
+  await Client.requestChallenges(email)
+
+  // Collect OTPs from user's email
+  const otps = await waitForUserOTPs()
+
+  // Start recovery with OTPs
+  const result = await Client.recoverWithOTPs(email, otps)
+
+  if (!result.ok) {
+    console.error("Failed to start recovery:", result.messages)
+    return null
+  }
+
+  // Select session and complete recovery
+  const selectedSession = result.sessions[0]
+  const {ok, userSecret} = await Client.recoverSelect(
+    result.clientSecret,
+    selectedSession.client,
+  )
+
+  if (ok && userSecret) {
+    return userSecret
+  }
+
+  return null
+}
 ```
+
+**Security Note**: Login (creating a new session) is more secure than recovering the private key, as it doesn't expose the user's key material. Use login when possible.
 
 ## Session Management
 
@@ -342,8 +370,11 @@ for (const [clientPubkey, sessionItems] of sessions.entries()) {
   console.log(`Session: ${clientPubkey}`)
 
   for (const item of sessionItems) {
+    console.log(`  User pubkey: ${item.pubkey}`)
     console.log(`  Signer: ${item.peer}`)
-    console.log(`  Email: ${item.inbox || "not set"}`)
+    console.log(`  Email: ${item.email || "not set"}`)
+    console.log(`  Threshold: ${item.threshold}/${item.total}`)
+    console.log(`  Index: ${item.idx}`)
     console.log(`  Created: ${new Date(item.created_at * 1000)}`)
     console.log(`  Last active: ${new Date(item.last_activity * 1000)}`)
   }

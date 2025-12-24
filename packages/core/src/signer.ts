@@ -1,4 +1,3 @@
-import bcrypt from "bcrypt"
 import {Lib} from "@frostr/bifrost"
 import {randomBytes, bytesToHex} from "@noble/hashes/utils.js"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
@@ -8,7 +7,7 @@ import type {TrustedEvent, SignedEvent} from "@welshman/util"
 import {IStorageFactory, IStorage} from "./storage.js"
 import {Method, SessionItem, AuthPayload} from "./schema.js"
 import {RPC, WithEvent} from "./rpc.js"
-import {hashEmail, bcryptOptions, encodeChallenge, debug} from "./util.js"
+import {hashEmail, encodeChallenge, debug} from "./util.js"
 import {
   ChallengeRequest,
   EcdhRequest,
@@ -107,6 +106,8 @@ export type SignerOptions = {
   secret: string
   relays: string[]
   storage: IStorageFactory
+  hash: (password: string) => Promise<string>
+  compare: (password: string, hash: string) => Promise<boolean>
   sendChallenge: (payload: ChallengePayload) => Promise<void>
 }
 
@@ -184,7 +185,10 @@ export class Signer {
 
   async *_getAuthenticatedSessionsByPassword(password_hash: string): AsyncGenerator<SignerSession> {
     for (const [_, session] of await this.sessions.entries()) {
-      if (session.password_hash && (await bcrypt.compare(password_hash, session.password_hash))) {
+      if (
+        session.password_hash &&
+        (await this.options.compare(password_hash, session.password_hash))
+      ) {
         yield session
       }
     }
@@ -382,7 +386,7 @@ export class Signer {
         last_activity: now(),
         email: payload.email,
         email_hash: await hashEmail(payload.email, this.pubkey),
-        password_hash: await bcrypt.hash(payload.password_hash, bcryptOptions.rounds),
+        password_hash: await this.options.hash(payload.password_hash),
       })
 
       debug("[signer]: recovery method initialized", event.pubkey)
