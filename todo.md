@@ -2,7 +2,6 @@
 - publish docker images
 - add login with other session
 - make sure client/signer actually stop
-- review integration.md
 - take idx into account when building login options
 - refactor storage to be more efficient
   - make bcrypt hashing configurable (for testing)

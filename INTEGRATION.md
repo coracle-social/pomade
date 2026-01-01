@@ -200,7 +200,7 @@ async function loginWithPassword(
   password: string,
 ): Promise<Client | null> {
   // Step 1: Start login with email and password
-  const result = await Client.login(email, password)
+  const result = await Client.loginWithPassword(email, password)
 
   if (!result.ok) {
     console.error("Failed to start login:", result.messages)
@@ -208,31 +208,33 @@ async function loginWithPassword(
   }
 
   // Step 2: Select which session to log into (if multiple exist)
-  const sessions = result.sessions
-  if (!sessions || sessions.length === 0) {
+  const options = result.options
+  if (!options || options.length === 0) {
     console.error("No sessions found")
     return null
   }
 
   // Let user choose or automatically pick the first one
-  const selectedSession = sessions[0]
+  // Each option is a tuple of [client: string, peers: string[]]
+  const [client, peers] = options[0]
 
   // Step 3: Complete login for selected session
-  const {ok, clientOptions} = await Client.loginSelect(
+  const {ok, clientOptions} = await Client.selectLogin(
     result.clientSecret,
-    selectedSession.client,
+    client,
+    peers,
   )
 
   if (ok && clientOptions) {
     console.log("Logged in successfully!")
 
     // Create new client with the new session
-    const client = new Client(clientOptions)
+    const newClient = new Client(clientOptions)
 
     // Store clientOptions for this device
     await storeClientOptions(clientOptions)
 
-    return client
+    return newClient
   }
 
   console.error("Login failed")
@@ -247,16 +249,16 @@ Use this when users have forgotten their password and need to use one-time passw
 ```typescript
 async function loginWithOTP(email: string): Promise<Client | null> {
   // Step 1: Request OTPs from all signers
-  await Client.requestChallenges(email)
+  await Client.requestChallenge(email)
 
   console.log(`OTP codes sent to ${email}`)
 
   // Step 2: Wait for user to receive emails and provide OTPs
   // Each signer sends a separate email with format: base58(signer_pubkey || otp)
-  const otps = await waitForUserOTPs() // Your UI implementation - collect multiple OTPs
+  const challenges = await waitForUserChallenges() // Your UI implementation - collect multiple challenges
 
-  // Step 3: Start login with OTPs
-  const result = await Client.loginWithOTPs(email, otps)
+  // Step 3: Start login with challenges
+  const result = await Client.loginWithChallenge(email, challenges)
 
   if (!result.ok) {
     console.error("Failed to start login:", result.messages)
@@ -264,16 +266,18 @@ async function loginWithOTP(email: string): Promise<Client | null> {
   }
 
   // Step 4: Select session and complete login (same as password flow)
-  const selectedSession = result.sessions[0]
-  const {ok, clientOptions} = await Client.loginSelect(
+  // Each option is a tuple of [client: string, peers: string[]]
+  const [client, peers] = result.options[0]
+  const {ok, clientOptions} = await Client.selectLogin(
     result.clientSecret,
-    selectedSession.client,
+    client,
+    peers,
   )
 
   if (ok && clientOptions) {
-    const client = new Client(clientOptions)
+    const newClient = new Client(clientOptions)
     await storeClientOptions(clientOptions)
-    return client
+    return newClient
   }
 
   return null
@@ -290,7 +294,7 @@ async function recoverPrivateKey(
   password: string,
 ): Promise<string | null> {
   // Step 1: Start recovery with email and password
-  const result = await Client.recover(email, password)
+  const result = await Client.recoverWithPassword(email, password)
 
   if (!result.ok) {
     console.error("Failed to start recovery:", result.messages)
@@ -298,13 +302,14 @@ async function recoverPrivateKey(
   }
 
   // Step 2: Select which account to recover
-  const sessions = result.sessions
-  const selectedSession = sessions[0]
+  // Each option is a tuple of [client: string, peers: string[]]
+  const [client, peers] = result.options[0]
 
   // Step 3: Complete recovery for selected session
-  const {ok, userSecret} = await Client.recoverSelect(
+  const {ok, userSecret} = await Client.selectRecovery(
     result.clientSecret,
-    selectedSession.client,
+    client,
+    peers,
   )
 
   if (ok && userSecret) {
@@ -325,13 +330,13 @@ Similar to login with OTP, but returns the private key instead of creating a new
 ```typescript
 async function recoverWithOTP(email: string): Promise<string | null> {
   // Request OTPs
-  await Client.requestChallenges(email)
+  await Client.requestChallenge(email)
 
-  // Collect OTPs from user's email
-  const otps = await waitForUserOTPs()
+  // Collect challenges from user's email
+  const challenges = await waitForUserChallenges()
 
-  // Start recovery with OTPs
-  const result = await Client.recoverWithOTPs(email, otps)
+  // Start recovery with challenges
+  const result = await Client.recoverWithChallenge(email, challenges)
 
   if (!result.ok) {
     console.error("Failed to start recovery:", result.messages)
@@ -339,10 +344,12 @@ async function recoverWithOTP(email: string): Promise<string | null> {
   }
 
   // Select session and complete recovery
-  const selectedSession = result.sessions[0]
-  const {ok, userSecret} = await Client.recoverSelect(
+  // Each option is a tuple of [client: string, peers: string[]]
+  const [client, peers] = result.options[0]
+  const {ok, userSecret} = await Client.selectRecovery(
     result.clientSecret,
-    selectedSession.client,
+    client,
+    peers,
   )
 
   if (ok && userSecret) {
@@ -363,20 +370,26 @@ Manage multiple sessions across devices and applications. Sessions are authentat
 
 ```typescript
 // List all sessions for the user's pubkey across all signers
-const sessions = await client.listSessions()
+const {ok, messages} = await client.listSessions()
 
-// sessions is a Map<clientPubkey, sessionInfo[]>
-for (const [clientPubkey, sessionItems] of sessions.entries()) {
-  console.log(`Session: ${clientPubkey}`)
+if (!ok) {
+  console.error("Failed to list sessions")
+  return
+}
 
-  for (const item of sessionItems) {
-    console.log(`  User pubkey: ${item.pubkey}`)
-    console.log(`  Signer: ${item.peer}`)
-    console.log(`  Email: ${item.email || "not set"}`)
-    console.log(`  Threshold: ${item.threshold}/${item.total}`)
-    console.log(`  Index: ${item.idx}`)
-    console.log(`  Created: ${new Date(item.created_at * 1000)}`)
-    console.log(`  Last active: ${new Date(item.last_activity * 1000)}`)
+// Each message contains items from a signer
+for (const message of messages) {
+  if (message?.payload.items) {
+    for (const item of message.payload.items) {
+      console.log(`Session: ${item.client}`)
+      console.log(`  User pubkey: ${item.pubkey}`)
+      console.log(`  Signer: ${message.event.pubkey}`)
+      console.log(`  Email: ${item.email || "not set"}`)
+      console.log(`  Threshold: ${item.threshold}/${item.total}`)
+      console.log(`  Index: ${item.idx}`)
+      console.log(`  Created: ${new Date(item.created_at * 1000)}`)
+      console.log(`  Last active: ${new Date(item.last_activity * 1000)}`)
+    }
   }
 }
 ```
@@ -401,30 +414,37 @@ if (ok) {
 
 ```typescript
 // Get all sessions
-const sessions = await client.listSessions()
+const {ok, messages} = await client.listSessions()
+
+if (!ok) {
+  console.error("Failed to list sessions")
+  return
+}
+
+// Group sessions by client pubkey
+const sessionsByClient = new Map<string, {items: any[], peers: string[]}>()
+
+for (const message of messages) {
+  if (message?.payload.items) {
+    for (const item of message.payload.items) {
+      if (!sessionsByClient.has(item.client)) {
+        sessionsByClient.set(item.client, {items: [], peers: []})
+      }
+      const session = sessionsByClient.get(item.client)!
+      session.items.push(item)
+      session.peers.push(message.event.pubkey)
+    }
+  }
+}
 
 // Find suspicious or old sessions
-for (const [clientPubkey, items] of sessions.entries()) {
-  const lastActivity = Math.max(...items.map(i => i.last_activity))
+for (const [clientPubkey, session] of sessionsByClient.entries()) {
+  const lastActivity = Math.max(...session.items.map(i => i.last_activity))
   const daysSinceActivity = (Date.now() / 1000 - lastActivity) / 86400
 
   if (daysSinceActivity > 30) {
     console.log(`Deleting inactive session: ${clientPubkey}`)
-
-    // Delete the session
-    const peers = items.map(i => i.peer)
-    await client.deleteSession(clientPubkey, peers)
-  }
-}
-// Delete a session
-async function revokeSession(sessionInfo: any) {
-  const {ok} = await client.deleteSession(
-    sessionInfo.clientPubkey,
-    sessionInfo.peers,
-  )
-
-  if (ok) {
-    console.log("Session revoked")
+    await client.deleteSession(clientPubkey, session.peers)
   }
 }
 ```
