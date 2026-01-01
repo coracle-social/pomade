@@ -1,6 +1,6 @@
 import * as b58 from "base58-js"
 import * as nt44 from "nostr-tools/nip44"
-import {argon2id} from "@noble/hashes/argon2.js"
+import {spawn, Worker} from "threads"
 import {bytesToHex} from "@noble/hashes/utils.js"
 import {cached, uniq, textEncoder, hexToBytes} from "@welshman/lib"
 import type {EventTemplate} from "@welshman/util"
@@ -60,12 +60,28 @@ export function decodeChallenge(challenge: string) {
 
 export const argonOptions = {t: 2, m: 32 * 1024, p: 1}
 
+let argonWorker: any
+
+async function getArgonWorker() {
+  if (!argonWorker) {
+    argonWorker = await spawn(new Worker("./argon-worker.ts"))
+  }
+
+  return argonWorker
+}
+
+export async function argon2id(value: Uint8Array, salt: Uint8Array) {
+  const worker = await getArgonWorker()
+
+  return worker.argon2id(value, salt, argonOptions)
+}
+
 export async function hashEmail(email: string, peer: string) {
-  return bytesToHex(argon2id(textEncoder.encode(email), hexToBytes(peer), argonOptions))
+  return bytesToHex(await argon2id(textEncoder.encode(email), hexToBytes(peer)))
 }
 
 export async function hashPassword(email: string, password: string, peer: string) {
-  return bytesToHex(argon2id(textEncoder.encode(email + password), hexToBytes(peer), argonOptions))
+  return bytesToHex(await argon2id(textEncoder.encode(email + password), hexToBytes(peer)))
 }
 
 // Context

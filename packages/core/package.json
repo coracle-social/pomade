@@ -43,6 +43,7 @@
     "@welshman/util": "^0.7.1",
     "base58-js": "^3.0.3",
     "nostr-tools": "^2.19.3",
+    "threads": "^1.7.0",
     "zod": "^4.1.13"
   }
 }
