@@ -1,1 +1,4 @@
 *.tsbuildinfo
+*.db
+*.db-wal
+*.db-shm

@@ -75,16 +75,25 @@ const sessionItem = z.object({
   email: z.string().optional(),
 })
 
-const authPayload = z.union([
-  z.string(),
-  z.object({
-    email: z.string(),
-    otp: z.string(),
-  }),
-])
+const passwordAuth = z.object({
+  password: z.string(),
+})
+
+const otpAuth = z.object({
+  email: z.string(),
+  otp: z.string(),
+})
+
+const auth = z.union([passwordAuth, otpAuth])
 
 export type SessionItem = z.infer<typeof sessionItem>
-export type AuthPayload = z.infer<typeof authPayload>
+export type PasswordAuth = z.infer<typeof passwordAuth>
+export type OTPAuth = z.infer<typeof otpAuth>
+export type Auth = z.infer<typeof auth>
+
+export const isPasswordAuth = (auth: Auth): auth is PasswordAuth => Boolean((auth as any).password)
+
+export const isOTPAuth = (auth: Auth): auth is OTPAuth => Boolean((auth as any).otp)
 
 export const Schema = {
   ecdhRequest: z.object({
@@ -109,7 +118,7 @@ export const Schema = {
     email_hash: z.string(),
   }),
   loginStart: z.object({
-    auth: authPayload,
+    auth,
   }),
   loginOptions: z.object({
     items: z.array(sessionItem).optional(),
@@ -127,7 +136,7 @@ export const Schema = {
     prev: hex32,
   }),
   recoveryStart: z.object({
-    auth: authPayload,
+    auth,
   }),
   recoveryOptions: z.object({
     items: z.array(sessionItem).optional(),
@@ -147,7 +156,7 @@ export const Schema = {
   }),
   recoverySetup: z.object({
     email: z.string(),
-    password_hash: z.string(),
+    password: z.string(),
   }),
   recoverySetupResult: z.object({
     ok: z.boolean(),

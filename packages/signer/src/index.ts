@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
 import "dotenv/config"
-import bcrypt from 'bcrypt'
 import {Signer, context} from "@pomade/core"
-import {sqliteStorageFactory} from "./storage.js"
+import {createSqliteStorage} from "./storage.js"
 
 // Turn on verbose logging
 context.debug = true
@@ -24,16 +23,14 @@ if (relays.length === 0) {
   process.exit(1)
 }
 
-// Create storage factory
-const storage = sqliteStorageFactory({path: dbPath})
+// Create storage
+const storage = createSqliteStorage({path: dbPath})
 
 // Start signer service
 const signer = new Signer({
   secret,
   relays,
   storage,
-  hash: p => bcrypt.hash(p, 10),
-  compare: bcrypt.compare,
   sendChallenge: async payload => {
     console.log(payload)
   },

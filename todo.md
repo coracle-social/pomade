@@ -4,7 +4,6 @@
 - make sure client/signer actually stop
 - take idx into account when building login options
 - refactor storage to be more efficient
-  - make bcrypt hashing configurable (for testing)
   - allow querying by hashed password to avoid enumerating everything
   - avoid other enumerations
 - Migrate to deno/jsr

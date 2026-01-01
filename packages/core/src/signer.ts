@@ -4,8 +4,15 @@ import type {GroupPackage, SharePackage} from "@frostr/bifrost"
 import {now, ms, uniq, between, call, int, ago, MINUTE, HOUR, YEAR} from "@welshman/lib"
 import {getPubkey, verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
 import type {TrustedEvent, SignedEvent} from "@welshman/util"
-import {IStorageFactory, IStorage} from "./storage.js"
-import {Method, SessionItem, AuthPayload} from "./schema.js"
+import {
+  Method,
+  SessionItem,
+  Auth,
+  PasswordAuth,
+  OTPAuth,
+  isPasswordAuth,
+  isOTPAuth,
+} from "./schema.js"
 import {RPC, WithEvent} from "./rpc.js"
 import {hashEmail, encodeChallenge, debug} from "./util.js"
 import {
@@ -69,8 +76,8 @@ export type SignerSession = {
   event: TrustedEvent
   last_activity: number
   email?: string
+  password?: string
   email_hash?: string
-  password_hash?: string
 }
 
 export type SignerRecoverOption = {
@@ -97,6 +104,34 @@ export type SignerChallenge = {
 
 // Signer
 
+type BaseStorage<T> = {
+  get: (k: string) => Promise<T | undefined>
+  has: (k: string) => Promise<boolean>
+  set: (k: string, item: T) => Promise<void>
+  delete: (k: string) => Promise<void>
+  entries: () => Promise<Iterable<[string, T]>>
+}
+
+export type SignerLoginStorage = BaseStorage<SignerLogin>
+
+export type SignerSessionStorage = BaseStorage<SignerSession> & {
+  forEmail: (email: string) => Promise<SignerSession[]>
+  forEmailHash: (email_hash: string) => Promise<SignerSession[]>
+  forPassword: (password: string) => Promise<SignerSession[]>
+}
+
+export type SignerRecoveryStorage = BaseStorage<SignerRecovery>
+
+export type SignerChallengeStorage = BaseStorage<SignerChallenge>
+
+export type SignerStorage = {
+  tx: (f: () => Promise<void>) => Promise<void>
+  login: SignerLoginStorage
+  session: SignerSessionStorage
+  recovery: SignerRecoveryStorage
+  challenge: SignerChallengeStorage
+}
+
 export type ChallengePayload = {
   email: string
   challenge: string
@@ -105,27 +140,17 @@ export type ChallengePayload = {
 export type SignerOptions = {
   secret: string
   relays: string[]
-  storage: IStorageFactory
-  hash: (password: string) => Promise<string>
-  compare: (password: string, hash: string) => Promise<boolean>
+  storage: SignerStorage
   sendChallenge: (payload: ChallengePayload) => Promise<void>
 }
 
 export class Signer {
   rpc: RPC
   pubkey: string
-  sessions: IStorage<SignerSession>
-  recoveries: IStorage<SignerRecovery>
-  logins: IStorage<SignerLogin>
-  challenges: IStorage<SignerChallenge>
   intervals: number[]
 
   constructor(private options: SignerOptions) {
     this.pubkey = getPubkey(options.secret)
-    this.sessions = options.storage("sessions")
-    this.recoveries = options.storage("recoveries")
-    this.logins = options.storage("logins")
-    this.challenges = options.storage("challenges")
     this.rpc = new RPC(options.secret, options.relays)
     this.rpc.subscribe(message => {
       // Ignore events with weird timestamps
@@ -152,16 +177,16 @@ export class Signer {
         async () => {
           debug("[signer]: cleaning up logins and recoveries")
 
-          for (const [client, recovery] of await this.recoveries.entries()) {
-            if (recovery.event.created_at < ago(15, MINUTE)) await this.recoveries.delete(client)
+          for (const [client, recovery] of await this.options.storage.recovery.entries()) {
+            if (recovery.event.created_at < ago(15, MINUTE)) await this.options.storage.recovery.delete(client)
           }
 
-          for (const [client, login] of await this.logins.entries()) {
-            if (login.event.created_at < ago(15, MINUTE)) await this.logins.delete(client)
+          for (const [client, login] of await this.options.storage.login.entries()) {
+            if (login.event.created_at < ago(15, MINUTE)) await this.options.storage.login.delete(client)
           }
 
-          for (const [client, challenge] of await this.challenges.entries()) {
-            if (challenge.event.created_at < ago(15, MINUTE)) await this.challenges.delete(client)
+          for (const [client, challenge] of await this.options.storage.challenge.entries()) {
+            if (challenge.event.created_at < ago(15, MINUTE)) await this.options.storage.challenge.delete(client)
           }
         },
         ms(int(5, MINUTE)),
@@ -170,8 +195,8 @@ export class Signer {
 
     // Immediately clean up old sessions
     call(async () => {
-      for (const [client, session] of await this.sessions.entries()) {
-        if (session.last_activity < ago(YEAR)) await this.sessions.delete(client)
+      for (const [client, session] of await this.options.storage.session.entries()) {
+        if (session.last_activity < ago(YEAR)) await this.options.storage.session.delete(client)
       }
     })
   }
@@ -183,43 +208,24 @@ export class Signer {
 
   // Internal utils
 
-  async *_getAuthenticatedSessionsByPassword(password_hash: string): AsyncGenerator<SignerSession> {
-    for (const [_, session] of await this.sessions.entries()) {
-      if (
-        session.password_hash &&
-        (await this.options.compare(password_hash, session.password_hash))
-      ) {
-        yield session
-      }
+  async _getAuthenticatedSessions(auth: Auth): Promise<SignerSession[]> {
+    if (isPasswordAuth(auth)) {
+      return this.options.storage.session.forPassword(auth.password)
     }
-  }
 
-  async *_getAuthenticatedSessionsByOTP(email: string, otp: string): AsyncGenerator<SignerSession> {
-    const challenge = await this.challenges.get(email)
+    if (isOTPAuth(auth)) {
+      const challenge = await this.options.storage.challenge.get(auth.email)
 
-    await this.challenges.delete(email)
+      if (challenge) {
+        await this.options.storage.challenge.delete(auth.email)
 
-    if (otp === challenge?.otp) {
-      for (const [_, session] of await this.sessions.entries()) {
-        if (email === session.email) {
-          yield session
+        if (auth.otp === challenge.otp) {
+          return this.options.storage.session.forEmail(auth.email)
         }
       }
     }
-  }
 
-  async _getAuthenticatedSessions(auth: AuthPayload): Promise<SignerSession[]> {
-    const sessions: SignerSession[] = []
-    const generator =
-      typeof auth === "string"
-        ? this._getAuthenticatedSessionsByPassword(auth)
-        : this._getAuthenticatedSessionsByOTP(auth.email, auth.otp)
-
-    for await (const session of generator) {
-      sessions.push(session)
-    }
-
-    return sessions
+    return []
   }
 
   _isNip98AuthValid(auth: SignedEvent, method: Method) {
@@ -234,7 +240,7 @@ export class Signer {
   }
 
   async _checkKeyReuse(event: TrustedEvent) {
-    if (await this.sessions.has(event.pubkey)) {
+    if (await this.options.storage.session.has(event.pubkey)) {
       debug("[signer]: session key re-used", event.pubkey)
 
       return this.rpc.channel(event.pubkey, false).send(
@@ -246,7 +252,7 @@ export class Signer {
       )
     }
 
-    if (await this.recoveries.has(event.pubkey)) {
+    if (await this.options.storage.recovery.has(event.pubkey)) {
       debug("[signer]: recovery key re-used", event.pubkey)
 
       return this.rpc.channel(event.pubkey, false).send(
@@ -258,7 +264,7 @@ export class Signer {
       )
     }
 
-    if (await this.logins.has(event.pubkey)) {
+    if (await this.options.storage.login.has(event.pubkey)) {
       debug("[signer]: login key re-used", event.pubkey)
 
       return this.rpc.channel(event.pubkey, false).send(
@@ -276,7 +282,7 @@ export class Signer {
   async handleRegisterRequest({payload, event}: WithEvent<RegisterRequest>) {
     debug("[signer]: attempting to register session", event.pubkey)
 
-    return this.sessions.tx(async sessions => {
+    return this.options.storage.tx(async () => {
       const {group, share, recovery} = payload
       const cb = (ok: boolean, message: string) =>
         this.rpc
@@ -305,12 +311,12 @@ export class Signer {
         return cb(false, "Share index not found in group commits.")
       }
 
-      if (await sessions.has(event.pubkey)) {
+      if (await this.options.storage.session.has(event.pubkey)) {
         debug("[signer]: client is already registered", event.pubkey)
         return cb(false, "Client is already registered.")
       }
 
-      await sessions.set(event.pubkey, {
+      await this.options.storage.session.set(event.pubkey, {
         client: event.pubkey,
         event,
         share,
@@ -328,8 +334,8 @@ export class Signer {
   // Recovery setup
 
   async handleRecoverySetup({payload, event}: WithEvent<RecoverySetup>) {
-    return this.sessions.tx(async sessions => {
-      const session = await sessions.get(event.pubkey)
+    return this.options.storage.tx(async () => {
+      const session = await this.options.storage.session.get(event.pubkey)
 
       if (!session) {
         debug("[signer]: no session found for recovery setup", event.pubkey)
@@ -381,12 +387,25 @@ export class Signer {
         )
       }
 
-      await sessions.set(event.pubkey, {
+      if (!payload.password.match(/^[a-f0-9]{64}$/)) {
+        debug("[signer]: invalid password provided on setup", event.pubkey)
+
+        return this.rpc.channel(event.pubkey, false).send(
+          makeRecoverySetupResult({
+            ok: false,
+            message:
+              "Recovery method password must be an argon2id hash of user email and password.",
+            prev: event.id,
+          }),
+        )
+      }
+
+      await this.options.storage.session.set(event.pubkey, {
         ...session,
         last_activity: now(),
         email: payload.email,
+        password: payload.password,
         email_hash: await hashEmail(payload.email, this.pubkey),
-        password_hash: await this.options.hash(payload.password_hash),
       })
 
       debug("[signer]: recovery method initialized", event.pubkey)
@@ -402,21 +421,19 @@ export class Signer {
   }
 
   async handleChallengeRequest({payload, event}: WithEvent<ChallengeRequest>) {
-    let email: string | undefined = undefined
-    for (const [_, session] of await this.sessions.entries()) {
-      if (session.email_hash === payload.email_hash) {
-        email = session.email
-        break
+    const sessions = await this.options.storage.session.forEmailHash(payload.email_hash)
+
+    if (sessions.length > 0) {
+      const email = sessions[0].email
+
+      if (email) {
+        const otp = bytesToHex(randomBytes(12))
+        const challenge = encodeChallenge(this.pubkey, otp)
+
+        await this.options.storage.challenge.set(email, {otp, email, event})
+
+        this.options.sendChallenge({email, challenge})
       }
-    }
-
-    if (email) {
-      const otp = bytesToHex(randomBytes(12))
-      const challenge = encodeChallenge(this.pubkey, otp)
-
-      await this.challenges.set(email, {otp, email, event})
-
-      this.options.sendChallenge({email, challenge})
     }
   }
 
@@ -444,7 +461,7 @@ export class Signer {
     const clients = sessions.map(s => s.client)
     const items = sessions.map(makeSessionItem)
 
-    await this.recoveries.set(event.pubkey, {event, clients})
+    await this.options.storage.recovery.set(event.pubkey, {event, clients})
 
     this.rpc.channel(event.pubkey, false).send(
       makeRecoveryOptions({
@@ -457,7 +474,7 @@ export class Signer {
   }
 
   async handleRecoverySelect({payload, event}: WithEvent<RecoverySelect>) {
-    const recovery = await this.recoveries.get(event.pubkey)
+    const recovery = await this.options.storage.recovery.get(event.pubkey)
 
     if (!recovery) {
       debug("[signer]: no active recovery found", event.pubkey)
@@ -472,7 +489,7 @@ export class Signer {
     }
 
     // Cleanup right away
-    await this.recoveries.delete(event.pubkey)
+    await this.options.storage.recovery.delete(event.pubkey)
 
     if (!recovery.clients.includes(payload.client)) {
       debug("[signer]: invalid session selected for recovery", event.pubkey)
@@ -486,7 +503,7 @@ export class Signer {
       )
     }
 
-    const session = await this.sessions.get(payload.client)
+    const session = await this.options.storage.session.get(payload.client)
 
     if (!session) {
       debug("[signer]: recovery session not found", event.pubkey)
@@ -537,7 +554,7 @@ export class Signer {
     const clients = sessions.map(s => s.client)
     const items = sessions.map(makeSessionItem)
 
-    await this.logins.set(event.pubkey, {event, clients})
+    await this.options.storage.login.set(event.pubkey, {event, clients})
 
     this.rpc.channel(event.pubkey, false).send(
       makeLoginOptions({
@@ -550,7 +567,7 @@ export class Signer {
   }
 
   async handleLoginSelect({payload, event}: WithEvent<LoginSelect>) {
-    const login = await this.logins.get(event.pubkey)
+    const login = await this.options.storage.login.get(event.pubkey)
 
     if (!login) {
       debug("[signer]: no active login found", event.pubkey)
@@ -565,7 +582,7 @@ export class Signer {
     }
 
     // Cleanup right away
-    await this.logins.delete(event.pubkey)
+    await this.options.storage.login.delete(event.pubkey)
 
     if (!login.clients.includes(payload.client)) {
       debug("[signer]: invalid session selected for login", event.pubkey)
@@ -579,7 +596,7 @@ export class Signer {
       )
     }
 
-    const session = await this.sessions.get(payload.client)
+    const session = await this.options.storage.session.get(payload.client)
 
     if (!session) {
       debug("[signer]: login session not found", event.pubkey)
@@ -593,7 +610,7 @@ export class Signer {
       )
     }
 
-    await this.sessions.set(event.pubkey, {
+    await this.options.storage.session.set(event.pubkey, {
       event,
       recovery: true,
       client: event.pubkey,
@@ -619,8 +636,8 @@ export class Signer {
   async handleSignRequest({payload, event}: WithEvent<SignRequest>) {
     debug("[signer]: attempting signing flow", event.pubkey)
 
-    return this.sessions.tx(async sessions => {
-      const session = await sessions.get(event.pubkey)
+    return this.options.storage.tx(async () => {
+      const session = await this.options.storage.session.get(event.pubkey)
 
       if (!session) {
         debug("[signer]: signing failed", event.pubkey)
@@ -637,7 +654,7 @@ export class Signer {
       const ctx = Lib.get_session_ctx(session.group, payload.request)
       const partialSignature = Lib.create_psig_pkg(ctx, session.share)
 
-      await sessions.set(event.pubkey, {...session, last_activity: now()})
+      await this.options.storage.session.set(event.pubkey, {...session, last_activity: now()})
 
       debug("[signer]: signing complete", event.pubkey)
 
@@ -657,8 +674,8 @@ export class Signer {
   async handleEcdhRequest({payload, event}: WithEvent<EcdhRequest>) {
     debug("[signer]: attempting ecdh flow", event.pubkey)
 
-    return this.sessions.tx(async sessions => {
-      const session = await sessions.get(event.pubkey)
+    return this.options.storage.tx(async () => {
+      const session = await this.options.storage.session.get(event.pubkey)
 
       if (!session) {
         debug("[signer]: ecdh failed", event.pubkey)
@@ -675,7 +692,7 @@ export class Signer {
       const {members, ecdh_pk} = payload
       const ecdhPackage = Lib.create_ecdh_pkg(members, ecdh_pk, session.share)
 
-      await sessions.set(event.pubkey, {...session, last_activity: now()})
+      await this.options.storage.session.set(event.pubkey, {...session, last_activity: now()})
 
       debug("[signer]: ecdh complete", event.pubkey)
 
@@ -709,7 +726,7 @@ export class Signer {
     debug("[signer]: attempting to retrieve session list", event.pubkey)
 
     const items: SessionListResult["payload"]["items"] = []
-    for (const [_, session] of await this.sessions.entries()) {
+    for (const [_, session] of await this.options.storage.session.entries()) {
       if (session.group.group_pk.slice(2) === payload.auth.pubkey) {
         items.push(makeSessionItem(session))
       }
@@ -742,11 +759,11 @@ export class Signer {
 
     debug("[signer]: attempting to delete session", event.pubkey)
 
-    return this.sessions.tx(async sessions => {
-      const session = await sessions.get(payload.client)
+    return this.options.storage.tx(async () => {
+      const session = await this.options.storage.session.get(payload.client)
 
       if (session?.group.group_pk.slice(2) === payload.auth.pubkey) {
-        await sessions.delete(payload.client)
+        await this.options.storage.session.delete(payload.client)
 
         debug("[signer]: deleted session", event.pubkey)
 
