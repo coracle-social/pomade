@@ -40,6 +40,18 @@ const signer = new Signer({
 
 For a batteries-included signer, see [@pomade/signer](../signer).
 
+## Performance
+
+Password hashing uses argon2id, which runs on the main thread by default and may cause brief UI jank (~100-200ms). To avoid this, enable Web Workers:
+
+```typescript
+import { context } from '@pomade/core'
+
+context.setArgonWorker(import('@pomade/core/argon-worker.js?worker'))
+```
+
+This uses your bundler's worker import syntax. No CSP changes required.
+
 ## License
 
 MIT

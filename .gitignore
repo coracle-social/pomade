@@ -7,4 +7,3 @@ dist
 *.db-wal
 *.db-shm
 test-runner-profile
-packages/core/src/argon-worker-code.ts

@@ -2,7 +2,7 @@ import * as b58 from "base58-js"
 import * as nt44 from "nostr-tools/nip44"
 import {argon2id} from "hash-wasm"
 import {bytesToHex} from "@noble/hashes/utils.js"
-import {cached, uniq, textEncoder, hexToBytes} from "@welshman/lib"
+import {cached, once, uniq, textEncoder, hexToBytes} from "@welshman/lib"
 import type {EventTemplate} from "@welshman/util"
 import {
   prep,
@@ -14,7 +14,6 @@ import {
   isRelayUrl,
 } from "@welshman/util"
 import {publish, request} from "@welshman/net"
-import {ARGON_WORKER_CODE} from "./argon-worker-code.js"
 
 // Signing and encryption
 
@@ -61,44 +60,34 @@ export function decodeChallenge(challenge: string) {
 
 export const argonOptions = {t: 2, m: 32 * 1024, p: 1}
 
-async function createArgonWorker() {
-  const blob = new Blob([ARGON_WORKER_CODE], {type: "application/javascript"})
-  const url = URL.createObjectURL(blob)
-  const worker = new Worker(url, {type: "module"})
+export type ArgonImpl = (
+  value: Uint8Array,
+  salt: Uint8Array,
+  options: {t: number; m: number; p: number},
+) => Promise<Uint8Array>
 
-  URL.revokeObjectURL(url)
+const warnArgonImpl = once(() =>
+  console.warn(
+    "Default argon implementation can lead to UI jank. Call `context.setArgonWorker(import('@pomade/core/argon-worker.js?worker'))` to improve performance.",
+  ),
+)
 
-  return worker
+const defaultArgonImpl: ArgonImpl = async (value, salt, options) => {
+  warnArgonImpl()
+
+  return argon2id({
+    password: value,
+    salt: salt,
+    parallelism: options.p,
+    iterations: options.t,
+    memorySize: options.m,
+    hashLength: 32,
+    outputType: "binary",
+  })
 }
 
 export async function hashArgon(value: Uint8Array, salt: Uint8Array) {
-  if (typeof Worker === "undefined") {
-    return argon2id({
-      password: value,
-      salt: salt,
-      parallelism: argonOptions.p,
-      iterations: argonOptions.t,
-      memorySize: argonOptions.m,
-      hashLength: 32,
-      outputType: "binary",
-    })
-  }
-
-  const worker = await createArgonWorker()
-
-  return new Promise<Uint8Array>((resolve, reject) => {
-    worker.onmessage = (e: MessageEvent<Uint8Array>) => {
-      resolve(e.data)
-      worker.terminate()
-    }
-
-    worker.onerror = (e: ErrorEvent) => {
-      reject(e.error || e)
-      worker.terminate()
-    }
-
-    worker.postMessage({value, salt, options: argonOptions})
-  })
+  return context.argonImpl(value, salt, argonOptions)
 }
 
 export async function hashEmail(email: string, peer: string) {
@@ -115,8 +104,10 @@ export type Context = {
   debug: boolean
   signerPubkeys: string[]
   indexerRelays: string[]
+  argonImpl: ArgonImpl
   setSignerPubkeys: (pubkeys: string[]) => void
   setIndexerRelays: (relays: string[]) => void
+  setArgonWorker: (workerModuleOrPromise: any) => void
 }
 
 export const context: Context = {
@@ -127,6 +118,7 @@ export const context: Context = {
     "wss://relay.nostr.band/",
     "wss://purplepag.es/",
   ],
+  argonImpl: defaultArgonImpl,
   setSignerPubkeys(pubkeys: string[]) {
     context.signerPubkeys = pubkeys
 
@@ -137,6 +129,27 @@ export const context: Context = {
   },
   setIndexerRelays(relays: string[]) {
     context.indexerRelays = relays.filter(isRelay).map(normalizeRelay)
+  },
+  setArgonWorker(workerModuleOrPromise: any) {
+    context.argonImpl = async (value, salt, options) => {
+      const workerModule = await Promise.resolve(workerModuleOrPromise)
+      const WorkerClass = workerModule.default || workerModule
+      const worker = new WorkerClass()
+
+      return new Promise<Uint8Array>((resolve, reject) => {
+        worker.onmessage = (e: {data: Uint8Array}) => {
+          resolve(e.data)
+          worker.terminate()
+        }
+
+        worker.onerror = (e: ErrorEvent) => {
+          reject(e.error || e)
+          worker.terminate()
+        }
+
+        worker.postMessage({value, salt, options})
+      })
+    }
   },
 }
 
