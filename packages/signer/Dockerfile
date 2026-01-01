@@ -17,7 +17,6 @@ RUN pnpm install --frozen-lockfile
 
 # Build packages
 RUN pnpm --filter @pomade/core build
-RUN pnpm --filter @pomade/sqlite build
 RUN pnpm --filter @pomade/signer build
 
 # Set working directory to signer package

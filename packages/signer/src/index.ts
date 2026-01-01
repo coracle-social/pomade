@@ -2,8 +2,11 @@
 
 import "dotenv/config"
 import bcrypt from 'bcrypt'
-import {Signer} from "@pomade/core"
+import {Signer, context} from "@pomade/core"
 import {sqliteStorageFactory} from "./storage.js"
+
+// Turn on verbose logging
+context.debug = true
 
 // Load configuration from environment variables
 const secret = process.env.POMADE_SECRET

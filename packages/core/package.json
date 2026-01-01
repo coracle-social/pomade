@@ -19,7 +19,7 @@
   "scripts": {
     "test": "vitest -r __tests__ --bail=1 --run",
     "test:watch": "vitest -r __tests__ --bail=1",
-    "build": "rimraf ./dist && tsc -b --force",
+    "build": "rimraf ./dist && node build-worker.js && tsc -b --force",
     "prepublishOnly": "pnpm run build",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
@@ -28,6 +28,7 @@
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.49.0",
     "@typescript-eslint/parser": "^8.49.0",
+    "esbuild": "^0.24.2",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
@@ -43,7 +44,6 @@
     "@welshman/util": "^0.7.1",
     "base58-js": "^3.0.3",
     "nostr-tools": "^2.19.3",
-    "threads": "^1.7.0",
     "zod": "^4.1.13"
   }
 }

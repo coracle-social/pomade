@@ -2,6 +2,9 @@ node_modules
 example.ts
 dist
 *.tsbuildinfo
-.env
+.env*
 *.db
+*.db-wal
+*.db-shm
 test-runner-profile
+packages/core/src/argon-worker-code.ts

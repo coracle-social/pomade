@@ -5,6 +5,7 @@
     "rootDir": "./src",
     "composite": true,
     "baseUrl": ".",
+    "lib": ["esnext", "webworker"],
     "paths": {
       "@welshman/*": ["packages/*/src"]
     }

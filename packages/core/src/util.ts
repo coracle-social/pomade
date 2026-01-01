@@ -1,6 +1,6 @@
 import * as b58 from "base58-js"
 import * as nt44 from "nostr-tools/nip44"
-import {spawn, Worker} from "threads"
+import {argon2id} from "@noble/hashes/argon2.js"
 import {bytesToHex} from "@noble/hashes/utils.js"
 import {cached, uniq, textEncoder, hexToBytes} from "@welshman/lib"
 import type {EventTemplate} from "@welshman/util"
@@ -14,6 +14,7 @@ import {
   isRelayUrl,
 } from "@welshman/util"
 import {publish, request} from "@welshman/net"
+import {ARGON_WORKER_CODE} from "./argon-worker-code.js"
 
 // Signing and encryption
 
@@ -60,28 +61,51 @@ export function decodeChallenge(challenge: string) {
 
 export const argonOptions = {t: 2, m: 32 * 1024, p: 1}
 
-let argonWorker: any
+async function createArgonWorker() {
+  const blob = new Blob([ARGON_WORKER_CODE], {type: "application/javascript"})
+  const url = URL.createObjectURL(blob)
+  const worker = new Worker(url, {type: "module"})
 
-async function getArgonWorker() {
-  if (!argonWorker) {
-    argonWorker = await spawn(new Worker("./argon-worker.ts"))
-  }
+  URL.revokeObjectURL(url)
 
-  return argonWorker
+  return worker
 }
 
-export async function argon2id(value: Uint8Array, salt: Uint8Array) {
-  const worker = await getArgonWorker()
+export async function hashArgon(value: Uint8Array, salt: Uint8Array) {
+  console.log('here')
+  if (typeof Worker === "undefined") {
+    return argon2id(value, salt, argonOptions)
+  }
 
-  return worker.argon2id(value, salt, argonOptions)
+  console.log('one')
+
+  const worker = await createArgonWorker()
+
+  console.log('worker', worker)
+
+  return new Promise<Uint8Array>((resolve, reject) => {
+    worker.onmessage = (e: MessageEvent<Uint8Array>) => {
+      resolve(e.data)
+      console.log('result', e.data)
+      worker.terminate()
+    }
+
+    worker.onerror = (e: ErrorEvent) =>  {
+      reject(e.error || e)
+      console.log('error', e.error || e)
+      worker.terminate()
+    }
+
+    worker.postMessage({value, salt, options: argonOptions})
+  })
 }
 
 export async function hashEmail(email: string, peer: string) {
-  return bytesToHex(await argon2id(textEncoder.encode(email), hexToBytes(peer)))
+  return bytesToHex(await hashArgon(textEncoder.encode(email), hexToBytes(peer)))
 }
 
 export async function hashPassword(email: string, password: string, peer: string) {
-  return bytesToHex(await argon2id(textEncoder.encode(email + password), hexToBytes(peer)))
+  return bytesToHex(await hashArgon(textEncoder.encode(email + password), hexToBytes(peer)))
 }
 
 // Context

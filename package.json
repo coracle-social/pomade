@@ -10,6 +10,7 @@
     "build": "pnpm --filter @pomade/core build && pnpm --filter @pomade/signer build",
     "build:core": "pnpm --filter @pomade/core build",
     "build:signer": "pnpm --filter @pomade/signer build",
+    "start:signer": "pnpm --filter @pomade/signer start",
     "clean": "pnpm --recursive run clean",
     "test": "pnpm --filter @pomade/core test",
     "lint": "pnpm --filter @pomade/core lint",

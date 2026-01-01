@@ -1,7 +1,7 @@
 import {Lib} from "@frostr/bifrost"
 import {randomBytes, bytesToHex} from "@noble/hashes/utils.js"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
-import {now, ms, uniq, between, call, int, ago, MINUTE, YEAR} from "@welshman/lib"
+import {now, ms, uniq, between, call, int, ago, MINUTE, HOUR, YEAR} from "@welshman/lib"
 import {getPubkey, verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
 import type {TrustedEvent, SignedEvent} from "@welshman/util"
 import {IStorageFactory, IStorage} from "./storage.js"
@@ -129,7 +129,7 @@ export class Signer {
     this.rpc = new RPC(options.secret, options.relays)
     this.rpc.subscribe(message => {
       // Ignore events with weird timestamps
-      if (!between([now() - 60, now() + 60], message.event.created_at)) {
+      if (!between([now() - int(1, HOUR), now() + int(1, HOUR)], message.event.created_at)) {
         return debug("[signer]: ignoring event", message.event.id)
       }
 
