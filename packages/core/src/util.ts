@@ -1,6 +1,6 @@
 import * as b58 from "base58-js"
 import * as nt44 from "nostr-tools/nip44"
-import {argon2id} from "@noble/hashes/argon2.js"
+import {argon2id} from "hash-wasm"
 import {bytesToHex} from "@noble/hashes/utils.js"
 import {cached, uniq, textEncoder, hexToBytes} from "@welshman/lib"
 import type {EventTemplate} from "@welshman/util"
@@ -72,27 +72,28 @@ async function createArgonWorker() {
 }
 
 export async function hashArgon(value: Uint8Array, salt: Uint8Array) {
-  console.log('here')
   if (typeof Worker === "undefined") {
-    return argon2id(value, salt, argonOptions)
+    return argon2id({
+      password: value,
+      salt: salt,
+      parallelism: argonOptions.p,
+      iterations: argonOptions.t,
+      memorySize: argonOptions.m,
+      hashLength: 32,
+      outputType: "binary",
+    })
   }
 
-  console.log('one')
-
   const worker = await createArgonWorker()
-
-  console.log('worker', worker)
 
   return new Promise<Uint8Array>((resolve, reject) => {
     worker.onmessage = (e: MessageEvent<Uint8Array>) => {
       resolve(e.data)
-      console.log('result', e.data)
       worker.terminate()
     }
 
-    worker.onerror = (e: ErrorEvent) =>  {
+    worker.onerror = (e: ErrorEvent) => {
       reject(e.error || e)
-      console.log('error', e.error || e)
       worker.terminate()
     }
 
