@@ -39,6 +39,20 @@ const signer = new Signer({
 console.log(`Running as: ${signer.pubkey}`)
 console.log(`Listening on relays: ${relays.join(", ")}`)
 
+// Handle unhandled rejections
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason)
+  signer.stop()
+  process.exit(1)
+})
+
+// Handle uncaught exceptions
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error)
+  signer.stop()
+  process.exit(1)
+})
+
 // Handle shutdown gracefully
 process.on("SIGINT", () => {
   console.log("\nShutting down signer service...")
