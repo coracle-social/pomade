@@ -3,7 +3,4 @@
 - add login with other session
 - make sure client/signer actually stop
 - take idx into account when building login options
-- refactor storage to be more efficient
-  - allow querying by hashed password to avoid enumerating everything
-  - avoid other enumerations
 - Migrate to deno/jsr

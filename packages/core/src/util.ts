@@ -86,16 +86,24 @@ const defaultArgonImpl: ArgonImpl = async (value, salt, options) => {
   })
 }
 
-export async function hashArgon(value: Uint8Array, salt: Uint8Array) {
-  return context.argonImpl(value, salt, argonOptions)
+const emailHashCache = new Map<string, string>()
+
+export async function hashEmail(email: string, signer: string) {
+  let hash = emailHashCache.get(email + signer)
+  if (!hash) {
+    hash = bytesToHex(
+      await context.argonImpl(textEncoder.encode(email), hexToBytes(signer), argonOptions),
+    )
+    emailHashCache.set(email + signer, hash)
+  }
+
+  return hash!
 }
 
-export async function hashEmail(email: string, peer: string) {
-  return bytesToHex(await hashArgon(textEncoder.encode(email), hexToBytes(peer)))
-}
-
-export async function hashPassword(email: string, password: string, peer: string) {
-  return bytesToHex(await hashArgon(textEncoder.encode(email + password), hexToBytes(peer)))
+export async function hashPassword(password: string, signer: string) {
+  return bytesToHex(
+    await context.argonImpl(textEncoder.encode(password), hexToBytes(signer), argonOptions),
+  )
 }
 
 // Context
