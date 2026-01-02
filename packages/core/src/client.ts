@@ -173,9 +173,11 @@ export class Client {
   async setupRecovery(email: string, password: string) {
     const messages = await Promise.all(
       this.peers.map(async (peer, i) => {
+        const password_hash = await hashPassword(password, peer)
+
         return this.rpc
           .channel(peer)
-          .send(makeRecoverySetup({email, password: await hashPassword(email, password, peer)}))
+          .send(makeRecoverySetup({email, password_hash}))
           .receive<WithEvent<RecoverySetupResult>>((message, resolve) => {
             if (isRecoverySetupResult(message)) {
               resolve(message)
@@ -214,7 +216,9 @@ export class Client {
 
     const messages = await Promise.all(
       Client._getKnownPeers().map(async (peer, i) => {
-        const auth = {password: await hashPassword(email, password, peer)}
+        const email_hash = await hashEmail(email, peer)
+        const password_hash = await hashPassword(password, peer)
+        const auth = {email_hash, password_hash}
 
         return rpc
           .channel(peer)
@@ -239,7 +243,8 @@ export class Client {
     const messages = await Promise.all(
       challenges.map(async challenge => {
         const {peer, otp} = decodeChallenge(challenge)
-        const auth = {email, otp}
+        const email_hash = await hashEmail(email, peer)
+        const auth = {email_hash, otp}
 
         return rpc
           .channel(peer)
@@ -290,7 +295,9 @@ export class Client {
 
     const messages = await Promise.all(
       Client._getKnownPeers().map(async (peer, i) => {
-        const auth = {password: await hashPassword(email, password, peer)}
+        const email_hash = await hashEmail(email, peer)
+        const password_hash = await hashPassword(password, peer)
+        const auth = {email_hash, password_hash}
 
         return rpc
           .channel(peer)
@@ -315,7 +322,8 @@ export class Client {
     const messages = await Promise.all(
       challenges.map(async challenge => {
         const {peer, otp} = decodeChallenge(challenge)
-        const auth = {email, otp}
+        const email_hash = await hashEmail(email, peer)
+        const auth = {email_hash, otp}
 
         return rpc
           .channel(peer)

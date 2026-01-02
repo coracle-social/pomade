@@ -2,7 +2,7 @@
 
 import "dotenv/config"
 import {Signer, context} from "@pomade/core"
-import {createSqliteStorage} from "./storage.js"
+import {sqliteStorage} from "./storage.js"
 
 // Turn on verbose logging
 context.debug = true
@@ -24,7 +24,7 @@ if (relays.length === 0) {
 }
 
 // Create storage
-const storage = createSqliteStorage({path: dbPath})
+const storage = sqliteStorage({path: dbPath})
 
 // Start signer service
 const signer = new Signer({

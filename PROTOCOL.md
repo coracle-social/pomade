@@ -209,9 +209,9 @@ A recovery method MUST be set within a short time (e.g., 15 minutes) of registra
 
 #### Password Authentication
 
-In order to authenticate with a password, the client must calculate `argon2id(email + password, signer pubkey, t=2, m=32768, p=1)` and send it in the `auth` payload as `{password: hash}`.
+In order to authenticate with a password, the client must calculate both `argon2id(email, signer pubkey, t=2, m=32768, p=1)` and `argon2id(password, signer pubkey, t=2, m=32768, p=1)` and send it in the `auth` payload as `{email_hash, password_hash}`.
 
-Because it's not known at this point which signers hold the user's key shares, clients will have to send this payload to all known signers. Hashing the email along with the password allows for quick lookups, at the same time making it more difficult to reveal either the email or the password. Of course, signers have no way of knowing that the hash is actually what this protocol specifies, so signers MUST validate that it is at least a valid 32 byte hex string.
+Because it's not known at this point which signers hold the user's key shares, clients will have to send this payload to all known signers. In order to prevent signers from logging in to one another, the signer pubkey is used as the salt. Signers MUST validate that the email and password values sent on setup are 32 byte hex strings. Clients MUST ensure that users pick strong passwords.
 
 #### Challenge Authentication
 
@@ -241,10 +241,11 @@ Below is a definition for payloads' `auth` key, including either password-based 
 ```typescript
 type AuthPayload =
   {
-    password: string  // argon2id(email + password, signer pubkey, t=2, m=32768, p=1)
+    email_hash: string        // argon2id(email, signer pubkey, t=2, m=32768, p=1)
+    password_hash: string     // argon2id(password, signer pubkey, t=2, m=32768, p=1)
   } | {
-    email: string   // user email address
-    otp: string     // OTP obtained via email flow
+    email_hash: string        // argon2id(email, signer pubkey, t=2, m=32768, p=1)
+    otp: string               // OTP obtained via email flow
   }
 ```
 

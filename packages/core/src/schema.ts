@@ -76,11 +76,12 @@ const sessionItem = z.object({
 })
 
 const passwordAuth = z.object({
-  password: z.string(),
+  email_hash: z.string(),
+  password_hash: z.string(),
 })
 
 const otpAuth = z.object({
-  email: z.string(),
+  email_hash: z.string(),
   otp: z.string(),
 })
 
@@ -91,7 +92,8 @@ export type PasswordAuth = z.infer<typeof passwordAuth>
 export type OTPAuth = z.infer<typeof otpAuth>
 export type Auth = z.infer<typeof auth>
 
-export const isPasswordAuth = (auth: Auth): auth is PasswordAuth => Boolean((auth as any).password)
+export const isPasswordAuth = (auth: Auth): auth is PasswordAuth =>
+  Boolean((auth as any).password_hash)
 
 export const isOTPAuth = (auth: Auth): auth is OTPAuth => Boolean((auth as any).otp)
 
@@ -156,7 +158,7 @@ export const Schema = {
   }),
   recoverySetup: z.object({
     email: z.string(),
-    password: z.string(),
+    password_hash: z.string(),
   }),
   recoverySetupResult: z.object({
     ok: z.boolean(),
