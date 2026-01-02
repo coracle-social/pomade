@@ -2,5 +2,4 @@
 - publish docker images
 - add login with other session
 - make sure client/signer actually stop
-- take idx into account when building login options
 - Migrate to deno/jsr

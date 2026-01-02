@@ -91,11 +91,11 @@ export class Client {
     clientSecret: string
   } {
     const items = messages.flatMap(
-      m => m?.payload.items?.map(item => [item.client, m.event.pubkey]) || [],
+      m => m?.payload.items?.map(item => [item.client, m.event.pubkey, item.idx]) || [],
     )
-    const itemsByClient = Array.from(groupBy(([client, peer]) => client, items))
+    const itemsByClient = Array.from(groupBy(([client, peer, idx]) => client, items))
     const options = itemsByClient.map(
-      ([client, items]) => [client, items.map(nth(1))] as [string, string[]],
+      ([client, items]) => [client, sortBy(nth(2), items).map(nth(1))] as [string, string[]],
     )
     const ok = messages.some(m => m?.payload.ok) && options.length > 0
 
