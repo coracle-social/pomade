@@ -1,5 +1,4 @@
 - mjml
 - publish docker images
-- add login with other session
 - make sure client/signer actually stop
 - Migrate to deno/jsr
