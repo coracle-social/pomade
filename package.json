@@ -1,6 +1,6 @@
 {
   "name": "pomade-monorepo",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "private": true,
   "type": "module",
   "description": "Pomade monorepo - Recovery protocol and implementation for nostr multisig signers",
