@@ -282,7 +282,7 @@ export class Client {
 
     const group = messages.find(m => m?.payload.group)?.payload.group
     const ok = Boolean(group && messages.every(m => m?.payload.ok))
-    const clientOptions = ok ? {group, peers, secret: clientSecret} : undefined
+    const clientOptions = ok ? ({group, peers, secret: clientSecret} as ClientOptions) : undefined
 
     return {ok, messages, clientOptions}
   }
