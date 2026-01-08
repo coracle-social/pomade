@@ -3,6 +3,7 @@ example.ts
 dist
 *.tsbuildinfo
 .env*
+runlocal
 *.db
 *.db-wal
 *.db-shm

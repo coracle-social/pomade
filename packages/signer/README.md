@@ -7,9 +7,14 @@ Standalone signer service for pomade. This service manages multisig sessions, ha
 Required environment variables:
 - `POMADE_SECRET`: Your nostr private key (hex or nsec format)
 - `POMADE_RELAYS`: Comma-separated list of relay URLs
+- `MAIL_PROVIDER`: Email provider (postmark, sendgrid, mailgun, sendlayer, or resend)
+- `MAIL_FROM_EMAIL`: Sender email address
 
 Optional environment variables:
 - `POMADE_DB_PATH`: Path to SQLite database (default: `./pomade-signer.db`)
+- `MAIL_FROM_NAME`: Sender name (default: "Pomade Signer")
+
+For detailed email provider configuration, see [MAILERS.md](../../MAILERS.md).
 
 ## Running
 
