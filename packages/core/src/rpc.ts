@@ -183,11 +183,12 @@ export class RPCChannel {
       })
 
       const done = (result?: Maybe<T>) => {
+        clearTimeout(timeout)
         resolve(result)
         unsubscribe()
       }
 
-      setTimeout(done, 30_000)
+      const timeout = setTimeout(done, 30_000)
     })
   }
 

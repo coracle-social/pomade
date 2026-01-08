@@ -66,11 +66,14 @@ export type ArgonImpl = (
   options: {t: number; m: number; p: number},
 ) => Promise<Uint8Array>
 
-const warnArgonImpl = once(() =>
-  console.warn(
-    "Default argon implementation can lead to UI jank. Call `context.setArgonWorker(import('@pomade/core/argon-worker.js?worker'))` to improve performance.",
-  ),
-)
+const warnArgonImpl = once(() => {
+  // @ts-ignore
+  if (typeof window !== "undefined") {
+    console.warn(
+      "Default argon implementation can lead to UI jank. Call `context.setArgonWorker(import('@pomade/core/argon-worker.js?worker'))` to improve performance.",
+    )
+  }
+})
 
 const defaultArgonImpl: ArgonImpl = async (value, salt, options) => {
   warnArgonImpl()
@@ -121,11 +124,7 @@ export type Context = {
 export const context: Context = {
   debug: false,
   signerPubkeys: [],
-  indexerRelays: [
-    "wss://indexer.coracle.social/",
-    "wss://relay.nostr.band/",
-    "wss://purplepag.es/",
-  ],
+  indexerRelays: ["wss://indexer.coracle.social/", "wss://relay.damus.io/", "wss://purplepag.es/"],
   argonImpl: defaultArgonImpl,
   setSignerPubkeys(pubkeys: string[]) {
     context.signerPubkeys = pubkeys
