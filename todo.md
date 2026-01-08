@@ -1,4 +1,1 @@
-- mjml
 - publish docker images
-- make sure client/signer actually stop
-- Migrate to deno/jsr
