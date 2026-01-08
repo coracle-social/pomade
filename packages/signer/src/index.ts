@@ -3,6 +3,7 @@
 import "dotenv/config"
 import {Signer, context} from "@pomade/core"
 import {sqliteStorage} from "./storage.js"
+import {createEmailProvider, loadEmailConfigFromEnv} from "./email/index.js"
 
 // Turn on verbose logging
 context.debug = true
@@ -23,6 +24,17 @@ if (relays.length === 0) {
   process.exit(1)
 }
 
+// Load email configuration
+let emailProvider
+try {
+  const emailConfig = loadEmailConfigFromEnv()
+  emailProvider = createEmailProvider(emailConfig)
+  console.log(`Email provider: ${emailConfig.provider}`)
+} catch (error) {
+  console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
+}
+
 // Create storage
 const storage = sqliteStorage({path: dbPath})
 
@@ -32,7 +44,13 @@ const signer = new Signer({
   relays,
   storage,
   sendChallenge: async payload => {
-    console.log(payload)
+    try {
+      await emailProvider.sendChallenge(payload.email, payload.challenge)
+      console.log(`Challenge email sent to ${payload.email}`)
+    } catch (error) {
+      console.error(`Failed to send challenge email: ${error instanceof Error ? error.message : String(error)}`)
+      throw error
+    }
   },
 })
 
