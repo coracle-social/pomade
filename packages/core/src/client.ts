@@ -1,5 +1,4 @@
 import {
-  nth,
   Maybe,
   tryCatch,
   groupBy,
@@ -90,13 +89,41 @@ export class Client {
     messages: Maybe<T>[]
     clientSecret: string
   } {
+    // Extract all items with their metadata
     const items = messages.flatMap(
-      m => m?.payload.items?.map(item => [item.client, m.event.pubkey, item.idx]) || [],
+      m =>
+        m?.payload.items?.map(item => ({
+          client: item.client,
+          peer: m.event.pubkey,
+          idx: item.idx,
+          total: item.total,
+        })) || [],
     )
-    const itemsByClient = Array.from(groupBy(([client, peer, idx]) => client, items))
-    const options = itemsByClient.map(
-      ([client, items]) => [client, sortBy(nth(2), items).map(nth(1))] as [string, string[]],
-    )
+
+    // Group by client
+    const itemsByClient = Array.from(groupBy(item => item.client, items))
+
+    // Build options, filtering out incomplete sets
+    const options: [string, string[]][] = []
+
+    for (const [client, clientItems] of itemsByClient) {
+      // Get the expected total (should be the same for all items of this client)
+      const total = clientItems[0]?.total
+      if (!total || clientItems.length < total) continue
+
+      // Check that we have all indices from 1 to total
+      const idxSet = new Set(clientItems.map(item => item.idx))
+      const hasAllIndices = Array.from({length: total}, (_, i) => i + 1).every(idx =>
+        idxSet.has(idx),
+      )
+
+      if (!hasAllIndices) continue
+
+      // Sort by idx and map to peers
+      const peers = sortBy(item => item.idx, clientItems).map(item => item.peer)
+      options.push([client, peers])
+    }
+
     const ok = messages.some(m => m?.payload.ok) && options.length > 0
 
     return {ok, options, messages, clientSecret}

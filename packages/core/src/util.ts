@@ -149,7 +149,7 @@ export const context: Context = {
           worker.terminate()
         }
 
-        worker.onerror = (e: ErrorEvent) => {
+        worker.onerror = (e: any) => {
           reject(e.error || e)
           worker.terminate()
         }

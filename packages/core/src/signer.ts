@@ -646,7 +646,7 @@ export class Signer {
       const session = await this.sessions.get(event.pubkey)
 
       if (!session) {
-        debug("[signer]: signing failed", event.pubkey)
+        debug("[signer]: signing failed - no session found", event.pubkey)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeSignResult({
@@ -657,21 +657,33 @@ export class Signer {
         )
       }
 
-      const ctx = Lib.get_session_ctx(session.group, payload.request)
-      const partialSignature = Lib.create_psig_pkg(ctx, session.share)
+      try {
+        const ctx = Lib.get_session_ctx(session.group, payload.request)
+        const partialSignature = Lib.create_psig_pkg(ctx, session.share)
 
-      await this.sessions.set(event.pubkey, {...session, last_activity: now()})
+        await this.sessions.set(event.pubkey, {...session, last_activity: now()})
 
-      debug("[signer]: signing complete", event.pubkey)
+        debug("[signer]: signing complete", event.pubkey)
 
-      this.rpc.channel(event.pubkey, false).send(
-        makeSignResult({
-          result: partialSignature,
-          ok: true,
-          message: "Successfully signed event",
-          prev: event.id,
-        }),
-      )
+        this.rpc.channel(event.pubkey, false).send(
+          makeSignResult({
+            result: partialSignature,
+            ok: true,
+            message: "Successfully signed event",
+            prev: event.id,
+          }),
+        )
+      } catch (e: any) {
+        debug(`[signer]: signing failed - ${e.message || e}`, event.pubkey)
+
+        return this.rpc.channel(event.pubkey, false).send(
+          makeSignResult({
+            ok: false,
+            message: "Failed to sign event",
+            prev: event.id,
+          }),
+        )
+      }
     })
   }
 
@@ -684,7 +696,7 @@ export class Signer {
       const session = await this.sessions.get(event.pubkey)
 
       if (!session) {
-        debug("[signer]: ecdh failed", event.pubkey)
+        debug("[signer]: ecdh failed - no session found", event.pubkey)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeSignResult({
@@ -696,20 +708,33 @@ export class Signer {
       }
 
       const {members, ecdh_pk} = payload
-      const ecdhPackage = Lib.create_ecdh_pkg(members, ecdh_pk, session.share)
 
-      await this.sessions.set(event.pubkey, {...session, last_activity: now()})
+      try {
+        const ecdhPackage = Lib.create_ecdh_pkg(members, ecdh_pk, session.share)
 
-      debug("[signer]: ecdh complete", event.pubkey)
+        await this.sessions.set(event.pubkey, {...session, last_activity: now()})
 
-      this.rpc.channel(event.pubkey, false).send(
-        makeEcdhResult({
-          result: ecdhPackage,
-          ok: true,
-          message: "Successfully signed event",
-          prev: event.id,
-        }),
-      )
+        debug("[signer]: ecdh complete", event.pubkey)
+
+        this.rpc.channel(event.pubkey, false).send(
+          makeEcdhResult({
+            result: ecdhPackage,
+            ok: true,
+            message: "Successfully signed event",
+            prev: event.id,
+          }),
+        )
+      } catch (e: any) {
+        debug("[signer]: ecdh failed - ${e.message || e}", event.pubkey)
+
+        return this.rpc.channel(event.pubkey, false).send(
+          makeSignResult({
+            ok: false,
+            message: "Key derivation failed",
+            prev: event.id,
+          }),
+        )
+      }
     })
   }
 
