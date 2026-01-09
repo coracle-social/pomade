@@ -242,7 +242,7 @@ export class Signer {
 
   async _checkKeyReuse(event: TrustedEvent) {
     if (await this.sessions.get(event.pubkey)) {
-      debug("[signer]: session key re-used", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: session key re-used`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeRecoveryOptions({
@@ -254,7 +254,7 @@ export class Signer {
     }
 
     if (await this.recoveries.get(event.pubkey)) {
-      debug("[signer]: recovery key re-used", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: recovery key re-used`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeRecoveryOptions({
@@ -266,7 +266,7 @@ export class Signer {
     }
 
     if (await this.logins.get(event.pubkey)) {
-      debug("[signer]: login key re-used", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: login key re-used`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeRecoveryOptions({
@@ -278,11 +278,25 @@ export class Signer {
     }
   }
 
+  async _addSession(client: string, session: SignerSession) {
+    await this.sessions.set(client, session)
+
+    if (session.email_hash) {
+      let index = await this.sessionsByEmailHash.get(session.email_hash)
+
+      if (!index) {
+        index = {clients: []}
+      }
+
+      await this.sessionsByEmailHash.set(session.email_hash, {
+        clients: append(client, index.clients),
+      })
+    }
+  }
+
   // Registration
 
   async handleRegisterRequest({payload, event}: WithEvent<RegisterRequest>) {
-    debug("[signer]: attempting to register session", event.pubkey)
-
     return this.options.storage.tx(async () => {
       const {group, share, recovery} = payload
       const cb = (ok: boolean, message: string) =>
@@ -293,31 +307,31 @@ export class Signer {
       if (await this._checkKeyReuse(event)) return
 
       if (!between([0, group.commits.length], group.threshold)) {
-        debug("[signer]: invalid group threshold", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: invalid group threshold`)
         return cb(false, "Invalid group threshold.")
       }
 
       if (!Lib.is_group_member(group, share)) {
-        debug("[signer]: share does not belong to the provided group", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: share does not belong to the provided group`)
         return cb(false, "Share does not belong to the provided group.")
       }
 
       if (uniq(group.commits.map(c => c.idx)).length !== group.commits.length) {
-        debug("[signer]: group contains duplicate member indices", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: group contains duplicate member indices`)
         return cb(false, "Group contains duplicate member indices.")
       }
 
       if (!group.commits.find(c => c.idx === share.idx)) {
-        debug("[signer]: share index not found in group commits", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: share index not found in group commits`)
         return cb(false, "Share index not found in group commits.")
       }
 
       if (await this.sessions.get(event.pubkey)) {
-        debug("[signer]: client is already registered", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: client is already registered`)
         return cb(false, "Client is already registered.")
       }
 
-      await this.sessions.set(event.pubkey, {
+      await this._addSession(event.pubkey, {
         client: event.pubkey,
         event,
         share,
@@ -326,7 +340,7 @@ export class Signer {
         last_activity: now(),
       })
 
-      debug("[signer]: registered", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: registered`)
 
       return cb(true, "Your key has been registered")
     })
@@ -339,7 +353,7 @@ export class Signer {
       const session = await this.sessions.get(event.pubkey)
 
       if (!session) {
-        debug("[signer]: no session found for recovery setup", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: no session found for recovery setup`)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeRecoverySetupResult({
@@ -351,7 +365,7 @@ export class Signer {
       }
 
       if (!session.recovery) {
-        debug("[signer]: recovery is disabled for session", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: recovery is disabled for session`)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeRecoverySetupResult({
@@ -365,7 +379,7 @@ export class Signer {
       // recovery method has to be bound at (or shorly after) session, otherwise an attacker with access
       // to any session could escalate permissions by setting up their own recovery method
       if (session.event.created_at < ago(15, MINUTE)) {
-        debug("[signer]: recovery method set too late", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: recovery method set too late`)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeRecoverySetupResult({
@@ -377,7 +391,7 @@ export class Signer {
       }
 
       if (session.email) {
-        debug("[signer]: recovery is already set", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: recovery is already set`)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeRecoverySetupResult({
@@ -389,7 +403,7 @@ export class Signer {
       }
 
       if (!payload.password_hash.match(/^[a-f0-9]{64}$/)) {
-        debug("[signer]: invalid password_hash provided on setup", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: invalid password_hash provided on setup`)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeRecoverySetupResult({
@@ -403,18 +417,16 @@ export class Signer {
 
       const {email, password_hash} = payload
       const email_hash = await hashEmail(email, this.pubkey)
-      const index = (await this.sessionsByEmailHash.get(email_hash)) || {clients: []}
 
-      await this.sessions.set(event.pubkey, {
+      await this._addSession(event.pubkey, {
         ...session,
         last_activity: now(),
         email,
         email_hash,
         password_hash,
       })
-      await this.sessionsByEmailHash.set(email_hash, {clients: append(event.pubkey, index.clients)})
 
-      debug("[signer]: recovery method initialized", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: recovery method initialized`)
 
       this.rpc.channel(event.pubkey, false).send(
         makeRecoverySetupResult({
@@ -451,7 +463,7 @@ export class Signer {
     const sessions = await this._getAuthenticatedSessions(payload.auth)
 
     if (sessions.length === 0) {
-      debug("[signer]: no sessions found for recovery", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: no sessions found for recovery`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeRecoveryOptions({
@@ -462,7 +474,7 @@ export class Signer {
       )
     }
 
-    debug("[signer]: sending recovery options", event.pubkey)
+    debug(`[signer ${event.pubkey.slice(0, 8)}]: sending recovery options`)
 
     const clients = sessions.map(s => s.client)
     const items = sessions.map(makeSessionItem)
@@ -483,7 +495,7 @@ export class Signer {
     const recovery = await this.recoveries.get(event.pubkey)
 
     if (!recovery) {
-      debug("[signer]: no active recovery found", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: no active recovery found`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeRecoveryResult({
@@ -498,7 +510,7 @@ export class Signer {
     await this.recoveries.delete(event.pubkey)
 
     if (!recovery.clients.includes(payload.client)) {
-      debug("[signer]: invalid session selected for recovery", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: invalid session selected for recovery`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeRecoveryResult({
@@ -512,7 +524,7 @@ export class Signer {
     const session = await this.sessions.get(payload.client)
 
     if (!session) {
-      debug("[signer]: recovery session not found", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: recovery session not found`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeRecoveryResult({
@@ -533,7 +545,7 @@ export class Signer {
       }),
     )
 
-    debug("[signer]: recovery successfully completed", event.pubkey)
+    debug(`[signer ${event.pubkey.slice(0, 8)}]: recovery successfully completed`)
   }
 
   // Login
@@ -544,7 +556,7 @@ export class Signer {
     const sessions = await this._getAuthenticatedSessions(payload.auth)
 
     if (sessions.length === 0) {
-      debug("[signer]: no sessions found for login", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: no sessions found for login`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeLoginOptions({
@@ -555,7 +567,7 @@ export class Signer {
       )
     }
 
-    debug("[signer]: sending login options", event.pubkey)
+    debug(`[signer ${event.pubkey.slice(0, 8)}]: sending login options`)
 
     const clients = sessions.map(s => s.client)
     const items = sessions.map(makeSessionItem)
@@ -576,7 +588,7 @@ export class Signer {
     const login = await this.logins.get(event.pubkey)
 
     if (!login) {
-      debug("[signer]: no active login found", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: no active login found`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeLoginResult({
@@ -591,7 +603,7 @@ export class Signer {
     await this.logins.delete(event.pubkey)
 
     if (!login.clients.includes(payload.client)) {
-      debug("[signer]: invalid session selected for login", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: invalid session selected for login`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeLoginResult({
@@ -605,7 +617,7 @@ export class Signer {
     const session = await this.sessions.get(payload.client)
 
     if (!session) {
-      debug("[signer]: login session not found", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: login session not found`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeLoginResult({
@@ -616,12 +628,15 @@ export class Signer {
       )
     }
 
-    await this.sessions.set(event.pubkey, {
+    await this._addSession(event.pubkey, {
       event,
       recovery: true,
       client: event.pubkey,
       share: session.share,
       group: session.group,
+      email: session.email,
+      email_hash: session.email_hash,
+      password_hash: session.password_hash,
       last_activity: now(),
     })
 
@@ -634,19 +649,17 @@ export class Signer {
       }),
     )
 
-    debug("[signer]: login successfully completed", event.pubkey)
+    debug(`[signer ${event.pubkey.slice(0, 8)}]: login successfully completed`)
   }
 
   // Signing
 
   async handleSignRequest({payload, event}: WithEvent<SignRequest>) {
-    debug("[signer]: attempting signing flow", event.pubkey)
-
     return this.options.storage.tx(async () => {
       const session = await this.sessions.get(event.pubkey)
 
       if (!session) {
-        debug("[signer]: signing failed - no session found", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: signing failed - no session found`)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeSignResult({
@@ -663,7 +676,7 @@ export class Signer {
 
         await this.sessions.set(event.pubkey, {...session, last_activity: now()})
 
-        debug("[signer]: signing complete", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: signing complete`)
 
         this.rpc.channel(event.pubkey, false).send(
           makeSignResult({
@@ -674,7 +687,7 @@ export class Signer {
           }),
         )
       } catch (e: any) {
-        debug(`[signer]: signing failed - ${e.message || e}`, event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: signing failed - ${e.message || e}`)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeSignResult({
@@ -690,13 +703,11 @@ export class Signer {
   // Key exchange
 
   async handleEcdhRequest({payload, event}: WithEvent<EcdhRequest>) {
-    debug("[signer]: attempting ecdh flow", event.pubkey)
-
     return this.options.storage.tx(async () => {
       const session = await this.sessions.get(event.pubkey)
 
       if (!session) {
-        debug("[signer]: ecdh failed - no session found", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: ecdh failed - no session found`)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeSignResult({
@@ -714,7 +725,7 @@ export class Signer {
 
         await this.sessions.set(event.pubkey, {...session, last_activity: now()})
 
-        debug("[signer]: ecdh complete", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: ecdh complete`)
 
         this.rpc.channel(event.pubkey, false).send(
           makeEcdhResult({
@@ -725,7 +736,7 @@ export class Signer {
           }),
         )
       } catch (e: any) {
-        debug("[signer]: ecdh failed - ${e.message || e}", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: ecdh failed - ${e.message || e}`)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeSignResult({
@@ -742,7 +753,7 @@ export class Signer {
 
   async handleSessionList({payload, event}: WithEvent<SessionList>) {
     if (!this._isNip98AuthValid(payload.auth, Method.SessionList)) {
-      debug("[signer]: invalid auth event for session list", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: invalid auth event for session list`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeSessionListResult({
@@ -754,8 +765,6 @@ export class Signer {
       )
     }
 
-    debug("[signer]: attempting to retrieve session list", event.pubkey)
-
     const items: SessionListResult["payload"]["items"] = []
     for (const [_, session] of await this.sessions.entries()) {
       if (session.group.group_pk.slice(2) === payload.auth.pubkey) {
@@ -763,7 +772,7 @@ export class Signer {
       }
     }
 
-    debug("[signer]: successfully retrieved session list", event.pubkey)
+    debug(`[signer ${event.pubkey.slice(0, 8)}]: successfully retrieved session list`)
 
     this.rpc.channel(event.pubkey, false).send(
       makeSessionListResult({
@@ -777,7 +786,7 @@ export class Signer {
 
   async handleSessionDelete({payload, event}: WithEvent<SessionDelete>) {
     if (!this._isNip98AuthValid(payload.auth, Method.SessionDelete)) {
-      debug("[signer]: invalid auth event for session deletion", event.pubkey)
+      debug(`[signer ${event.pubkey.slice(0, 8)}]: invalid auth event for session deletion`)
 
       return this.rpc.channel(event.pubkey, false).send(
         makeSessionDeleteResult({
@@ -788,15 +797,13 @@ export class Signer {
       )
     }
 
-    debug("[signer]: attempting to delete session", event.pubkey)
-
     return this.options.storage.tx(async () => {
       const session = await this.sessions.get(payload.client)
 
       if (session?.group.group_pk.slice(2) === payload.auth.pubkey) {
         await this.sessions.delete(payload.client)
 
-        debug("[signer]: deleted session", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: deleted session`, payload.client)
 
         this.rpc.channel(event.pubkey, false).send(
           makeSessionDeleteResult({
@@ -806,7 +813,7 @@ export class Signer {
           }),
         )
       } else {
-        debug("[signer]: failed to delete session", event.pubkey)
+        debug(`[signer ${event.pubkey.slice(0, 8)}]: failed to delete session`, payload.client)
 
         return this.rpc.channel(event.pubkey, false).send(
           makeSessionDeleteResult({

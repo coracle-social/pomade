@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
-    "@types/better-sqlite3": "^7.6.13",
+    "@types/sqlite3": "^3.1.11",
     "@types/mustache": "^4.2.5",
     "mjml": "^4.15.3",
     "rimraf": "~6.0.0",
@@ -31,7 +31,7 @@
     "@welshman/lib": "^0.7.1",
     "@welshman/net": "^0.7.1",
     "bcrypt": "^6.0.0",
-    "better-sqlite3": "^11.10.0",
+    "sqlite3": "^5.1.7",
     "dotenv": "^16.4.7",
     "mustache": "^4.2.0"
   }
