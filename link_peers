@@ -1,0 +1,24 @@
+#!/usr/bin/env node
+
+import fs from 'fs'
+import path from 'path'
+import { execSync } from 'child_process'
+
+if (execSync('git status --porcelain', { encoding: 'utf8' }).trim()) {
+  console.error('Error: Git working tree is dirty. Please commit or stash your changes first.')
+  process.exit(1)
+}
+
+const pkg = JSON.parse(fs.readFileSync('./package.json', 'utf8'))
+
+pkg.pnpm.overrides = pkg.pnpm.overrides || {}
+pkg.pnpm.overrides["@welshman/lib"] = "link:../welshman/packages/lib"
+pkg.pnpm.overrides["@welshman/net"] = "link:../welshman/packages/net"
+pkg.pnpm.overrides["@welshman/util"] = "link:../welshman/packages/util"
+
+fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n')
+
+execSync('pnpm i', { stdio: 'inherit' })
+
+execSync('git checkout -f pnpm-lock.yaml', { stdio: 'inherit' })
+execSync('git checkout -f package.json', { stdio: 'inherit' })
