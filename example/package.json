@@ -1,0 +1,25 @@
+{
+  "name": "@pomade/example",
+  "version": "0.0.7",
+  "private": true,
+  "type": "module",
+  "description": "Example Pomade client application using Mithril.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@pomade/core": "workspace:*",
+    "@frostr/bifrost": "^1.0.7",
+    "@noble/hashes": "^2.0.1",
+    "@welshman/lib": "^0.7.1",
+    "@welshman/net": "^0.7.1",
+    "@welshman/util": "^0.7.1",
+    "nostr-tools": "^2.19.3",
+    "mithril": "^2.2.12"
+  },
+  "devDependencies": {
+    "vite": "^6.0.7"
+  }
+}
