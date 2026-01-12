@@ -230,6 +230,8 @@ The client first chooses the signers it wishes to authenticate with and sends a 
 
 Because it's not known at this point which signers hold the user's key shares, clients will have to send this request to all known signers. In order to avoid leaking the user's email address to signers, the email should be hashed using `argon2id(email, signer pubkey, t=2, m=32768, p=1)`. This allows the signers that already know the user's email to look it up quickly, but makes it difficult to brute force it for others.
 
+This also means that if a user has multiple active sessions, they may receive more than `total` challenges. Clients should handle this by allowing the user to paste any number of challenges, or by keeping track out of band of which signers were used for a given email address.
+
 Signers do not respond, since they should not indicate whether the user's email has been found anyway. Instead, each signer sends an email to the user containing the signer's pubkey and an OTP in the form: `base58(signer_pubkey_bytes || otp_utf8_bytes)` where `signer_pubkey_bytes` is the 32-byte raw public key and `otp_utf8_bytes` is the UTF-8 encoded OTP string. The user must then copy this into the requesting client.
 
 The client can then temporarily act on behalf of the user's account by parsing the challenge and including the `otp` in a request to the correct signer. OTPs MUST be invalidated after a single use, and MUST expire after a short time (but long enough for users to complete a given flow, e.g. 15 minutes).
