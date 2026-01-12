@@ -8,6 +8,7 @@ export const emails = []
 export const signerSecrets = Array.from(range(0, 8)).map(() => makeSecret())
 export const signerPubkeys = signerSecrets.map(secret => getPubkey(secret))
 
+context.debug = true
 context.setSignerPubkeys(signerPubkeys)
 context.setIndexerRelays([LOCAL_RELAY_URL])
 

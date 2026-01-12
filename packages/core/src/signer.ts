@@ -4,6 +4,7 @@ import type {GroupPackage, SharePackage} from "@frostr/bifrost"
 import {
   now,
   filter,
+  remove,
   removeUndefined,
   append,
   ms,
@@ -291,6 +292,28 @@ export class Signer {
       await this.sessionsByEmailHash.set(session.email_hash, {
         clients: append(client, index.clients),
       })
+    }
+  }
+
+  async _deleteSession(client: string) {
+    const session = await this.sessions.get(client)
+
+    if (session) {
+      if (session.email_hash) {
+        const index = await this.sessionsByEmailHash.get(session.email_hash)
+
+        if (index) {
+          const clients = remove(client, index.clients)
+
+          if (clients.length === 0) {
+            await this.sessionsByEmailHash.delete(session.email_hash)
+          } else {
+            await this.sessionsByEmailHash.set(session.email_hash, {clients})
+          }
+        }
+      }
+
+      await this.sessions.delete(client)
     }
   }
 
@@ -801,7 +824,7 @@ export class Signer {
       const session = await this.sessions.get(payload.client)
 
       if (session?.group.group_pk.slice(2) === payload.auth.pubkey) {
-        await this.sessions.delete(payload.client)
+        await this._deleteSession(payload.client)
 
         debug(`[signer ${event.pubkey.slice(0, 8)}]: deleted session`, payload.client)
 
