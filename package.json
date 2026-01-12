@@ -3,6 +3,7 @@
   "version": "0.0.7",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.15.5",
   "description": "Pomade monorepo - Recovery protocol and implementation for nostr multisig signers",
   "author": "hodlbod",
   "license": "MIT",
