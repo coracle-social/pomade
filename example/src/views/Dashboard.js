@@ -74,6 +74,10 @@ export const Dashboard = {
 
       state.statusMessage && m(StatusMessage, state.statusMessage),
 
+      m('p', { style: 'color: #666; margin-bottom: 20px;' },
+        'You are now logged in, and able to sign events. This dashboard shows your account details and active sessions.'
+      ),
+
       m('div', { style: 'margin-bottom: 30px;' }, [
         m('h3', 'Account Information'),
         m('div', { style: 'background: #f8f9fa; padding: 15px; border-radius: 6px;' }, [
@@ -93,7 +97,12 @@ export const Dashboard = {
       ]),
 
       m('.session-list', [
-        m('h3', 'Active Sessions'),
+        m('div', { style: 'margin-bottom: 15px;' }, [
+          m('h3', 'Active Sessions'),
+          m('p', { style: 'color: #666; font-size: 0.9em; margin-top: 5px;' },
+            'Sessions represent devices or applications that can access your account. You can delete any session to revoke its access.'
+          )
+        ]),
         state.loading && m('.loading', 'Loading sessions'),
         !state.loading && state.sessions.length === 0 && m('p', { style: 'color: #999;' }, 'No active sessions'),
         !state.loading && state.sessions.length > 0 && state.sessions.map((session, idx) =>

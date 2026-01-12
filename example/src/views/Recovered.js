@@ -27,9 +27,12 @@ export const Recovered = {
 
       state.statusMessage && m(StatusMessage, state.statusMessage),
 
-      m('p', { style: 'color: #666; margin-bottom: 20px;' },
-        'Your account has been successfully recovered. Save your private key securely!'
-      ),
+      m('div', { style: 'background: #d1ecf1; border: 2px solid #17a2b8; border-radius: 8px; padding: 15px; margin-bottom: 20px;' }, [
+        m('p', { style: 'margin: 0 0 10px 0; font-weight: 600; color: #0c5460;' }, 'Recovery Successful!'),
+        m('p', { style: 'margin: 0 0 8px 0; color: #0c5460; font-size: 0.95em;' },
+          'Your private key (nsec) has been successfully reconstructed using the challenge codes.'
+        ),
+      ]),
 
       m('.form-group', [
         m('label', 'Public Key (npub)'),
@@ -48,13 +51,6 @@ export const Recovered = {
           onclick: e => e.target.select()
         })
       ]),
-
-      m('button', {
-        onclick: () => {
-          navigator.clipboard.writeText(state.recoveredSecret)
-          state.setStatus('Private key copied to clipboard!', 'success')
-        }
-      }, 'Copy Private Key to Clipboard')
     ])
   }
 }

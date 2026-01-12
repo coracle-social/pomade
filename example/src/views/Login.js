@@ -47,8 +47,13 @@ export const Login = {
       state.statusMessage && m(StatusMessage, state.statusMessage),
 
       m('p', { style: 'color: #666; margin-bottom: 20px;' },
-        'Log in to your existing account with email and password.'
+        'Log in to your existing account with email and password. This will:'
       ),
+
+      m('ul', { style: 'color: #666; margin-bottom: 20px; margin-left: 20px;' }, [
+        m('li', { style: 'margin-bottom: 8px;' }, "Send a hash of your email and password to each signer (using the signer's pubkey as the seed)"),
+        m('li', { style: 'margin-bottom: 8px;' }, 'The signer will create a new session associated with a fresh device key'),
+      ]),
 
       m('.form-group', [
         m('label', 'Email'),

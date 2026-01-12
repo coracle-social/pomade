@@ -81,9 +81,16 @@ export const Recovery = {
 
       state.statusMessage && m(StatusMessage, state.statusMessage),
 
-      m('p', { style: 'color: #666; margin-bottom: 20px;' },
-        'Recover your private key using your email and challenge codes.'
+      m('p', { style: 'color: #666; margin-bottom: 10px;' },
+        'Recover your private key using your email and challenge codes. The recovery process:'
       ),
+
+      m('ul', { style: 'color: #666; margin-bottom: 20px; margin-left: 20px;' }, [
+        m('li', { style: 'margin-bottom: 8px;' }, 'Request OTP challenges from the signers'),
+        m('li', { style: 'margin-bottom: 8px;' }, 'Each signer sends a unique challenge code (visible in the email inbox to the right)'),
+        m('li', { style: 'margin-bottom: 8px;' }, 'Enter the challenges to prove to each signer you have access to your email'),
+        m('li', { style: 'margin-bottom: 8px;' }, 'The signers will return your key shares and the client will reconstruct your key')
+      ]),
 
       m('.form-group', [
         m('label', 'Email'),
