@@ -84,7 +84,7 @@ const sessionItem = z.object({
   threshold: z.int().positive(),
   total: z.number(),
   idx: z.number(),
-  email: z.string().optional(),
+  email: z.string().email().optional(),
 })
 
 const passwordAuth = z.object({
@@ -169,7 +169,7 @@ export const Schema = {
     prev: hex32,
   }),
   recoverySetup: z.object({
-    email: z.string(),
+    email: z.string().email(),
     password_hash: z.string(),
   }),
   recoverySetupResult: z.object({

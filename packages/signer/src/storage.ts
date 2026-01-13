@@ -32,28 +32,42 @@ export const sqliteStorage = (
     })
   }
 
-  // Transaction queue to prevent nested transactions
-  let txQueue: Promise<void> = Promise.resolve()
+  // Queue-based mutex to prevent nested transactions and memory leaks
+  const txQueue: Array<() => void> = []
+  let txRunning = false
+
+  const processTxQueue = () => {
+    if (txRunning || txQueue.length === 0) return
+
+    txRunning = true
+    const next = txQueue.shift()!
+    next()
+  }
 
   return {
     tx: async <R>(f: () => Promise<R>): Promise<R> => {
-      // Queue this transaction to run after previous ones complete
-      const result = txQueue.then(async () => {
-        await dbRun("BEGIN")
-        try {
-          const result = await f()
-          await dbRun("COMMIT")
-          return result
-        } catch (error) {
-          await dbRun("ROLLBACK")
-          throw error
-        }
+      return new Promise((resolve, reject) => {
+        txQueue.push(async () => {
+          try {
+            await dbRun("BEGIN")
+            try {
+              const result = await f()
+              await dbRun("COMMIT")
+              resolve(result)
+            } catch (error) {
+              await dbRun("ROLLBACK")
+              reject(error)
+            }
+          } catch (error) {
+            reject(error)
+          } finally {
+            txRunning = false
+            processTxQueue()
+          }
+        })
+
+        processTxQueue()
       })
-
-      // Update queue to include this transaction (but catch errors so queue continues)
-      txQueue = result.then(() => undefined, () => undefined)
-
-      return result
     },
     collection: <T>(name: string): ICollection<T> => {
       // Create table synchronously on first access
