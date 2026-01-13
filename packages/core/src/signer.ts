@@ -67,6 +67,12 @@ import {
   cleanupRateLimits,
 } from "./ratelimit.js"
 
+// Rate limiting for client requests (sign + ecdh combined)
+const CLIENT_REQUEST_RATE_LIMIT: RateLimitConfig = {
+  maxAttempts: 100,
+  windowSeconds: int(1, MINUTE),
+}
+
 // Utils
 
 function makeSessionItem(session: SignerSession): SessionItem {
@@ -152,6 +158,7 @@ export class Signer {
   sessionsByEmailHash: ICollection<SignerSessionIndex>
   rateLimitByEmailHash: ICollection<RateLimitBucket>
   rateLimitByChallengeHash: ICollection<RateLimitBucket>
+  rateLimitByClient: ICollection<RateLimitBucket>
   rateLimitConfig: SignerRateLimitConfig
 
   constructor(private options: SignerOptions) {
@@ -163,6 +170,7 @@ export class Signer {
     this.sessionsByEmailHash = options.storage.collection("sessionsByEmailHash")
     this.rateLimitByEmailHash = options.storage.collection("rateLimitByEmailHash")
     this.rateLimitByChallengeHash = options.storage.collection("rateLimitByChallengeHash")
+    this.rateLimitByClient = options.storage.collection("rateLimitByClient")
 
     // Default rate limits (conservative but reasonable)
     this.rateLimitConfig = {
@@ -222,6 +230,7 @@ export class Signer {
             this.rateLimitByChallengeHash,
             this.rateLimitConfig.challenge.windowSeconds,
           )
+          await cleanupRateLimits(this.rateLimitByClient, CLIENT_REQUEST_RATE_LIMIT.windowSeconds)
         },
         ms(int(5, MINUTE)),
       ) as unknown as number,
@@ -241,6 +250,23 @@ export class Signer {
   }
 
   // Internal utils
+
+  async _checkAndRecordRateLimit(client: string): Promise<boolean> {
+    const bucket = await this.rateLimitByClient.get(client)
+
+    if (isRateLimited(bucket, CLIENT_REQUEST_RATE_LIMIT)) {
+      const resetTime = getRateLimitResetTime(bucket, CLIENT_REQUEST_RATE_LIMIT)
+      debug(
+        `[signer]: rate limit exceeded for client ${client.slice(0, 8)}, reset in ${resetTime}s`,
+      )
+      return false
+    }
+
+    // Record the attempt
+    const updatedBucket = recordAttempt(bucket, CLIENT_REQUEST_RATE_LIMIT)
+    await this.rateLimitByClient.set(client, updatedBucket)
+    return true
+  }
 
   async _getAuthenticatedSessions(auth: Auth): Promise<SignerSession[]> {
     // Check rate limit for auth attempts
@@ -771,6 +797,18 @@ export class Signer {
         )
       }
 
+      // Check rate limit
+      const allowed = await this._checkAndRecordRateLimit(event.pubkey)
+      if (!allowed) {
+        return this.rpc.channel(event.pubkey, false).send(
+          makeSignResult({
+            ok: false,
+            message: "Rate limit exceeded. Please try again later.",
+            prev: event.id,
+          }),
+        )
+      }
+
       try {
         const ctx = Lib.get_session_ctx(session.group, payload.request)
         const partialSignature = Lib.create_psig_pkg(ctx, session.share)
@@ -814,6 +852,18 @@ export class Signer {
           makeSignResult({
             ok: false,
             message: "No session found for client",
+            prev: event.id,
+          }),
+        )
+      }
+
+      // Check rate limit
+      const allowed = await this._checkAndRecordRateLimit(event.pubkey)
+      if (!allowed) {
+        return this.rpc.channel(event.pubkey, false).send(
+          makeEcdhResult({
+            ok: false,
+            message: "Rate limit exceeded. Please try again later.",
             prev: event.id,
           }),
         )

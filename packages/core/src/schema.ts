@@ -24,6 +24,12 @@ export enum Method {
   SignResult = "sign/result",
 }
 
+// Security limits to prevent DoS attacks via unbounded payloads
+const MAX_HASHES_PER_REQUEST = 10 // Maximum number of hashes in a single signature request
+const MAX_HASH_VECTORS = 10 // Maximum number of hash vectors per request
+const MAX_MEMBERS = 5 // Maximum number of members in a signing group
+const MAX_COMMITS = 5 // Maximum number of commits in a group
+
 const hex = z
   .string()
   .regex(/^[0-9a-fA-F]*$/)
@@ -39,7 +45,7 @@ const commit = z.object({
 })
 
 const group = z.object({
-  commits: z.array(commit),
+  commits: z.array(commit).max(MAX_COMMITS),
   group_pk: hex33,
   threshold: z.number(),
 })
@@ -52,7 +58,13 @@ const share = z.object({
 })
 
 const psig_entry = z.tuple([hex32, hex32])
-const sighash_vec = z.tuple([hex32]).rest(hex32)
+// Use tuple with rest to maintain type compatibility while enforcing max length
+const sighash_vec = z
+  .tuple([hex32])
+  .rest(hex32)
+  .refine(arr => arr.length <= MAX_HASHES_PER_REQUEST, {
+    message: `Maximum ${MAX_HASHES_PER_REQUEST} hashes allowed per request`,
+  })
 
 const event = z.object({
   sig: hex,
@@ -100,7 +112,7 @@ export const isOTPAuth = (auth: Auth): auth is OTPAuth => Boolean((auth as any).
 export const Schema = {
   ecdhRequest: z.object({
     idx: z.number(),
-    members: z.number().array(),
+    members: z.number().array().max(MAX_MEMBERS),
     ecdh_pk: hex32,
   }),
   ecdhResult: z.object({
@@ -108,7 +120,7 @@ export const Schema = {
       z.object({
         idx: z.number(),
         keyshare: hex,
-        members: z.number().array(),
+        members: z.number().array().max(MAX_MEMBERS),
         ecdh_pk: hex,
       }),
     ),
@@ -196,8 +208,8 @@ export const Schema = {
   signRequest: z.object({
     request: z.object({
       content: z.string().nullable(),
-      hashes: sighash_vec.array(),
-      members: z.number().array(),
+      hashes: sighash_vec.array().max(MAX_HASH_VECTORS),
+      members: z.number().array().max(MAX_MEMBERS),
       stamp: z.number(),
       type: z.string(),
       gid: hex32,
