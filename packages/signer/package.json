@@ -28,8 +28,10 @@
   },
   "dependencies": {
     "@pomade/core": "workspace:*",
-    "@welshman/lib": "^0.7.1",
-    "@welshman/net": "^0.7.1",
+    "@welshman/lib": "^0.8.0-pre.1",
+    "@welshman/net": "^0.8.0-pre.1",
+    "@welshman/util": "^0.8.0-pre.1",
+    "@welshman/signer": "^0.8.0-pre.1",
     "bcrypt": "^6.0.0",
     "sqlite3": "^5.1.7",
     "dotenv": "^16.4.7",
