@@ -188,8 +188,6 @@ export class Signer {
         return debug("[signer]: ignoring event", message.event.id)
       }
 
-      debug("[signer]: received event", message)
-
       if (isRegisterRequest(message)) this.handleRegisterRequest(message)
       if (isRecoverySetup(message)) this.handleRecoverySetup(message)
       if (isChallengeRequest(message)) this.handleChallengeRequest(message)

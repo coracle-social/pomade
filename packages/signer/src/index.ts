@@ -2,7 +2,7 @@
 
 import "dotenv/config"
 import {call, on} from '@welshman/lib'
-import {defaultSocketPolicies, Socket, SocketEvent, SocketStatus} from '@welshman/net'
+import {Socket, SocketEvent, SocketStatus} from '@welshman/net'
 import {Nip01Signer} from "@welshman/signer"
 import {Signer, context} from "@pomade/core"
 import {sqliteStorage} from "./storage.js"
@@ -26,26 +26,6 @@ if (relays.length === 0) {
   console.error("Error: POMADE_RELAYS environment variable is required")
   process.exit(1)
 }
-
-// Configure socket policies for reconnection and ping
-defaultSocketPolicies.push((socket: Socket) => {
-  const unsubscribers = [
-    on(socket, SocketEvent.Status, (status: SocketStatus, url: string) => {
-      console.log(`${url} ${status}`)
-    }),
-  ]
-
-  const interval = setInterval(() => {
-    if (socket.status === SocketStatus.Open) {
-      socket._ws?.send('["PING"]')
-    }
-  }, 30_000)
-
-  return () => {
-    unsubscribers.forEach(call)
-    clearInterval(interval)
-  }
-})
 
 // Load email configuration
 let emailProvider

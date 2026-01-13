@@ -292,8 +292,15 @@ describe("protocol flows", () => {
     it("works", async () => {
       const email = makeEmail()
       const password = makeSecret()
+      const userSecret = makeSecret()
+      const expectedPubkey = getPubkey(userSecret)
 
-      await makeClientWithRecovery(email, password)
+      const clientRegister = await Client.register(2, 3, userSecret)
+      const client = new Client(clientRegister.clientOptions)
+
+      expect(client.userPubkey).toBe(expectedPubkey)
+
+      await client.setupRecovery(email, password)
 
       const res1 = await Client.recoverWithPassword(email, password)
       const messages = res1.messages.filter(m => m.payload.ok)
@@ -307,6 +314,7 @@ describe("protocol flows", () => {
 
       expect(res2.ok).toBe(true)
       expect(res2.messages.every(m => m.payload.share && m.payload.group)).toBe(true)
+      expect(getPubkey(res2.userSecret!)).toBe(expectedPubkey)
     })
 
     it("rejects invalid password without revealing registration", async () => {
