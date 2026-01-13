@@ -158,9 +158,6 @@ export class Client {
     const remainingSignerPubkeys = shuffle(context.signerPubkeys)
     const peersByIndex = new Map<number, string>()
 
-    console.log(group)
-    console.log(shares)
-
     const messages = await Promise.all(
       shares.map(async (share, i) => {
         while (remainingSignerPubkeys.length > 0) {
@@ -393,8 +390,6 @@ export class Client {
 
     const group = messages.find(m => m?.payload.group)?.payload.group
     const shares = removeUndefined(messages.map(m => m?.payload.share))
-    console.log(group)
-    console.log(shares)
     const userSecret = tryCatch(() => Lib.recover_secret_key(group!, shares))
 
     return {ok: Boolean(userSecret), messages, userSecret}
