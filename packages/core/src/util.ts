@@ -58,7 +58,7 @@ export function decodeChallenge(challenge: string) {
 
 // Payload hashing
 
-export const argonOptions = {t: 2, m: 32 * 1024, p: 1}
+export const argonOptions = {t: 3, m: 64 * 1024, p: 2}
 
 export type ArgonImpl = (
   value: Uint8Array,
