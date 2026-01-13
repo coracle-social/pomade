@@ -58,12 +58,12 @@ try {
   process.exit(1)
 }
 
-// Create storage
-const storage = sqliteStorage({path: dbPath})
+const signer = Nip01Signer.fromSecret(secret)
 
-// Start signer service
-const signer = new Signer({
-  signer: Nip01Signer.fromSecret(secret),
+const storage = sqliteStorage({path: dbPath, signer})
+
+const service = new Signer({
+  signer,
   relays,
   storage,
   sendChallenge: async payload => {
@@ -75,34 +75,35 @@ const signer = new Signer({
   },
 })
 
-signer.rpc.signer.getPubkey().then((pubkey: string) => {
+signer.getPubkey().then((pubkey: string) => {
   console.log(`Running as: ${pubkey}`)
 })
+
 console.log(`Listening on relays: ${relays.join(", ")}`)
 
 // Handle unhandled rejections
 process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled Rejection at:", promise, "reason:", reason)
-  signer.stop()
+  service.stop()
   process.exit(1)
 })
 
 // Handle uncaught exceptions
 process.on("uncaughtException", (error) => {
   console.error("Uncaught Exception:", error)
-  signer.stop()
+  service.stop()
   process.exit(1)
 })
 
 // Handle shutdown gracefully
 process.on("SIGINT", () => {
   console.log("\nShutting down signer service...")
-  signer.stop()
+  service.stop()
   process.exit(0)
 })
 
 process.on("SIGTERM", () => {
   console.log("\nShutting down signer service...")
-  signer.stop()
+  service.stop()
   process.exit(0)
 })

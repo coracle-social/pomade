@@ -1,8 +1,10 @@
 import sqlite3 from "sqlite3"
 import type {ICollection, IStorage} from "@pomade/core"
+import type {ISigner} from "@welshman/signer"
 
 export type SqliteStorageOptions = {
   path: string
+  signer: ISigner
 }
 
 export const sqliteStorage = (
@@ -12,6 +14,14 @@ export const sqliteStorage = (
 
   // Enable WAL mode for better concurrency
   db.run("PRAGMA journal_mode = WAL")
+
+  const encrypt = async (data: any) => {
+    return options.signer.nip44.encrypt(await options.signer.getPubkey(), JSON.stringify(data))
+  }
+
+  const decrypt = async <T>(data: string): Promise<T> => {
+    return JSON.parse(await options.signer.nip44.decrypt(await options.signer.getPubkey(), data))
+  }
 
   const dbRun = (sql: string): Promise<void> => {
     return new Promise((resolve, reject) => {
@@ -65,13 +75,15 @@ export const sqliteStorage = (
           return new Promise((resolve, reject) => {
             getStmt.get(key, (err: Error | null, row: {value: string} | undefined) => {
               if (err) reject(err)
-              else resolve(row ? JSON.parse(row.value) : undefined)
+              else resolve(row ? decrypt<T>(row.value) : undefined)
             })
           })
         },
         set: async (key: string, item: T): Promise<void> => {
+          const data = await encrypt(item)
+
           return new Promise((resolve, reject) => {
-            setStmt.run(key, JSON.stringify(item), (err: Error | null) => {
+            setStmt.run(key, data, (err: Error | null) => {
               if (err) reject(err)
               else resolve()
             })
@@ -87,9 +99,20 @@ export const sqliteStorage = (
         },
         entries: async (): Promise<Iterable<[string, T]>> => {
           return new Promise((resolve, reject) => {
-            entriesStmt.all((err: Error | null, rows: Array<{key: string; value: string}>) => {
-              if (err) reject(err)
-              else resolve(rows.map(row => [row.key, JSON.parse(row.value)]))
+            entriesStmt.all(async (err: Error | null, rows: Array<{key: string; value: string}>) => {
+              if (err) {
+                reject(err)
+              } else {
+                try {
+                  resolve(
+                    await Promise.all(
+                      rows.map(async row => [row.key, await decrypt<T>(row.value)] as [string, T])
+                    )
+                  )
+                } catch (error) {
+                  reject(error)
+                }
+              }
             })
           })
         },
