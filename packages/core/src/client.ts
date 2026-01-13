@@ -61,6 +61,13 @@ export type ClientOptions = {
   peers: string[]
 }
 
+export type ClientOptionsResult<T> = {
+  ok: boolean
+  options: [string, string[]][]
+  messages: Maybe<T>[]
+  clientSecret: string
+}
+
 export class Client {
   rpc: RPC
   peers: string[]
@@ -83,12 +90,8 @@ export class Client {
   static _buildOptions<T extends WithEvent<LoginOptions | RecoveryOptions>>(
     clientSecret: string,
     messages: Maybe<T>[],
-  ): {
-    ok: boolean
-    options: [string, string[]][]
-    messages: Maybe<T>[]
-    clientSecret: string
-  } {
+    threshold: "total" | "threshold",
+  ): ClientOptionsResult<T> {
     // Extract all items with their metadata
     const items = messages.flatMap(
       m =>
@@ -97,6 +100,7 @@ export class Client {
           peer: m.event.pubkey,
           idx: item.idx,
           total: item.total,
+          threshold: item.threshold,
         })) || [],
     )
 
@@ -108,7 +112,7 @@ export class Client {
 
     for (const [client, clientItems] of itemsByClient) {
       // Get the expected total (should be the same for all items of this client)
-      const total = clientItems[0]?.total
+      const total = clientItems[0]?.[threshold]
       if (!total || clientItems.length < total) continue
 
       // Check that we have all indices from 1 to total
@@ -155,6 +159,9 @@ export class Client {
     const {group, shares} = Lib.generate_dealer_pkg(threshold, n, [userSecret])
     const remainingSignerPubkeys = shuffle(context.signerPubkeys)
     const peersByIndex = new Map<number, string>()
+
+    console.log(group)
+    console.log(shares)
 
     const messages = await Promise.all(
       shares.map(async (share, i) => {
@@ -260,7 +267,7 @@ export class Client {
 
     rpc.stop()
 
-    return this._buildOptions(clientSecret, messages)
+    return this._buildOptions(clientSecret, messages, "total")
   }
 
   static async loginWithChallenge(email: string, challenges: string[]) {
@@ -286,7 +293,7 @@ export class Client {
 
     rpc.stop()
 
-    return this._buildOptions(clientSecret, messages)
+    return this._buildOptions(clientSecret, messages, "total")
   }
 
   static async selectLogin(clientSecret: string, client: string, peers: string[]) {
@@ -339,7 +346,7 @@ export class Client {
 
     rpc.stop()
 
-    return this._buildOptions(clientSecret, messages)
+    return this._buildOptions(clientSecret, messages, "threshold")
   }
 
   static async recoverWithChallenge(email: string, challenges: string[]) {
@@ -365,7 +372,7 @@ export class Client {
 
     rpc.stop()
 
-    return this._buildOptions(clientSecret, messages)
+    return this._buildOptions(clientSecret, messages, "threshold")
   }
 
   static async selectRecovery(clientSecret: string, client: string, peers: string[]) {
@@ -388,6 +395,8 @@ export class Client {
 
     const group = messages.find(m => m?.payload.group)?.payload.group
     const shares = removeUndefined(messages.map(m => m?.payload.share))
+    console.log(group)
+    console.log(shares)
     const userSecret = tryCatch(() => Lib.recover_secret_key(group!, shares))
 
     return {ok: Boolean(userSecret), messages, userSecret}

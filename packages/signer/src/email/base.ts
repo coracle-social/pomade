@@ -27,7 +27,7 @@ export abstract class BaseEmailProvider implements EmailProvider {
 
   constructor(config: { fromEmail: string; fromName?: string }) {
     this.fromEmail = config.fromEmail
-    this.fromName = config.fromName || "Pomade Signer"
+    this.fromName = config.fromName || "Nostr Signer"
   }
 
   abstract sendChallenge(email: string, challenge: string): Promise<void>
