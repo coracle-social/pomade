@@ -103,10 +103,10 @@ export async function hashEmail(email: string, signer: string) {
   return hash!
 }
 
-export async function hashPassword(password: string, signer: string) {
-  return bytesToHex(
-    await context.argonImpl(textEncoder.encode(password), hexToBytes(signer), argonOptions),
-  )
+export async function hashPassword(email: string, password: string, signer: string) {
+  // Concatenate email and password before hashing to prevent cross-account correlation
+  const input = textEncoder.encode(email + password)
+  return bytesToHex(await context.argonImpl(input, hexToBytes(signer), argonOptions))
 }
 
 // Context

@@ -185,7 +185,7 @@ Clients SHOULD validate the user's email address prior to sending it to the sign
   method: "recovery/setup"
   payload: {
     email: string          // user's email address
-    password_hash: string  // argon2id(password, signer pubkey, t=2, m=32768, p=1)
+    password_hash: string  // argon2id(email || password, signer pubkey, t=2, m=32768, p=1)
   }
 }
 ```
@@ -209,9 +209,9 @@ A recovery method MUST be set within a short time (e.g., 15 minutes) of registra
 
 #### Password Authentication
 
-In order to authenticate with a password, the client must calculate both `argon2id(email, signer pubkey, t=2, m=32768, p=1)` and `argon2id(password, signer pubkey, t=2, m=32768, p=1)` and send it in the `auth` payload as `{email_hash, password_hash}`.
+In order to authenticate with a password, the client must calculate both `argon2id(email, signer pubkey, t=2, m=32768, p=1)` and `argon2id(email || password, signer pubkey, t=2, m=32768, p=1)` and send it in the `auth` payload as `{email_hash, password_hash}`.
 
-Because it's not known at this point which signers hold the user's key shares, clients will have to send this payload to all known signers. In order to prevent signers from logging in to one another, the signer pubkey is used as the salt. Signers MUST validate that the `password_hash` sent on setup is a 32 byte hex string. Clients MUST ensure that users pick strong passwords.
+Because it's not known at this point which signers hold the user's key shares, clients will have to send this payload to all known signers. In order to prevent signers from logging in to one another, the signer pubkey is used as the salt. The email is concatenated with the password before hashing to prevent cross-account correlation, ensuring that the same password produces different hashes for different users. Signers MUST validate that the `password_hash` sent on setup is a 32 byte hex string. Clients MUST ensure that users pick strong passwords.
 
 #### Challenge Authentication
 
@@ -244,7 +244,7 @@ Below is a definition for payloads' `auth` key, including either password-based 
 type AuthPayload =
   {
     email_hash: string        // argon2id(email, signer pubkey, t=2, m=32768, p=1)
-    password_hash: string     // argon2id(password, signer pubkey, t=2, m=32768, p=1)
+    password_hash: string     // argon2id(email || password, signer pubkey, t=2, m=32768, p=1)
   } | {
     email_hash: string        // argon2id(email, signer pubkey, t=2, m=32768, p=1)
     otp: string               // OTP obtained via email flow

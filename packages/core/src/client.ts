@@ -207,7 +207,7 @@ export class Client {
   async setupRecovery(email: string, password: string) {
     const messages = await Promise.all(
       this.peers.map(async (peer, i) => {
-        const password_hash = await hashPassword(password, peer)
+        const password_hash = await hashPassword(email, password, peer)
 
         return this.rpc
           .channel(peer)
@@ -251,7 +251,7 @@ export class Client {
     const messages = await Promise.all(
       Client._getKnownPeers().map(async (peer, i) => {
         const email_hash = await hashEmail(email, peer)
-        const password_hash = await hashPassword(password, peer)
+        const password_hash = await hashPassword(email, password, peer)
         const auth = {email_hash, password_hash}
 
         return rpc
@@ -330,7 +330,7 @@ export class Client {
     const messages = await Promise.all(
       Client._getKnownPeers().map(async (peer, i) => {
         const email_hash = await hashEmail(email, peer)
-        const password_hash = await hashPassword(password, peer)
+        const password_hash = await hashPassword(email, password, peer)
         const auth = {email_hash, password_hash}
 
         return rpc
