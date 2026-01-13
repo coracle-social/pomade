@@ -185,7 +185,7 @@ Clients SHOULD validate the user's email address prior to sending it to the sign
   method: "recovery/setup"
   payload: {
     email: string          // user's email address
-    password_hash: string  // argon2id(email || password, signer pubkey, t=2, m=32768, p=1)
+    password_hash: string  // argon2id(email || password, signer pubkey, t=3, m=65536, p=2)
   }
 }
 ```
@@ -209,7 +209,7 @@ A recovery method MUST be set within a short time (e.g., 15 minutes) of registra
 
 #### Password Authentication
 
-In order to authenticate with a password, the client must calculate both `argon2id(email, signer pubkey, t=2, m=32768, p=1)` and `argon2id(email || password, signer pubkey, t=2, m=32768, p=1)` and send it in the `auth` payload as `{email_hash, password_hash}`.
+In order to authenticate with a password, the client must calculate both `argon2id(email, signer pubkey, t=3, m=65536, p=2)` and `argon2id(email || password, signer pubkey, t=3, m=65536, p=2)` and send it in the `auth` payload as `{email_hash, password_hash}`.
 
 Because it's not known at this point which signers hold the user's key shares, clients will have to send this payload to all known signers. In order to prevent signers from logging in to one another, the signer pubkey is used as the salt. The email is concatenated with the password before hashing to prevent cross-account correlation, ensuring that the same password produces different hashes for different users. Signers MUST validate that the `password_hash` sent on setup is a 32 byte hex string. Clients MUST ensure that users pick strong passwords.
 
@@ -223,12 +223,12 @@ The client first chooses the signers it wishes to authenticate with and sends a 
 {
   method: "challenge/request"
   payload: {
-    email_hash: string          // argon2id(email, signer pubkey, t=2, m=32768, p=1)
+    email_hash: string          // argon2id(email, signer pubkey, t=3, m=65536, p=2)
   }
 }
 ```
 
-In order to avoid leaking the user's email address to signers, the email should be hashed using `argon2id(email, signer pubkey, t=2, m=32768, p=1)`. This allows the signers that already know the user's email to look it up quickly, but makes it difficult to brute force it for others.
+In order to avoid leaking the user's email address to signers, the email should be hashed using `argon2id(email, signer pubkey, t=3, m=65536, p=2)`. This allows the signers that already know the user's email to look it up quickly, but makes it difficult to brute force it for others.
 
 If this is used for recovery from an active session, the client should only send this request to the selected signers. If used for logging in after a password has been forgotten, it won't be known which signers hold the user's key shares, so clients will have to send this request to all known signers. As a result, if a user has multiple active sessions they may receive more than `total` challenges. Clients should handle this by allowing the user to paste any number of challenges, or by keeping track out of band which signers were used for a given email address.
 
@@ -243,10 +243,10 @@ Below is a definition for payloads' `auth` key, including either password-based 
 ```typescript
 type AuthPayload =
   {
-    email_hash: string        // argon2id(email, signer pubkey, t=2, m=32768, p=1)
-    password_hash: string     // argon2id(email || password, signer pubkey, t=2, m=32768, p=1)
+    email_hash: string        // argon2id(email, signer pubkey, t=3, m=65536, p=2)
+    password_hash: string     // argon2id(email || password, signer pubkey, t=3, m=65536, p=2)
   } | {
-    email_hash: string        // argon2id(email, signer pubkey, t=2, m=32768, p=1)
+    email_hash: string        // argon2id(email, signer pubkey, t=3, m=65536, p=2)
     otp: string               // OTP obtained via email flow
   }
 ```
