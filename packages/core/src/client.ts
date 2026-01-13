@@ -85,6 +85,10 @@ export class Client {
     this.rpc.stop()
   }
 
+  getPubkey() {
+    return this.rpc.signer.getPubkey()
+  }
+
   static _buildOptions<T extends WithEvent<LoginOptions | RecoveryOptions>>(
     clientSecret: string,
     messages: Maybe<T>[],
