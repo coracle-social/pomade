@@ -12,8 +12,8 @@ export class SendlayerProvider extends BaseEmailProvider {
     this.apiKey = config.apiKey
   }
 
-  async sendChallenge(email: string, challenge: string): Promise<void> {
-    const { subject, text, html } = this.buildChallengeEmail(challenge)
+  async sendChallenge(email: string, otp: string): Promise<void> {
+    const { subject, text, html } = this.buildChallengeEmail(otp)
 
     const response = await fetch("https://console.sendlayer.com/api/v1/email", {
       method: "POST",

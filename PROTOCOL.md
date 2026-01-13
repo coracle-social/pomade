@@ -213,16 +213,17 @@ In order to authenticate with a password, the client must calculate both `argon2
 
 Because it's not known at this point which signers hold the user's key shares, clients will have to send this payload to all known signers. In order to prevent signers from logging in to one another, the signer pubkey is used as the salt. The email is concatenated with the password before hashing to prevent cross-account correlation, ensuring that the same password produces different hashes for different users. Signers MUST validate that the `password_hash` sent on setup is a 32 byte hex string. Clients MUST ensure that users pick strong passwords.
 
-#### Challenge Authentication
+#### One-Time Password Authentication
 
 In order to authenticate with only an email address (in the case of the user forgetting their password), *each* signer has to authenticate the user independently (in order to avoid a MITM attack by a trusted email service that can lead to account compromise).
 
-The client first chooses the signers it wishes to authenticate with and sends a request for a one-time-password to each one:
+The client first chooses the signers it wishes to authenticate with and generates a unique two-digit integer OTP prefix for each one. It then sends a request for a one-time-password to each one:
 
 ```typescript
 {
   method: "challenge/request"
   payload: {
+    prefix: string              // random 2-digit OTP prefix
     email_hash: string          // argon2id(email, signer pubkey, t=3, m=65536, p=2)
   }
 }
@@ -230,11 +231,11 @@ The client first chooses the signers it wishes to authenticate with and sends a 
 
 In order to avoid leaking the user's email address to signers, the email should be hashed using `argon2id(email, signer pubkey, t=3, m=65536, p=2)`. This allows the signers that already know the user's email to look it up quickly, but makes it difficult to brute force it for others.
 
-If this is used for recovery from an active session, the client should only send this request to the selected signers. If used for logging in after a password has been forgotten, it won't be known which signers hold the user's key shares, so clients will have to send this request to all known signers. As a result, if a user has multiple active sessions they may receive more than `total` challenges. Clients should handle this by allowing the user to paste any number of challenges, or by keeping track out of band which signers were used for a given email address.
+If this is used for recovery from an active session, the client should only send this request to the selected signers. If used for logging in after a password has been forgotten, it won't be known which signers hold the user's key shares, so clients will have to send this request to all known signers. As a result, if a user has multiple active sessions they may receive more than `total` OTPs. Clients should handle this by allowing the user to paste any number of OTPs, or by keeping track out of band which signers were used for a given email address.
 
-Signers do not respond, since they should not indicate whether the user's email has been found anyway. Instead, each signer sends an email to the user containing the signer's pubkey and an OTP in the form: `base58(signer_pubkey_bytes || otp_utf8_bytes)` where `signer_pubkey_bytes` is the 32-byte raw public key and `otp_utf8_bytes` is the UTF-8 encoded OTP string. The user must then copy this into the requesting client.
+Signers do not respond, since they should not indicate whether the user's email has been found anyway. Instead, each signer sends an email to the user containing an OTP constructed by concatenating the client-provided prefix with at least 6 additional random digits. The user must then copy this into the requesting client.
 
-The client can then temporarily act on behalf of the user's account by parsing the challenge and including the `otp` in a request to the correct signer. OTPs MUST be invalidated after a single use, and MUST expire after a short time (but long enough for users to complete a given flow, e.g. 15 minutes).
+The client must then identify which signer each OTP should be sent to using each code's prefix. OTPs MUST be invalidated after a single use, and MUST expire after a short time (but long enough for users to complete a given flow, e.g. 15 minutes).
 
 #### Auth Payload
 

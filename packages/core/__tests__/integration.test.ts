@@ -1,17 +1,10 @@
 import * as nt44 from "nostr-tools/nip44"
-import {bytesToHex, hexToBytes, randomBytes} from "@noble/hashes/utils.js"
+import {bytesToHex, hexToBytes} from "@noble/hashes/utils.js"
 import {describe, it, expect, beforeEach, afterEach} from "vitest"
 import {sortBy, uniq} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
-import {
-  beforeHook,
-  makeEmail,
-  signerPubkeys,
-  challengePayloads,
-  afterHook,
-  makeClientWithRecovery,
-} from "./util"
-import {Client, encodeChallenge} from "../src"
+import {beforeHook, makeEmail, challengePayloads, afterHook, makeClientWithRecovery} from "./util"
+import {Client} from "../src"
 
 const doLet = <T>(x: T, f: <R>(x: T) => R) => f(x)
 
@@ -229,13 +222,13 @@ describe("protocol flows", () => {
       expect(res1.ok).toBe(true)
       expect(challengePayloads.length).toBe(3)
       expect(challengePayloads[0].email).toBe(email)
-      expect(challengePayloads[0].challenge.length).toBeGreaterThan(50)
+      expect(challengePayloads[0].otp.length).toBe(8)
 
-      const challenges = challengePayloads.map(p => p.challenge)
-      const res2 = await Client.loginWithChallenge(email, challenges)
-      const messages = res2.messages.filter(m => m.payload.ok)
-      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m.event.pubkey)
+      const otps = challengePayloads.map(p => p.otp)
+      const res2 = await Client.loginWithChallenge(email, res1.peersByPrefix, otps)
+      const messages = res2.messages.filter(m => m?.payload.ok)
+      const clients = uniq(messages.flatMap(m => m!.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m!.event.pubkey)
 
       expect(clients.length).toBe(1)
       expect(peers.length).toBe(3)
@@ -255,8 +248,8 @@ describe("protocol flows", () => {
 
       expect(res1.ok).toBe(true)
 
-      const challenges = [encodeChallenge(signerPubkeys[0], bytesToHex(randomBytes(12)))]
-      const res2 = await Client.loginWithChallenge(email, challenges)
+      const otps = ["00123456"] // Invalid OTP with unknown prefix
+      const res2 = await Client.loginWithChallenge(email, res1.peersByPrefix, otps)
 
       expect(res2.ok).toBe(false)
     })
@@ -271,13 +264,13 @@ describe("protocol flows", () => {
       expect(res1.ok).toBe(true)
       expect(challengePayloads.length).toBe(3)
       expect(challengePayloads[0].email).toBe(email)
-      expect(challengePayloads[0].challenge.length).toBeGreaterThan(50)
+      expect(challengePayloads[0].otp.length).toBe(8)
 
-      const challenges = challengePayloads.map(p => p.challenge)
-      const res2 = await Client.loginWithChallenge(email, challenges)
-      const messages = res2.messages.filter(m => m.payload.ok)
-      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m.event.pubkey)
+      const otps = challengePayloads.map(p => p.otp)
+      const res2 = await Client.loginWithChallenge(email, res1.peersByPrefix, otps)
+      const messages = res2.messages.filter(m => m?.payload.ok)
+      const clients = uniq(messages.flatMap(m => m!.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m!.event.pubkey)
 
       expect(clients.length).toBe(1)
       expect(peers.length).toBe(3)
@@ -363,13 +356,13 @@ describe("protocol flows", () => {
       expect(res1.ok).toBe(true)
       expect(challengePayloads.length).toBe(3)
       expect(challengePayloads[0].email).toBe(email)
-      expect(challengePayloads[0].challenge.length).toBeGreaterThan(50)
+      expect(challengePayloads[0].otp.length).toBe(8)
 
-      const challenges = challengePayloads.map(p => p.challenge)
-      const res2 = await Client.recoverWithChallenge(email, challenges)
-      const messages = res2.messages.filter(m => m.payload.ok)
-      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m.event.pubkey)
+      const otps = challengePayloads.map(p => p.otp)
+      const res2 = await Client.recoverWithChallenge(email, res1.peersByPrefix, otps)
+      const messages = res2.messages.filter(m => m?.payload.ok)
+      const clients = uniq(messages.flatMap(m => m!.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m!.event.pubkey)
 
       expect(clients.length).toBe(1)
       expect(peers.length).toBe(3)
@@ -389,8 +382,8 @@ describe("protocol flows", () => {
 
       expect(res1.ok).toBe(true)
 
-      const challenges = [encodeChallenge(signerPubkeys[0], bytesToHex(randomBytes(12)))]
-      const res2 = await Client.loginWithChallenge(email, challenges)
+      const otps = ["00123456"] // Invalid OTP with unknown prefix
+      const res2 = await Client.loginWithChallenge(email, res1.peersByPrefix, otps)
 
       expect(res2.ok).toBe(false)
     })
@@ -405,13 +398,13 @@ describe("protocol flows", () => {
       expect(res1.ok).toBe(true)
       expect(challengePayloads.length).toBe(3)
       expect(challengePayloads[0].email).toBe(email)
-      expect(challengePayloads[0].challenge.length).toBeGreaterThan(50)
+      expect(challengePayloads[0].otp.length).toBe(8)
 
-      const challenges = challengePayloads.map(p => p.challenge)
-      const res2 = await Client.recoverWithChallenge(email, challenges)
-      const messages = res2.messages.filter(m => m.payload.ok)
-      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m.event.pubkey)
+      const otps = challengePayloads.map(p => p.otp)
+      const res2 = await Client.recoverWithChallenge(email, res1.peersByPrefix, otps)
+      const messages = res2.messages.filter(m => m?.payload.ok)
+      const clients = uniq(messages.flatMap(m => m!.payload.items.map(it => it.client)))
+      const peers = messages.map(m => m!.event.pubkey)
 
       expect(clients.length).toBe(1)
       expect(peers.length).toBe(3)
@@ -462,10 +455,10 @@ describe("protocol flows", () => {
 
       expect(clients2.length).toBe(1)
 
-      await Client.requestChallenge(email)
+      const res = await Client.requestChallenge(email)
 
-      const challenges = challengePayloads.map(p => p.challenge)
-      const res3 = await Client.loginWithChallenge(email, challenges)
+      const otps = challengePayloads.map(p => p.otp)
+      const res3 = await Client.loginWithChallenge(email, res.peersByPrefix, otps)
       const messages3 = res3.messages.filter(m => m.payload.ok)
       const clients3 = uniq(messages3.flatMap(m => m.payload.items.map(it => it.client)))
 

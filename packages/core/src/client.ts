@@ -4,6 +4,7 @@ import {
   groupBy,
   removeUndefined,
   shuffle,
+  randomId,
   sortBy,
   first,
   last,
@@ -20,7 +21,7 @@ import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Lib} from "@frostr/bifrost"
 import type {GroupPackage, ECDHPackage} from "@frostr/bifrost"
 import {Method} from "./schema.js"
-import {context, hashEmail, hashPassword, decodeChallenge} from "./util.js"
+import {context, hashEmail, hashPassword} from "./util.js"
 import {RPC, WithEvent} from "./rpc.js"
 import {
   isEcdhResult,
@@ -227,18 +228,26 @@ export class Client {
   static async requestChallenge(email: string, peers = Client._getKnownPeers()) {
     const clientSecret = makeSecret()
     const rpc = RPC.fromSecret(clientSecret)
+    const peersByPrefix = new Map<string, string>()
 
     const oks = await Promise.all(
       peers.map(async (peer, i) => {
+        let prefix = randomId().slice(-2)
+        while (peersByPrefix.has(prefix)) {
+          prefix = randomId().slice(-2)
+        }
+
+        peersByPrefix.set(prefix, peer)
+
         const email_hash = await hashEmail(email, peer)
 
-        return rpc.channel(peer).send(makeChallengeRequest({email_hash})).ok
+        return rpc.channel(peer).send(makeChallengeRequest({prefix, email_hash})).ok
       }),
     )
 
     rpc.stop()
 
-    return {ok: oks.every(identity)}
+    return {ok: oks.every(identity), peersByPrefix}
   }
 
   // Login
@@ -269,24 +278,31 @@ export class Client {
     return this._buildOptions(clientSecret, messages, "total")
   }
 
-  static async loginWithChallenge(email: string, challenges: string[]) {
+  static async loginWithChallenge(
+    email: string,
+    peersByPrefix: Map<string, string>,
+    otps: string[],
+  ) {
     const clientSecret = makeSecret()
     const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
-      challenges.map(async challenge => {
-        const {peer, otp} = decodeChallenge(challenge)
-        const email_hash = await hashEmail(email, peer)
-        const auth = {email_hash, otp}
+      otps.map(async otp => {
+        const peer = peersByPrefix.get(otp.slice(0, 2))
 
-        return rpc
-          .channel(peer)
-          .send(makeLoginStart({auth}))
-          .receive<WithEvent<LoginOptions>>((message, resolve) => {
-            if (isLoginOptions(message)) {
-              resolve(message)
-            }
-          })
+        if (peer) {
+          const email_hash = await hashEmail(email, peer)
+          const auth = {email_hash, otp}
+
+          return rpc
+            .channel(peer)
+            .send(makeLoginStart({auth}))
+            .receive<WithEvent<LoginOptions>>((message, resolve) => {
+              if (isLoginOptions(message)) {
+                resolve(message)
+              }
+            })
+        }
       }),
     )
 
@@ -348,24 +364,31 @@ export class Client {
     return this._buildOptions(clientSecret, messages, "threshold")
   }
 
-  static async recoverWithChallenge(email: string, challenges: string[]) {
+  static async recoverWithChallenge(
+    email: string,
+    peersByPrefix: Map<string, string>,
+    otps: string[],
+  ) {
     const clientSecret = makeSecret()
     const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
-      challenges.map(async challenge => {
-        const {peer, otp} = decodeChallenge(challenge)
-        const email_hash = await hashEmail(email, peer)
-        const auth = {email_hash, otp}
+      otps.map(async otp => {
+        const peer = peersByPrefix.get(otp.slice(0, 2))
 
-        return rpc
-          .channel(peer)
-          .send(makeRecoveryStart({auth}))
-          .receive<WithEvent<RecoveryOptions>>((message, resolve) => {
-            if (isRecoveryOptions(message)) {
-              resolve(message)
-            }
-          })
+        if (peer) {
+          const email_hash = await hashEmail(email, peer)
+          const auth = {email_hash, otp}
+
+          return rpc
+            .channel(peer)
+            .send(makeRecoveryStart({auth}))
+            .receive<WithEvent<RecoveryOptions>>((message, resolve) => {
+              if (isRecoveryOptions(message)) {
+                resolve(message)
+              }
+            })
+        }
       }),
     )
 

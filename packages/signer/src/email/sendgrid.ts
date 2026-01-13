@@ -12,8 +12,8 @@ export class SendGridProvider extends BaseEmailProvider {
     this.apiKey = config.apiKey
   }
 
-  async sendChallenge(email: string, challenge: string): Promise<void> {
-    const { subject, text, html } = this.buildChallengeEmail(challenge)
+  async sendChallenge(email: string, otp: string): Promise<void> {
+    const { subject, text, html } = this.buildChallengeEmail(otp)
 
     const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",

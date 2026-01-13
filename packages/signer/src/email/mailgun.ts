@@ -18,8 +18,8 @@ export class MailgunProvider extends BaseEmailProvider {
     this.apiRegion = config.apiRegion || "us"
   }
 
-  async sendChallenge(email: string, challenge: string): Promise<void> {
-    const { subject, text, html } = this.buildChallengeEmail(challenge)
+  async sendChallenge(email: string, otp: string): Promise<void> {
+    const { subject, text, html } = this.buildChallengeEmail(otp)
 
     const baseUrl =
       this.apiRegion === "eu"

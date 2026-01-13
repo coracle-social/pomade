@@ -43,7 +43,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "base58-js": "^3.0.3",
     "hash-wasm": "^4.12.0",
     "zod": "^4.1.13"
   },

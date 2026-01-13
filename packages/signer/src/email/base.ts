@@ -18,7 +18,7 @@ try {
 }
 
 export interface EmailProvider {
-  sendChallenge(email: string, challenge: string): Promise<void>
+  sendChallenge(email: string, otp: string): Promise<void>
 }
 
 export abstract class BaseEmailProvider implements EmailProvider {
@@ -30,16 +30,16 @@ export abstract class BaseEmailProvider implements EmailProvider {
     this.fromName = config.fromName || "Nostr Signer"
   }
 
-  abstract sendChallenge(email: string, challenge: string): Promise<void>
+  abstract sendChallenge(email: string, otp: string): Promise<void>
 
-  protected buildChallengeEmail(challenge: string): {
+  protected buildChallengeEmail(otp: string): {
     subject: string
     text: string
     html: string
   } {
     const subject = "Your Challenge"
-    const text = `Someone attempted to log in using your email address. If this was you, please continue by copying the challenge below:\n\n${challenge}\n\nThis challenge will expire in 15 minutes.\n\nIf you did not request this challenge, please ignore this email.\n\n---\n\nThis is an automated message from a Nostr signer. Please do not reply to this email.`
-    const html = Mustache.render(htmlTemplate, { challenge })
+    const text = `Someone attempted to log in using your email address. If this was you, please continue by copying the challenge below:\n\n${otp}\n\nThis challenge will expire in 15 minutes.\n\nIf you did not request this challenge, please ignore this email.\n\n---\n\nThis is an automated message from a Nostr signer. Please do not reply to this email.`
+    const html = Mustache.render(htmlTemplate, { otp })
 
     return { subject, text, html }
   }

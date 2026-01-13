@@ -129,6 +129,7 @@ export const Schema = {
     prev: hex32,
   }),
   challengeRequest: z.object({
+    prefix: z.string().regex(/^\d{2}$/),
     email_hash: z.string(),
   }),
   loginStart: z.object({

@@ -1,5 +1,5 @@
 import {Lib} from "@frostr/bifrost"
-import {randomBytes, bytesToHex} from "@noble/hashes/utils.js"
+import {randomBytes} from "@noble/hashes/utils.js"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
 import {
   not,
@@ -24,7 +24,7 @@ import type {ISigner} from "@welshman/signer"
 import {Method, SessionItem, Auth, isPasswordAuth, isOTPAuth} from "./schema.js"
 import {RPC, WithEvent} from "./rpc.js"
 import {IStorage, ICollection} from "./storage.js"
-import {hashEmail, encodeChallenge, debug} from "./util.js"
+import {hashEmail, debug} from "./util.js"
 import {
   ChallengeRequest,
   EcdhRequest,
@@ -70,12 +70,23 @@ import {
 } from "./ratelimit.js"
 
 // Rate limiting for client requests (sign + ecdh combined)
-const CLIENT_REQUEST_RATE_LIMIT: RateLimitConfig = {
+const CLIENT_RATE_LIMITS: RateLimitConfig = {
   maxAttempts: 100,
   windowSeconds: int(1, MINUTE),
 }
 
+const EMAIL_RATE_LIMITS: RateLimitConfig = {
+  maxAttempts: 5,
+  windowSeconds: int(2, MINUTE),
+}
+
 // Utils
+
+function randomInt(min: number, max: number): number {
+  const bytes = randomBytes(4)
+  const value = new DataView(bytes.buffer).getUint32(0)
+  return min + (value % (max - min))
+}
 
 function makeSessionItem(session: SignerSession): SessionItem {
   return {
@@ -133,12 +144,7 @@ export type SignerChallenge = {
 
 export type ChallengePayload = {
   email: string
-  challenge: string
-}
-
-export type SignerRateLimitConfig = {
-  auth: RateLimitConfig
-  challenge: RateLimitConfig
+  otp: string
 }
 
 export type SignerOptions = {
@@ -146,7 +152,6 @@ export type SignerOptions = {
   relays: string[]
   storage: IStorage
   sendChallenge: (payload: ChallengePayload) => Promise<void>
-  rateLimits?: SignerRateLimitConfig
 }
 
 export class Signer {
@@ -158,9 +163,7 @@ export class Signer {
   challenges: ICollection<SignerChallenge>
   sessionsByEmailHash: ICollection<SignerSessionIndex>
   rateLimitByEmailHash: ICollection<RateLimitBucket>
-  rateLimitByChallengeHash: ICollection<RateLimitBucket>
   rateLimitByClient: ICollection<RateLimitBucket>
-  rateLimitConfig: SignerRateLimitConfig
 
   constructor(private options: SignerOptions) {
     this.logins = options.storage.collection("logins")
@@ -169,18 +172,7 @@ export class Signer {
     this.challenges = options.storage.collection("challenges")
     this.sessionsByEmailHash = options.storage.collection("sessionsByEmailHash")
     this.rateLimitByEmailHash = options.storage.collection("rateLimitByEmailHash")
-    this.rateLimitByChallengeHash = options.storage.collection("rateLimitByChallengeHash")
     this.rateLimitByClient = options.storage.collection("rateLimitByClient")
-
-    // Default rate limits (conservative but reasonable)
-    this.rateLimitConfig = {
-      // 5 auth attempts per email_hash per 5 minutes
-      auth: {maxAttempts: 5, windowSeconds: int(5, MINUTE)},
-      // 3 challenge requests per email_hash per 5 minutes
-      challenge: {maxAttempts: 3, windowSeconds: int(5, MINUTE)},
-      ...options.rateLimits,
-    }
-
     this.rpc = new RPC(options.signer, options.relays)
     this.rpc.subscribe(message => {
       // Ignore events with weird timestamps
@@ -219,16 +211,9 @@ export class Signer {
             if (challenge.event.created_at < ago(15, MINUTE)) await this.challenges.delete(client)
           }
 
-          // Clean up rate limit buckets
-          await cleanupRateLimits(
-            this.rateLimitByEmailHash,
-            this.rateLimitConfig.auth.windowSeconds,
-          )
-          await cleanupRateLimits(
-            this.rateLimitByChallengeHash,
-            this.rateLimitConfig.challenge.windowSeconds,
-          )
-          await cleanupRateLimits(this.rateLimitByClient, CLIENT_REQUEST_RATE_LIMIT.windowSeconds)
+          await cleanupRateLimits(this.rateLimitByEmailHash, EMAIL_RATE_LIMITS.windowSeconds)
+
+          await cleanupRateLimits(this.rateLimitByClient, CLIENT_RATE_LIMITS.windowSeconds)
         },
         ms(int(5, MINUTE)),
       ) as unknown as number,
@@ -252,8 +237,8 @@ export class Signer {
   async _checkAndRecordRateLimit(client: string): Promise<boolean> {
     const bucket = await this.rateLimitByClient.get(client)
 
-    if (isRateLimited(bucket, CLIENT_REQUEST_RATE_LIMIT)) {
-      const resetTime = getRateLimitResetTime(bucket, CLIENT_REQUEST_RATE_LIMIT)
+    if (isRateLimited(bucket, CLIENT_RATE_LIMITS)) {
+      const resetTime = getRateLimitResetTime(bucket, CLIENT_RATE_LIMITS)
       debug(
         `[signer]: rate limit exceeded for client ${client.slice(0, 8)}, reset in ${resetTime}s`,
       )
@@ -261,7 +246,7 @@ export class Signer {
     }
 
     // Record the attempt
-    const updatedBucket = recordAttempt(bucket, CLIENT_REQUEST_RATE_LIMIT)
+    const updatedBucket = recordAttempt(bucket, CLIENT_RATE_LIMITS)
     await this.rateLimitByClient.set(client, updatedBucket)
     return true
   }
@@ -270,8 +255,8 @@ export class Signer {
     // Check rate limit for auth attempts
     const bucket = await this.rateLimitByEmailHash.get(auth.email_hash)
 
-    if (isRateLimited(bucket, this.rateLimitConfig.auth)) {
-      const resetTime = getRateLimitResetTime(bucket, this.rateLimitConfig.auth)
+    if (isRateLimited(bucket, EMAIL_RATE_LIMITS)) {
+      const resetTime = getRateLimitResetTime(bucket, EMAIL_RATE_LIMITS)
       debug(
         `[signer]: rate limit exceeded for email_hash ${auth.email_hash.slice(0, 8)}, reset in ${resetTime}s`,
       )
@@ -306,8 +291,7 @@ export class Signer {
 
     // Record failed authentication attempt for rate limiting
     if (sessions.length === 0) {
-      const updatedBucket = recordAttempt(bucket, this.rateLimitConfig.auth)
-      await this.rateLimitByEmailHash.set(auth.email_hash, updatedBucket)
+      await this.rateLimitByEmailHash.set(auth.email_hash, recordAttempt(bucket, EMAIL_RATE_LIMITS))
     }
 
     return sessions
@@ -549,10 +533,10 @@ export class Signer {
 
   async handleChallengeRequest({payload, event}: WithEvent<ChallengeRequest>) {
     // Check rate limit for challenge requests per email_hash
-    const bucket = await this.rateLimitByChallengeHash.get(payload.email_hash)
+    const bucket = await this.rateLimitByEmailHash.get(payload.email_hash)
 
-    if (isRateLimited(bucket, this.rateLimitConfig.challenge)) {
-      const resetTime = getRateLimitResetTime(bucket, this.rateLimitConfig.challenge)
+    if (isRateLimited(bucket, EMAIL_RATE_LIMITS)) {
+      const resetTime = getRateLimitResetTime(bucket, EMAIL_RATE_LIMITS)
       debug(
         `[signer]: challenge rate limit exceeded for email_hash ${payload.email_hash.slice(0, 8)}, reset in ${resetTime}s`,
       )
@@ -565,17 +549,16 @@ export class Signer {
       const session = await this.sessions.get(index.clients[0])
 
       if (session?.email) {
-        // Record challenge request for rate limiting
-        const updatedBucket = recordAttempt(bucket, this.rateLimitConfig.challenge)
-        await this.rateLimitByChallengeHash.set(payload.email_hash, updatedBucket)
+        await this.rateLimitByEmailHash.set(
+          payload.email_hash,
+          recordAttempt(bucket, EMAIL_RATE_LIMITS),
+        )
 
-        const otp = bytesToHex(randomBytes(8))
-        const pubkey = await this.options.signer.getPubkey()
-        const challenge = encodeChallenge(pubkey, otp)
+        const otp = payload.prefix + randomInt(100000, 1000000).toString()
 
         await this.challenges.set(payload.email_hash, {otp, event})
 
-        this.options.sendChallenge({email: session.email, challenge})
+        this.options.sendChallenge({email: session.email, otp})
 
         debug(`[client ${event.pubkey.slice(0, 8)}]: challenge sent for ${payload.email_hash}`)
       }

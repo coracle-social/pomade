@@ -48,7 +48,7 @@ const service = new Signer({
   storage,
   sendChallenge: async payload => {
     try {
-      await emailProvider.sendChallenge(payload.email, payload.challenge)
+      await emailProvider.sendChallenge(payload.email, payload.otp)
     } catch (error) {
       console.error(`Failed to send challenge email: ${error instanceof Error ? error.message : String(error)}`)
     }
