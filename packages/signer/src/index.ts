@@ -3,6 +3,7 @@
 import "dotenv/config"
 import {call, on} from '@welshman/lib'
 import {defaultSocketPolicies, Socket, SocketEvent, SocketStatus} from '@welshman/net'
+import {Nip01Signer} from "@welshman/signer"
 import {Signer, context} from "@pomade/core"
 import {sqliteStorage} from "./storage.js"
 import {createEmailProvider, loadEmailConfigFromEnv} from "./email/index.js"
@@ -62,7 +63,7 @@ const storage = sqliteStorage({path: dbPath})
 
 // Start signer service
 const signer = new Signer({
-  secret,
+  signer: Nip01Signer.fromSecret(secret),
   relays,
   storage,
   sendChallenge: async payload => {
@@ -74,7 +75,9 @@ const signer = new Signer({
   },
 })
 
-console.log(`Running as: ${signer.pubkey}`)
+signer.rpc.signer.getPubkey().then((pubkey: string) => {
+  console.log(`Running as: ${pubkey}`)
+})
 console.log(`Listening on relays: ${relays.join(", ")}`)
 
 // Handle unhandled rejections

@@ -48,10 +48,16 @@ describe("protocol flows", () => {
 
       const result = await c1.listSessions()
       const sortFn = (c: any) => c.client + c.peer
-      const expected = sortBy(
-        sortFn,
-        [c1, c2, c3].flatMap(c => c.peers.map(peer => ({client: c.pubkey, peer}))),
-      )
+      const [pk1, pk2, pk3] = await Promise.all([
+        c1.rpc.signer.getPubkey(),
+        c2.rpc.signer.getPubkey(),
+        c3.rpc.signer.getPubkey(),
+      ])
+      const expected = sortBy(sortFn, [
+        ...c1.peers.map(peer => ({client: pk1, peer})),
+        ...c2.peers.map(peer => ({client: pk2, peer})),
+        ...c3.peers.map(peer => ({client: pk3, peer})),
+      ])
       const actual = sortBy(
         sortFn,
         result.messages.flatMap(m =>
@@ -74,7 +80,7 @@ describe("protocol flows", () => {
       const client3Register = await Client.register(1, 2, secret)
       const client3 = new Client(client3Register.clientOptions)
 
-      await client1.deleteSession(client1.pubkey, client1.peers)
+      await client1.deleteSession(await client1.rpc.signer.getPubkey(), client1.peers)
 
       doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
       doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
@@ -90,8 +96,8 @@ describe("protocol flows", () => {
       const client3Register = await Client.register(1, 2, secret)
       const client3 = new Client(client3Register.clientOptions)
 
-      await client1.deleteSession(client2.pubkey, client2.peers)
-      await client1.deleteSession(client3.pubkey, client3.peers)
+      await client1.deleteSession(await client2.rpc.signer.getPubkey(), client2.peers)
+      await client1.deleteSession(await client3.rpc.signer.getPubkey(), client3.peers)
 
       doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
       doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(false))

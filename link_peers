@@ -15,6 +15,7 @@ pkg.pnpm.overrides = pkg.pnpm.overrides || {}
 pkg.pnpm.overrides["@welshman/lib"] = "link:../welshman/packages/lib"
 pkg.pnpm.overrides["@welshman/net"] = "link:../welshman/packages/net"
 pkg.pnpm.overrides["@welshman/util"] = "link:../welshman/packages/util"
+pkg.pnpm.overrides["@welshman/signer"] = "link:../welshman/packages/signer"
 
 fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n')
 

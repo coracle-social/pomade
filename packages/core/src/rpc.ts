@@ -1,71 +1,89 @@
 import type {Maybe} from "@welshman/lib"
 import {tryCatch, uniq, without, spec} from "@welshman/lib"
 import {publish, request, PublishStatus} from "@welshman/net"
-import type {HashedEvent, TrustedEvent} from "@welshman/util"
-import {prep, sign, getPubkey} from "@welshman/util"
-import {nip44, debug, fetchRelays, publishRelays, normalizeRelay} from "./util.js"
+import type {TrustedEvent, StampedEvent, SignedEvent} from "@welshman/util"
+import {prep} from "@welshman/util"
+import {Nip01Signer} from "@welshman/signer"
+import type {ISigner} from "@welshman/signer"
+import {debug, fetchRelays, normalizeRelay} from "./util.js"
 import {Message, parseMessage} from "./message.js"
 
 export type WithEvent<T extends Message> = T & {event: TrustedEvent}
 
 // Base RPC class
 
-export function rpc(secret: string) {
-  return new RPC(secret)
+export function rpc(signer: ISigner) {
+  return new RPC(signer)
 }
 
 export class RPC {
   static Kind = 28350
 
-  pubkey: string
   relays: string[]
   subscribers: MessageHandler[] = []
   controller = new AbortController()
   channels = new Map<string, RPCChannel>()
 
+  static fromSecret(secret: string, relays: string[] = []) {
+    return new RPC(Nip01Signer.fromSecret(secret), relays)
+  }
+
   constructor(
-    private secret: string,
+    public signer: ISigner,
     relays: string[] = [],
   ) {
     this.relays = relays.map(normalizeRelay)
-    this.pubkey = getPubkey(secret)
     this.publishRelays()
     this.listenForEvents()
   }
 
-  publishRelays() {
+  async publishRelays() {
     if (this.relays.length > 0) {
       debug("[rpc.publishRelays]", this.relays)
 
-      publishRelays({
-        secret: this.secret,
+      const pubkey = await this.signer.getPubkey()
+      const event = await this.signer.sign(
+        prep(
+          {
+            kind: 10002,
+            content: "",
+            tags: this.relays.map(url => ["r", url]),
+          },
+          pubkey,
+        ),
+      )
+
+      publish({
+        event,
         relays: this.relays,
         signal: this.controller.signal,
       })
     }
   }
 
-  listenForEvents() {
+  async listenForEvents() {
     if (this.relays) {
+      const pubkey = await this.signer.getPubkey()
       request({
         relays: this.relays,
         signal: this.controller.signal,
-        filters: [{kinds: [RPC.Kind], "#p": [this.pubkey]}],
+        filters: [{kinds: [RPC.Kind], "#p": [pubkey]}],
         onEvent: (event: TrustedEvent) => this.notify(event),
       })
     }
   }
 
-  read(event: TrustedEvent): Maybe<WithEvent<Message>> {
-    const result = tryCatch(() => parseMessage(this.decrypt(event.pubkey, event.content)))
+  async read(event: TrustedEvent): Promise<Maybe<WithEvent<Message>>> {
+    const decrypted = await this.decrypt(event.pubkey, event.content)
+    const result = tryCatch(() => parseMessage(decrypted))
 
     if (result) {
       return {...result, event}
     }
   }
 
-  notify(event: TrustedEvent) {
-    const message = this.read(event)
+  async notify(event: TrustedEvent) {
+    const message = await this.read(event)
 
     if (message) {
       for (const subscriber of this.subscribers) {
@@ -88,16 +106,16 @@ export class RPC {
       )
   }
 
-  sign(event: HashedEvent) {
-    return sign(event, this.secret)
+  sign(event: StampedEvent): Promise<SignedEvent> {
+    return this.signer.sign(event)
   }
 
   encrypt(peer: string, payload: string) {
-    return nip44.encrypt(peer, this.secret, payload)
+    return this.signer.nip44.encrypt(peer, payload)
   }
 
   decrypt(peer: string, payload: string) {
-    return nip44.decrypt(peer, this.secret, payload)
+    return this.signer.nip44.decrypt(peer, payload)
   }
 
   channel(peer: string, usePeerRelays = true) {
@@ -144,7 +162,7 @@ export class RPCChannel {
     const {signal} = this.controller
 
     this.relays = usePeerRelays ? fetchRelays(peer, signal) : Promise.resolve([])
-    this.relays.then(relays => {
+    Promise.all([this.relays, this.rpc.signer.getPubkey()]).then(([relays, pubkey]) => {
       if (!signal.aborted) {
         const uniqueRelays = without(this.rpc.relays, relays)
 
@@ -152,7 +170,7 @@ export class RPCChannel {
           request({
             signal,
             relays: uniqueRelays,
-            filters: [{kinds: [RPC.Kind], authors: [this.peer], "#p": [this.rpc.pubkey]}],
+            filters: [{kinds: [RPC.Kind], authors: [this.peer], "#p": [pubkey]}],
             onEvent: (event: TrustedEvent) => this.rpc.notify(event),
           })
         }
@@ -192,14 +210,15 @@ export class RPCChannel {
     })
   }
 
-  prep(message: Message) {
+  async prep(message: Message): Promise<SignedEvent> {
+    const pubkey = await this.rpc.signer.getPubkey()
     const template = {
       kind: RPC.Kind,
       tags: [["p", this.peer]],
-      content: this.encrypt(JSON.stringify(message)),
+      content: await this.encrypt(JSON.stringify(message)),
     }
 
-    return this.rpc.sign(prep(template, this.rpc.pubkey))
+    return this.rpc.sign(prep(template, pubkey))
   }
 
   encrypt(payload: string) {
@@ -213,28 +232,31 @@ export class RPCChannel {
   send(message: Message) {
     const controller = new AbortController()
     const abort = () => controller.abort()
-    const event = this.prep(message)
+    const eventPromise = this.prep(message)
+    const relaysPromise = this.relays
 
-    const res = this.relays.then(relays => {
-      return publish({
+    const res = Promise.all([eventPromise, relaysPromise]).then(([event, relays]) =>
+      publish({
         event,
         relays: uniq([...relays, ...this.rpc.relays]),
         signal: AbortSignal.any([this.controller.signal, controller.signal]),
-      })
-    })
+      }),
+    )
 
     const ok = res.then(r => {
       return Object.values(r).some(spec({status: PublishStatus.Success}))
     })
 
     const receive = <T>(handler: MessageHandlerWithCallback<T>) =>
-      this.receive<T>((message, resolve) => {
-        if ((message.payload as any).prev === event.id) {
-          handler(message, resolve)
-        }
-      })
+      eventPromise.then(event =>
+        this.receive<T>((message, resolve) => {
+          if ((message.payload as any).prev === event.id) {
+            handler(message, resolve)
+          }
+        }),
+      )
 
-    return {abort, event, res, ok, receive}
+    return {abort, res, ok, receive}
   }
 
   stop() {

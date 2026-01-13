@@ -15,7 +15,7 @@ import {
 import {extract} from "@noble/hashes/hkdf.js"
 import {sha256} from "@noble/hashes/sha2.js"
 import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
-import {prep, makeSecret, getPubkey, makeHttpAuth} from "@welshman/util"
+import {prep, makeSecret, makeHttpAuth} from "@welshman/util"
 import type {SignedEvent, StampedEvent} from "@welshman/util"
 import {Lib} from "@frostr/bifrost"
 import type {GroupPackage, ECDHPackage} from "@frostr/bifrost"
@@ -72,14 +72,12 @@ export class Client {
   rpc: RPC
   peers: string[]
   group: GroupPackage
-  pubkey: string
   userPubkey: string
 
   constructor(options: ClientOptions) {
-    this.rpc = new RPC(options.secret)
+    this.rpc = RPC.fromSecret(options.secret)
     this.peers = options.peers
     this.group = options.group
-    this.pubkey = getPubkey(options.secret)
     this.userPubkey = this.group.group_pk.slice(2)
   }
 
@@ -155,7 +153,7 @@ export class Client {
     }
 
     const secret = makeSecret()
-    const rpc = new RPC(secret)
+    const rpc = RPC.fromSecret(secret)
     const {group, shares} = Lib.generate_dealer_pkg(threshold, n, [userSecret])
     const remainingSignerPubkeys = shuffle(context.signerPubkeys)
     const peersByIndex = new Map<number, string>()
@@ -227,7 +225,7 @@ export class Client {
 
   static async requestChallenge(email: string, peers = Client._getKnownPeers()) {
     const clientSecret = makeSecret()
-    const rpc = new RPC(clientSecret)
+    const rpc = RPC.fromSecret(clientSecret)
 
     const oks = await Promise.all(
       peers.map(async (peer, i) => {
@@ -246,7 +244,7 @@ export class Client {
 
   static async loginWithPassword(email: string, password: string) {
     const clientSecret = makeSecret()
-    const rpc = new RPC(clientSecret)
+    const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
       Client._getKnownPeers().map(async (peer, i) => {
@@ -272,7 +270,7 @@ export class Client {
 
   static async loginWithChallenge(email: string, challenges: string[]) {
     const clientSecret = makeSecret()
-    const rpc = new RPC(clientSecret)
+    const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
       challenges.map(async challenge => {
@@ -297,7 +295,7 @@ export class Client {
   }
 
   static async selectLogin(clientSecret: string, client: string, peers: string[]) {
-    const rpc = new RPC(clientSecret)
+    const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
       peers.map((peer, i) => {
@@ -325,7 +323,7 @@ export class Client {
 
   static async recoverWithPassword(email: string, password: string) {
     const clientSecret = makeSecret()
-    const rpc = new RPC(clientSecret)
+    const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
       Client._getKnownPeers().map(async (peer, i) => {
@@ -351,7 +349,7 @@ export class Client {
 
   static async recoverWithChallenge(email: string, challenges: string[]) {
     const clientSecret = makeSecret()
-    const rpc = new RPC(clientSecret)
+    const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
       challenges.map(async challenge => {
@@ -376,7 +374,7 @@ export class Client {
   }
 
   static async selectRecovery(clientSecret: string, client: string, peers: string[]) {
-    const rpc = new RPC(clientSecret)
+    const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
       peers.map(peer => {
@@ -447,17 +445,17 @@ export class Client {
     const members = sample(threshold, commits).map(c => c.idx)
 
     const results = await Promise.all(
-      members.map(async idx => {
+      members.map(idx => {
         const peer = this.peers[idx - 1]!
         const channel = this.rpc.channel(peer)
 
-        channel.send(makeEcdhRequest({idx, members, ecdh_pk}))
-
-        return channel.receive<ECDHPackage>((message, resolve) => {
-          if (isEcdhResult(message)) {
-            resolve(message.payload.result)
-          }
-        })
+        return channel
+          .send(makeEcdhRequest({idx, members, ecdh_pk}))
+          .receive<ECDHPackage>((message, resolve) => {
+            if (isEcdhResult(message)) {
+              resolve(message.payload.result)
+            }
+          })
       }),
     )
 

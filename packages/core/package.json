@@ -52,8 +52,8 @@
     "@noble/hashes": "^2.0.1",
     "@welshman/lib": "^0.8.0-pre.1",
     "@welshman/net": "^0.8.0-pre.1",
-    "@welshman/util": "^0.8.0-pre.1",
     "@welshman/signer": "^0.8.0-pre.1",
+    "@welshman/util": "^0.8.0-pre.1",
     "nostr-tools": "^2.19.3"
   }
 }

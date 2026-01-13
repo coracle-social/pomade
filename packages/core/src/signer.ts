@@ -2,6 +2,7 @@ import {Lib} from "@frostr/bifrost"
 import {randomBytes, bytesToHex} from "@noble/hashes/utils.js"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
 import {
+  not,
   now,
   filter,
   remove,
@@ -17,8 +18,9 @@ import {
   HOUR,
   YEAR,
 } from "@welshman/lib"
-import {getPubkey, verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
+import {verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
 import type {TrustedEvent, SignedEvent} from "@welshman/util"
+import type {ISigner} from "@welshman/signer"
 import {Method, SessionItem, Auth, isPasswordAuth, isOTPAuth} from "./schema.js"
 import {RPC, WithEvent} from "./rpc.js"
 import {IStorage, ICollection} from "./storage.js"
@@ -140,7 +142,7 @@ export type SignerRateLimitConfig = {
 }
 
 export type SignerOptions = {
-  secret: string
+  signer: ISigner
   relays: string[]
   storage: IStorage
   sendChallenge: (payload: ChallengePayload) => Promise<void>
@@ -149,7 +151,6 @@ export type SignerOptions = {
 
 export class Signer {
   rpc: RPC
-  pubkey: string
   intervals: number[]
   logins: ICollection<SignerLogin>
   sessions: ICollection<SignerSession>
@@ -162,7 +163,6 @@ export class Signer {
   rateLimitConfig: SignerRateLimitConfig
 
   constructor(private options: SignerOptions) {
-    this.pubkey = getPubkey(options.secret)
     this.logins = options.storage.collection("logins")
     this.sessions = options.storage.collection("sessions")
     this.recoveries = options.storage.collection("recoveries")
@@ -181,7 +181,7 @@ export class Signer {
       ...options.rateLimits,
     }
 
-    this.rpc = new RPC(options.secret, options.relays)
+    this.rpc = new RPC(options.signer, options.relays)
     this.rpc.subscribe(message => {
       // Ignore events with weird timestamps
       if (!between([now() - int(1, HOUR), now() + int(1, HOUR)], message.event.created_at)) {
@@ -315,13 +315,15 @@ export class Signer {
     return sessions
   }
 
-  _isNip98AuthValid(auth: SignedEvent, method: Method) {
+  async _isNip98AuthValid(auth: SignedEvent, method: Method) {
+    const pubkey = await this.options.signer.getPubkey()
+
     return (
       verifyEvent(auth) &&
       auth.kind === HTTP_AUTH &&
       auth.created_at > ago(15) &&
       auth.created_at < now() + 5 &&
-      getTagValue("u", auth.tags) === this.pubkey &&
+      getTagValue("u", auth.tags) === pubkey &&
       getTagValue("method", auth.tags) === method
     )
   }
@@ -524,7 +526,8 @@ export class Signer {
       }
 
       const {email, password_hash} = payload
-      const email_hash = await hashEmail(email, this.pubkey)
+      const pubkey = await this.options.signer.getPubkey()
+      const email_hash = await hashEmail(email, pubkey)
 
       await this._addSession(event.pubkey, {
         ...session,
@@ -569,7 +572,8 @@ export class Signer {
         await this.rateLimitByChallengeHash.set(payload.email_hash, updatedBucket)
 
         const otp = bytesToHex(randomBytes(8))
-        const challenge = encodeChallenge(this.pubkey, otp)
+        const pubkey = await this.options.signer.getPubkey()
+        const challenge = encodeChallenge(pubkey, otp)
 
         await this.challenges.set(payload.email_hash, {otp, event})
 
@@ -903,7 +907,7 @@ export class Signer {
   // Session management
 
   async handleSessionList({payload, event}: WithEvent<SessionList>) {
-    if (!this._isNip98AuthValid(payload.auth, Method.SessionList)) {
+    if (not(await this._isNip98AuthValid(payload.auth, Method.SessionList))) {
       debug(`[client ${event.pubkey.slice(0, 8)}]: invalid auth event for session list`)
 
       return this.rpc.channel(event.pubkey, false).send(
@@ -936,7 +940,7 @@ export class Signer {
   }
 
   async handleSessionDelete({payload, event}: WithEvent<SessionDelete>) {
-    if (!this._isNip98AuthValid(payload.auth, Method.SessionDelete)) {
+    if (not(await this._isNip98AuthValid(payload.auth, Method.SessionDelete))) {
       debug(`[client ${event.pubkey.slice(0, 8)}]: invalid auth event for session deletion`)
 
       return this.rpc.channel(event.pubkey, false).send(
