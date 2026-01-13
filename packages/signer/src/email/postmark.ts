@@ -29,6 +29,7 @@ export class PostmarkProvider extends BaseEmailProvider {
         TextBody: text,
         HtmlBody: html,
       }),
+      signal: AbortSignal.timeout(30_000),
     })
 
     if (!response.ok) {

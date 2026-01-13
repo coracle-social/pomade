@@ -28,6 +28,7 @@ export class ResendProvider extends BaseEmailProvider {
         text: text,
         html: html,
       }),
+      signal: AbortSignal.timeout(30_000),
     })
 
     if (!response.ok) {

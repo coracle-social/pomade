@@ -42,6 +42,7 @@ export class MailgunProvider extends BaseEmailProvider {
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: formData.toString(),
+        signal: AbortSignal.timeout(30_000),
       }
     )
 
