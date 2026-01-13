@@ -1,5 +1,6 @@
 export * from "./client.js"
 export * from "./message.js"
+export * from "./ratelimit.js"
 export * from "./rpc.js"
 export * from "./schema.js"
 export * from "./signer.js"

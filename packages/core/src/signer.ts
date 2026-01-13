@@ -58,6 +58,14 @@ import {
   SessionListResult,
   SignRequest,
 } from "./message.js"
+import {
+  RateLimitBucket,
+  RateLimitConfig,
+  isRateLimited,
+  recordAttempt,
+  getRateLimitResetTime,
+  cleanupRateLimits,
+} from "./ratelimit.js"
 
 // Utils
 
@@ -120,11 +128,17 @@ export type ChallengePayload = {
   challenge: string
 }
 
+export type SignerRateLimitConfig = {
+  auth: RateLimitConfig
+  challenge: RateLimitConfig
+}
+
 export type SignerOptions = {
   secret: string
   relays: string[]
   storage: IStorage
   sendChallenge: (payload: ChallengePayload) => Promise<void>
+  rateLimits?: SignerRateLimitConfig
 }
 
 export class Signer {
@@ -136,6 +150,9 @@ export class Signer {
   recoveries: ICollection<SignerRecovery>
   challenges: ICollection<SignerChallenge>
   sessionsByEmailHash: ICollection<SignerSessionIndex>
+  rateLimitByEmailHash: ICollection<RateLimitBucket>
+  rateLimitByChallengeHash: ICollection<RateLimitBucket>
+  rateLimitConfig: SignerRateLimitConfig
 
   constructor(private options: SignerOptions) {
     this.pubkey = getPubkey(options.secret)
@@ -144,6 +161,18 @@ export class Signer {
     this.recoveries = options.storage.collection("recoveries")
     this.challenges = options.storage.collection("challenges")
     this.sessionsByEmailHash = options.storage.collection("sessionsByEmailHash")
+    this.rateLimitByEmailHash = options.storage.collection("rateLimitByEmailHash")
+    this.rateLimitByChallengeHash = options.storage.collection("rateLimitByChallengeHash")
+
+    // Default rate limits (conservative but reasonable)
+    this.rateLimitConfig = {
+      // 5 auth attempts per email_hash per 5 minutes
+      auth: {maxAttempts: 5, windowSeconds: int(5, MINUTE)},
+      // 3 challenge requests per email_hash per 5 minutes
+      challenge: {maxAttempts: 3, windowSeconds: int(5, MINUTE)},
+      ...options.rateLimits,
+    }
+
     this.rpc = new RPC(options.secret, options.relays)
     this.rpc.subscribe(message => {
       // Ignore events with weird timestamps
@@ -166,11 +195,11 @@ export class Signer {
       if (isSessionDelete(message)) this.handleSessionDelete(message)
     })
 
-    // Periodically clean up recovery requests
+    // Periodically clean up recovery requests and rate limits
     this.intervals = [
       setInterval(
         async () => {
-          debug("[signer]: cleaning up logins and recoveries")
+          debug("[signer]: cleaning up logins, recoveries, and rate limits")
 
           for (const [client, recovery] of await this.recoveries.entries()) {
             if (recovery.event.created_at < ago(15, MINUTE)) await this.recoveries.delete(client)
@@ -183,6 +212,16 @@ export class Signer {
           for (const [client, challenge] of await this.challenges.entries()) {
             if (challenge.event.created_at < ago(15, MINUTE)) await this.challenges.delete(client)
           }
+
+          // Clean up rate limit buckets
+          await cleanupRateLimits(
+            this.rateLimitByEmailHash,
+            this.rateLimitConfig.auth.windowSeconds,
+          )
+          await cleanupRateLimits(
+            this.rateLimitByChallengeHash,
+            this.rateLimitConfig.challenge.windowSeconds,
+          )
         },
         ms(int(5, MINUTE)),
       ) as unknown as number,
@@ -204,11 +243,23 @@ export class Signer {
   // Internal utils
 
   async _getAuthenticatedSessions(auth: Auth): Promise<SignerSession[]> {
+    // Check rate limit for auth attempts
+    const bucket = await this.rateLimitByEmailHash.get(auth.email_hash)
+
+    if (isRateLimited(bucket, this.rateLimitConfig.auth)) {
+      const resetTime = getRateLimitResetTime(bucket, this.rateLimitConfig.auth)
+      debug(
+        `[signer]: rate limit exceeded for email_hash ${auth.email_hash.slice(0, 8)}, reset in ${resetTime}s`,
+      )
+      return []
+    }
+
     const index = await this.sessionsByEmailHash.get(auth.email_hash)
+    let sessions: SignerSession[] = []
 
     if (index) {
       if (isPasswordAuth(auth)) {
-        return filter(
+        sessions = filter(
           session => session?.password_hash === auth.password_hash,
           await Promise.all(index.clients.map(client => this.sessions.get(client))),
         ) as SignerSession[]
@@ -221,7 +272,7 @@ export class Signer {
           await this.challenges.delete(auth.email_hash)
 
           if (auth.otp === challenge.otp) {
-            return removeUndefined(
+            sessions = removeUndefined(
               await Promise.all(index.clients.map(client => this.sessions.get(client))),
             )
           }
@@ -229,7 +280,13 @@ export class Signer {
       }
     }
 
-    return []
+    // Record failed authentication attempt for rate limiting
+    if (sessions.length === 0) {
+      const updatedBucket = recordAttempt(bucket, this.rateLimitConfig.auth)
+      await this.rateLimitByEmailHash.set(auth.email_hash, updatedBucket)
+    }
+
+    return sessions
   }
 
   _isNip98AuthValid(auth: SignedEvent, method: Method) {
@@ -464,12 +521,27 @@ export class Signer {
   }
 
   async handleChallengeRequest({payload, event}: WithEvent<ChallengeRequest>) {
+    // Check rate limit for challenge requests per email_hash
+    const bucket = await this.rateLimitByChallengeHash.get(payload.email_hash)
+
+    if (isRateLimited(bucket, this.rateLimitConfig.challenge)) {
+      const resetTime = getRateLimitResetTime(bucket, this.rateLimitConfig.challenge)
+      debug(
+        `[signer]: challenge rate limit exceeded for email_hash ${payload.email_hash.slice(0, 8)}, reset in ${resetTime}s`,
+      )
+      return
+    }
+
     const index = await this.sessionsByEmailHash.get(payload.email_hash)
 
     if (index && index.clients.length > 0) {
       const session = await this.sessions.get(index.clients[0])
 
       if (session?.email) {
+        // Record challenge request for rate limiting
+        const updatedBucket = recordAttempt(bucket, this.rateLimitConfig.challenge)
+        await this.rateLimitByChallengeHash.set(payload.email_hash, updatedBucket)
+
         const otp = bytesToHex(randomBytes(8))
         const challenge = encodeChallenge(this.pubkey, otp)
 
