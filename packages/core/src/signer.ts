@@ -570,37 +570,39 @@ export class Signer {
   // Recovery
 
   async handleRecoveryStart({payload, event}: WithEvent<RecoveryStart>) {
-    if (await this._checkKeyReuse(event)) return
+    return this.options.storage.tx(async () => {
+      if (await this._checkKeyReuse(event)) return
 
-    const sessions = await this._getAuthenticatedSessions(payload.auth)
+      const sessions = await this._getAuthenticatedSessions(payload.auth)
 
-    if (sessions.length === 0) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: no sessions found for recovery`)
+      if (sessions.length === 0) {
+        debug(`[client ${event.pubkey.slice(0, 8)}]: no sessions found for recovery`)
 
-      return this.rpc.channel(event.pubkey, false).send(
+        return this.rpc.channel(event.pubkey, false).send(
+          makeRecoveryOptions({
+            ok: false,
+            message: "No sessions found.",
+            prev: event.id,
+          }),
+        )
+      }
+
+      debug(`[client ${event.pubkey.slice(0, 8)}]: sending recovery options`)
+
+      const clients = sessions.map(s => s.client)
+      const items = sessions.map(makeSessionItem)
+
+      await this.recoveries.set(event.pubkey, {event, clients})
+
+      this.rpc.channel(event.pubkey, false).send(
         makeRecoveryOptions({
-          ok: false,
-          message: "No sessions found.",
+          items,
+          ok: true,
+          message: "Successfully retrieved recovery options.",
           prev: event.id,
         }),
       )
-    }
-
-    debug(`[client ${event.pubkey.slice(0, 8)}]: sending recovery options`)
-
-    const clients = sessions.map(s => s.client)
-    const items = sessions.map(makeSessionItem)
-
-    await this.recoveries.set(event.pubkey, {event, clients})
-
-    this.rpc.channel(event.pubkey, false).send(
-      makeRecoveryOptions({
-        items,
-        ok: true,
-        message: "Successfully retrieved recovery options.",
-        prev: event.id,
-      }),
-    )
+    })
   }
 
   async handleRecoverySelect({payload, event}: WithEvent<RecoverySelect>) {
@@ -663,37 +665,39 @@ export class Signer {
   // Login
 
   async handleLoginStart({payload, event}: WithEvent<LoginStart>) {
-    if (await this._checkKeyReuse(event)) return
+    return this.options.storage.tx(async () => {
+      if (await this._checkKeyReuse(event)) return
 
-    const sessions = await this._getAuthenticatedSessions(payload.auth)
+      const sessions = await this._getAuthenticatedSessions(payload.auth)
 
-    if (sessions.length === 0) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: no sessions found for login`)
+      if (sessions.length === 0) {
+        debug(`[client ${event.pubkey.slice(0, 8)}]: no sessions found for login`)
 
-      return this.rpc.channel(event.pubkey, false).send(
+        return this.rpc.channel(event.pubkey, false).send(
+          makeLoginOptions({
+            ok: false,
+            message: "No sessions found.",
+            prev: event.id,
+          }),
+        )
+      }
+
+      debug(`[client ${event.pubkey.slice(0, 8)}]: sending login options`)
+
+      const clients = sessions.map(s => s.client)
+      const items = sessions.map(makeSessionItem)
+
+      await this.logins.set(event.pubkey, {event, clients})
+
+      this.rpc.channel(event.pubkey, false).send(
         makeLoginOptions({
-          ok: false,
-          message: "No sessions found.",
+          items,
+          ok: true,
+          message: "Successfully retrieved login options.",
           prev: event.id,
         }),
       )
-    }
-
-    debug(`[client ${event.pubkey.slice(0, 8)}]: sending login options`)
-
-    const clients = sessions.map(s => s.client)
-    const items = sessions.map(makeSessionItem)
-
-    await this.logins.set(event.pubkey, {event, clients})
-
-    this.rpc.channel(event.pubkey, false).send(
-      makeLoginOptions({
-        items,
-        ok: true,
-        message: "Successfully retrieved login options.",
-        prev: event.id,
-      }),
-    )
+    })
   }
 
   async handleLoginSelect({payload, event}: WithEvent<LoginSelect>) {
