@@ -476,7 +476,7 @@ export class Signer {
         return this.rpc.channel(event.pubkey, false).send(
           makeRecoverySetupResult({
             ok: false,
-            message: "Recovery method must be set within 5 minutes of session.",
+            message: "Recovery method must be set within 15 minutes of session.",
             prev: event.id,
           }),
         )
