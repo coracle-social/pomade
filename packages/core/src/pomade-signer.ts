@@ -64,4 +64,8 @@ export class PomadeSigner implements ISigner {
       return nt44.v2.decrypt(message, sharedSecret)
     },
   }
+
+  async cleanup() {
+    this.client.rpc.stop()
+  }
 }
