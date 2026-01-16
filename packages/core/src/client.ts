@@ -168,7 +168,7 @@ export class Client {
         while (remainingSignerPubkeys.length > 0) {
           const messages = await rpc
             .channel(remainingSignerPubkeys.shift()!)
-            .send(makeRegisterRequest({share, group, recovery}))
+            .send(makeRegisterRequest({share, group, recovery}), context.registerPow)
             .receive<RegisterResult>((message, resolve) => {
               if (isRegisterResult(message)) {
                 if (message.payload.ok) {

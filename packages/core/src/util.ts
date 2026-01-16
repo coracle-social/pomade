@@ -90,6 +90,7 @@ export async function hashPassword(email: string, password: string, signer: stri
 
 export type Context = {
   debug: boolean
+  registerPow: number
   signerPubkeys: string[]
   indexerRelays: string[]
   argonImpl: ArgonImpl
@@ -100,6 +101,7 @@ export type Context = {
 
 export const context: Context = {
   debug: false,
+  registerPow: 20,
   signerPubkeys: [],
   indexerRelays: ["wss://indexer.coracle.social/", "wss://relay.damus.io/", "wss://purplepag.es/"],
   argonImpl: defaultArgonImpl,

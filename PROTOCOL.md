@@ -36,7 +36,9 @@ In order to protect message metadata, this protocol uses a single event kind, `2
 
 To create a new signing session, a client must first generate a new `client secret` which it will use to communicate with signers. This key MUST NOT be re-used, and MUST be distinct from the user's pubkey.
 
-The client then shards the user's `secret key` using FROST and registers each share with a different signer by creating a `register/request` event:
+The client then shards the user's `secret key` using FROST and registers each share with a different signer by creating a `register/request` event.
+
+Registration events MUST include at least 20 bits of proof of work as defined in [NIP-13](https://github.com/nostr-protocol/nips/blob/master/13.md). This requirement helps prevent spam and denial-of-service attacks against signers.
 
 ```typescript
 {

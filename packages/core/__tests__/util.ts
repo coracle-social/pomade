@@ -7,6 +7,7 @@ import {inMemoryStorage, argonOptions, context, Client, Signer, ChallengePayload
 export const signerSecrets = Array.from(range(0, 8)).map(() => makeSecret())
 export const signerPubkeys = signerSecrets.map(secret => getPubkey(secret))
 
+context.registerPow = 0
 context.setSignerPubkeys(signerPubkeys)
 context.setIndexerRelays([LOCAL_RELAY_URL])
 

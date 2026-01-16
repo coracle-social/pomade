@@ -2,7 +2,7 @@ import type {Maybe} from "@welshman/lib"
 import {tryCatch, uniq, without, spec} from "@welshman/lib"
 import {publish, request, PublishStatus} from "@welshman/net"
 import type {TrustedEvent, StampedEvent, SignedEvent} from "@welshman/util"
-import {prep} from "@welshman/util"
+import {prep, makePow} from "@welshman/util"
 import {Nip01Signer} from "@welshman/signer"
 import type {ISigner} from "@welshman/signer"
 import {debug, fetchRelays, normalizeRelay} from "./util.js"
@@ -210,7 +210,7 @@ export class RPCChannel {
     })
   }
 
-  async prep(message: Message): Promise<SignedEvent> {
+  async prep(message: Message, pow?: number): Promise<SignedEvent> {
     const pubkey = await this.rpc.signer.getPubkey()
     const template = {
       kind: RPC.Kind,
@@ -218,7 +218,13 @@ export class RPCChannel {
       content: await this.encrypt(JSON.stringify(message)),
     }
 
-    return this.rpc.sign(prep(template, pubkey))
+    const prepped = prep(template, pubkey)
+
+    if (pow) {
+      return this.rpc.sign(await makePow(prepped, pow).result)
+    }
+
+    return this.rpc.sign(prepped)
   }
 
   encrypt(payload: string) {
@@ -229,10 +235,10 @@ export class RPCChannel {
     return this.rpc.decrypt(this.peer, payload)
   }
 
-  send(message: Message) {
+  send(message: Message, pow?: number) {
     const controller = new AbortController()
     const abort = () => controller.abort()
-    const eventPromise = this.prep(message)
+    const eventPromise = this.prep(message, pow)
     const relaysPromise = this.relays
 
     const res = Promise.all([eventPromise, relaysPromise]).then(([event, relays]) =>

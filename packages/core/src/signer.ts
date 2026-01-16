@@ -24,7 +24,8 @@ import type {ISigner} from "@welshman/signer"
 import {Method, SessionItem, Auth, isPasswordAuth, isOTPAuth} from "./schema.js"
 import {RPC, WithEvent} from "./rpc.js"
 import {IStorage, ICollection} from "./storage.js"
-import {hashEmail, debug} from "./util.js"
+import {hashEmail, debug, context} from "./util.js"
+import {getPow} from "@welshman/util"
 import {
   ChallengeRequest,
   EcdhRequest,
@@ -397,6 +398,11 @@ export class Signer {
           .send(makeRegisterResult({ok, message, prev: event.id}))
 
       if (await this._checkKeyReuse(event)) return
+
+      if (getPow(event) < context.registerPow) {
+        debug(`[client ${event.pubkey.slice(0, 8)}]: insufficient proof of work`)
+        return cb(false, "Registration requires 20 bits of proof of work (NIP-13).")
+      }
 
       if (!between([0, group.commits.length], group.threshold)) {
         debug(`[client ${event.pubkey.slice(0, 8)}]: invalid group threshold`)
