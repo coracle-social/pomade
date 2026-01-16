@@ -1,6 +1,7 @@
 node_modules
 example.ts
 dist
+data
 *.tsbuildinfo
 .env*
 runlocal

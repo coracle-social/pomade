@@ -18,6 +18,14 @@ For detailed email provider configuration, see [MAILERS.md](../../MAILERS.md).
 
 ## Running
 
+From ghcr:
+
+```sh
+mkdir -p data
+cp packages/signer/.env{.example,} # Edit the env file to fill in your details
+docker run -v $(pwd)/data:/data --env-file packages/signer/.env ghcr.io/coracle-social/pomade-signer:latest
+```
+
 From the repository root:
 
 ```sh
@@ -25,9 +33,4 @@ mkdir -p data
 cp packages/signer/.env{.example,} # Edit the env file to fill in your details
 docker build -f packages/signer/Dockerfile -t pomade-signer .
 docker run -v $(pwd)/data:/data --env-file packages/signer/.env pomade-signer
-```
-
-From dockerhub:
-
-```sh
 ```

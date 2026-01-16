@@ -75,9 +75,6 @@ importers:
       '@welshman/util':
         specifier: ^0.8.0-pre.1
         version: 0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3))
-      base58-js:
-        specifier: ^3.0.3
-        version: 3.0.3
       hash-wasm:
         specifier: ^4.12.0
         version: 4.12.0
@@ -977,10 +974,6 @@ packages:
 
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
-
-  base58-js@3.0.3:
-    resolution: {integrity: sha512-3hf42BysHnUqmZO7mK6e5X/hs1AvyEJIhdVLbG/Mxn/fhFnhGxOO37mWbMHg1RT4TxqcPKXgqj9/bp1YG0GBXA==}
-    engines: {node: '>=16.0.0', npm: '>=7.0.0'}
 
   base64-js@1.5.1:
     resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
@@ -3100,8 +3093,6 @@ snapshots:
   assertion-error@2.0.1: {}
 
   balanced-match@1.0.2: {}
-
-  base58-js@3.0.3: {}
 
   base64-js@1.5.1: {}
 
