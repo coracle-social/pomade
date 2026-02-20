@@ -334,6 +334,7 @@ POST /recovery/select
 Signers should respond as follows:
 
 ```typescript
+POST /recovery/result
 {
   share?: {
     idx: number            // commit index
