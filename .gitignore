@@ -10,3 +10,5 @@ runlocal
 *.db-shm
 test-runner-profile
 target
+ref
+signer3.sled
