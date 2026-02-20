@@ -21,16 +21,15 @@ This guide provides complete documentation and examples for integrating the Poma
 
 Before integrating Pomade, ensure you have:
 
-1. **Running Signer Services**: At least 2-3 signer services running and accessible via Nostr relays. These **must** be run by multiple independent parties who are not likely to collude to steal user keys. Signers handle email delivery directly.
-2. **Nostr Relay Access**: Configured relays that both your client and signers can access
-3. **User's Nostr Key**: A nostr private key (either existing or newly generated)
+1. **Running Signer Services**: At least 2-3 signer services running and accessible via HTTPS. These **must** be run by multiple independent parties who are not likely to collude to steal user keys. Signers handle email delivery directly.
+2. **User's Nostr Key**: A nostr private key (either existing or newly generated)
 
 ## Core Concepts
 
 ### Components
 
-- **Client**: Your application that requests signatures on behalf of users. Each session uses a temporary session-specific key.
-- **Signer**: Headless services that store key shares and collaborate to create threshold signatures. Identified by Nostr public keys. Signers also handle sending OTP codes via email for recovery flows.
+- **Client**: Your application that requests signatures on behalf of users. Each session uses a temporary session-specific keypair (the `client key`), which is used to authenticate requests via NIP 98 HTTP AUTH.
+- **Signer**: Headless services identified by URLs that store key shares and collaborate to create threshold signatures. Communication happens directly via HTTPS JSON POST requests. Signers also handle sending OTP codes via email for recovery flows.
 
 ### Threshold Signatures
 
@@ -46,22 +45,16 @@ Each client session is identified by a unique client public key. Multiple sessio
 
 ## Configuration
 
-Before using the Client, configure the available signer public keys:
+Before using the Client, configure the available signer URLs:
 
 ```typescript
 import {context} from "@pomade/core"
 
-// Set the available signer pubkeys (hex format)
-context.setSignerPubkeys([
-  "signer1_pubkey_hex",
-  "signer2_pubkey_hex",
-  "signer3_pubkey_hex",
-])
-
-// Configure indexer relays (optional - uses default relays if not set)
-context.setIndexerRelays([
-  "wss://relay1.example.com",
-  "wss://relay2.example.com",
+// Set the available signer URLs
+context.setSignerUrls([
+  "https://signer1.example.com",
+  "https://signer2.example.com",
+  "https://signer3.example.com",
 ])
 ```
 
@@ -91,7 +84,6 @@ if (ok) {
   // Create client instance
   const client = new Client(clientOptions)
 
-  console.log("Client pubkey:", client.pubkey)
   console.log("User pubkey:", client.userPubkey)
   console.log("Signers:", client.peers)
 
@@ -109,7 +101,7 @@ if (ok) {
 const clientOptions = {
   secret: "stored_client_secret",
   group: storedGroupPackage,
-  peers: ["peer1_pubkey", "peer2_pubkey", "peer3_pubkey"],
+  peers: ["https://signer1.example.com", "https://signer2.example.com"],
 }
 
 const client = new Client(clientOptions)
@@ -178,13 +170,12 @@ const {ok, messages} = await client.setupRecovery(email, password)
 
 if (ok) {
   console.log("Recovery method set successfully!")
-  // No email validation required - user can immediately use email/password to recover
 } else {
   console.error("Failed to set recovery method:", messages)
 }
 ```
 
-**Note**: The password is hashed using argon2id before being sent to signers, so the plaintext password never leaves the client.
+**Note**: The password is hashed using argon2id (with the signer's URL as the salt) before being sent, so the plaintext password never leaves the client.
 
 ## Account Recovery
 
@@ -208,15 +199,8 @@ async function loginWithPassword(
   }
 
   // Step 2: Select which session to log into (if multiple exist)
-  const options = result.options
-  if (!options || options.length === 0) {
-    console.error("No sessions found")
-    return null
-  }
-
-  // Let user choose or automatically pick the first one
   // Each option is a tuple of [client: string, peers: string[]]
-  const [client, peers] = options[0]
+  const [client, peers] = result.options[0]
 
   // Step 3: Complete login for selected session
   const {ok, clientOptions} = await Client.selectLogin(
@@ -248,17 +232,18 @@ Use this when users have forgotten their password and need to use one-time passw
 
 ```typescript
 async function loginWithOTP(email: string): Promise<Client | null> {
-  // Step 1: Request OTPs from all signers
-  await Client.requestChallenge(email)
+  // Step 1: Request OTPs from all known signers
+  // Returns a map of OTP prefix -> signer URL, used to route OTPs back to the right signer
+  const {peersByPrefix} = await Client.requestChallenge(email)
 
   console.log(`OTP codes sent to ${email}`)
 
   // Step 2: Wait for user to receive emails and provide OTPs
-  // Each signer sends a separate email with format: base58(signer_pubkey || otp)
-  const challenges = await waitForUserChallenges() // Your UI implementation - collect multiple challenges
+  // Each signer sends a separate email with a unique prefix prepended to the OTP
+  const otps = await waitForUserOtps() // Your UI implementation - collect one OTP per email received
 
-  // Step 3: Start login with challenges
-  const result = await Client.loginWithChallenge(email, challenges)
+  // Step 3: Start login with OTPs
+  const result = await Client.loginWithChallenge(email, peersByPrefix, otps)
 
   if (!result.ok) {
     console.error("Failed to start login:", result.messages)
@@ -329,14 +314,14 @@ Similar to login with OTP, but returns the private key instead of creating a new
 
 ```typescript
 async function recoverWithOTP(email: string): Promise<string | null> {
-  // Request OTPs
-  await Client.requestChallenge(email)
+  // Request OTPs from all known signers
+  const {peersByPrefix} = await Client.requestChallenge(email)
 
-  // Collect challenges from user's email
-  const challenges = await waitForUserChallenges()
+  // Collect OTPs from user's email
+  const otps = await waitForUserOtps()
 
-  // Start recovery with challenges
-  const result = await Client.recoverWithChallenge(email, challenges)
+  // Start recovery with OTPs
+  const result = await Client.recoverWithChallenge(email, peersByPrefix, otps)
 
   if (!result.ok) {
     console.error("Failed to start recovery:", result.messages)
@@ -364,12 +349,12 @@ async function recoverWithOTP(email: string): Promise<string | null> {
 
 ## Session Management
 
-Manage multiple sessions across devices and applications. Sessions are authentaticated based on the user's key, so it's possible to manage pomade sessions without being logged in via pomade. This is out of scope of this guide, but check the implementation of these methods to see how it works.
+Manage multiple sessions across devices and applications. Session list and delete requests are authenticated using NIP 98 HTTP AUTH signed by **the user's own key** (derived from the group), so it's possible to manage sessions without holding a specific client key.
 
 ### Listing All Sessions
 
 ```typescript
-// List all sessions for the user's pubkey across all signers
+// List all sessions for the user's pubkey across all known signers
 const {ok, messages} = await client.listSessions()
 
 if (!ok) {
@@ -377,13 +362,13 @@ if (!ok) {
   return
 }
 
-// Each message contains items from a signer
+// Each message contains items from one signer
 for (const message of messages) {
-  if (message?.payload.items) {
-    for (const item of message.payload.items) {
+  if (message.res?.items) {
+    for (const item of message.res.items) {
       console.log(`Session: ${item.client}`)
       console.log(`  User pubkey: ${item.pubkey}`)
-      console.log(`  Signer: ${message.event.pubkey}`)
+      console.log(`  Signer: ${message.url}`)
       console.log(`  Email: ${item.email || "not set"}`)
       console.log(`  Threshold: ${item.threshold}/${item.total}`)
       console.log(`  Index: ${item.idx}`)
@@ -398,15 +383,11 @@ for (const message of messages) {
 
 ```typescript
 // Log out of current device
-const {ok, messages} = await client.deleteSession(
-  client.pubkey, // this session's client pubkey
-  client.peers, // all signers for this session
-)
+const clientPubkey = await client.getPubkey()
+const {ok} = await client.deleteSession(clientPubkey, client.peers)
 
 if (ok) {
   console.log("Logged out successfully")
-  // Clear local storage
-  client.stop()
 }
 ```
 
@@ -422,22 +403,22 @@ if (!ok) {
 }
 
 // Group sessions by client pubkey
-const sessionsByClient = new Map<string, {items: any[], peers: string[]}>()
+const sessionsByClient = new Map<string, {items: SessionItem[], peers: string[]}>()
 
 for (const message of messages) {
-  if (message?.payload.items) {
-    for (const item of message.payload.items) {
+  if (message.res?.items) {
+    for (const item of message.res.items) {
       if (!sessionsByClient.has(item.client)) {
         sessionsByClient.set(item.client, {items: [], peers: []})
       }
       const session = sessionsByClient.get(item.client)!
       session.items.push(item)
-      session.peers.push(message.event.pubkey)
+      session.peers.push(message.url)
     }
   }
 }
 
-// Find suspicious or old sessions
+// Find and delete old inactive sessions
 for (const [clientPubkey, session] of sessionsByClient.entries()) {
   const lastActivity = Math.max(...session.items.map(i => i.last_activity))
   const daysSinceActivity = (Date.now() / 1000 - lastActivity) / 86400

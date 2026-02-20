@@ -14,12 +14,11 @@ export const Dashboard = {
       state.setLoading(true)
       const result = await state.client.listSessions()
 
-      const allSessions = result.messages.flatMap(m =>
-        m?.payload.items?.map(item => ({
+      const allSessions = result.messages.flatMap(message =>
+        message.res?.items?.map(item => ({
           client: item.client,
-          peer: m.event.pubkey,
+          peer: message.url,
           created_at: item.created_at,
-          recovery: item.recovery
         })) || []
       )
 
@@ -30,7 +29,6 @@ export const Dashboard = {
             client: session.client,
             peers: [],
             created_at: session.created_at,
-            recovery: session.recovery
           }
         }
         sessionsByClient[session.client].peers.push(session.peer)
@@ -108,7 +106,7 @@ export const Dashboard = {
         !state.loading && state.sessions.length > 0 && state.sessions.map((session, idx) =>
           m('.session-item', { key: session.client }, [
             m('.session-info', [
-              m('.session-id', session.client === state.client.pubkey ? 'Current Session' : 'Session ' + (idx + 1)),
+              m('.session-id', 'Session ' + (idx + 1)),
               m('.session-date', [
                 m('div', 'Client: ' + session.client.substring(0, 16) + '...'),
                 m('div', 'Peers: ' + session.peers.length + ' signer(s)'),

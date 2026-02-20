@@ -5,9 +5,8 @@ import { StatusMessage } from "../components/StatusMessage.js"
 import { emails } from "../signers.js"
 
 export const Recovery = {
-  challenge1: '',
-  challenge2: '',
-  challenge3: '',
+  peersByPrefix: null,
+  otpInputs: [],
 
   async requestChallenge() {
     if (!state.email) {
@@ -19,7 +18,9 @@ export const Recovery = {
       state.setLoading(true)
       state.clearStatus()
 
-      await Client.requestChallenge(state.email)
+      const result = await Client.requestChallenge(state.email)
+      this.peersByPrefix = result.peersByPrefix
+      this.otpInputs = Array.from(result.peersByPrefix.keys()).map(() => '')
       state.setStatus('Challenge codes sent! Check the email inbox on the right.', 'success')
       state.setLoading(false)
     } catch (error) {
@@ -34,8 +35,10 @@ export const Recovery = {
       return
     }
 
-    if (!this.challenge1 || !this.challenge2 || !this.challenge3) {
-      state.setStatus('Please enter all three challenge codes from your emails', 'error')
+    const otps = this.otpInputs.map(s => s.trim()).filter(Boolean)
+
+    if (otps.length === 0) {
+      state.setStatus('Please enter at least one challenge code', 'error')
       return
     }
 
@@ -43,8 +46,7 @@ export const Recovery = {
       state.setLoading(true)
       state.clearStatus()
 
-      const challenges = [this.challenge1.trim(), this.challenge2.trim(), this.challenge3.trim()]
-      const result = await Client.recoverWithChallenge(state.email, challenges)
+      const result = await Client.recoverWithChallenge(state.email, this.peersByPrefix, otps)
 
       if (!result.ok || result.options.length === 0) {
         state.setStatus('No accounts found or invalid challenge codes', 'error')
@@ -74,7 +76,11 @@ export const Recovery = {
     return m('.main-content', [
       m('.view-header', [
         m('button.back-button', {
-          onclick: () => state.reset()
+          onclick: () => {
+            this.peersByPrefix = null
+            this.otpInputs = []
+            state.reset()
+          }
         }, '← Back'),
         m('h2', 'Recover Account')
       ]),
@@ -107,45 +113,28 @@ export const Recovery = {
         disabled: state.loading
       }, state.loading ? 'Sending...' : 'Request Challenge Codes'),
 
-      emails.length > 0 && m('div', { style: 'margin-top: 20px;' }, [
+      this.peersByPrefix && emails.length > 0 && m('div', { style: 'margin-top: 20px;' }, [
         m('label', 'Challenge Codes'),
         m('p', { style: 'color: #666; font-size: 0.9em; margin-bottom: 15px;' },
-          'Enter the three challenge codes from the emails on the right:'
+          'Enter the challenge codes from the emails on the right:'
         ),
-        m('.form-group', [
-          m('label', 'Challenge Code 1'),
-          m('input[type=text]', {
-            value: this.challenge1,
-            placeholder: 'Enter first code',
-            oninput: e => this.challenge1 = e.target.value,
-            disabled: state.loading
-          })
-        ]),
-        m('.form-group', [
-          m('label', 'Challenge Code 2'),
-          m('input[type=text]', {
-            value: this.challenge2,
-            placeholder: 'Enter second code',
-            oninput: e => this.challenge2 = e.target.value,
-            disabled: state.loading
-          })
-        ]),
-        m('.form-group', [
-          m('label', 'Challenge Code 3'),
-          m('input[type=text]', {
-            value: this.challenge3,
-            placeholder: 'Enter third code',
-            oninput: e => this.challenge3 = e.target.value,
-            disabled: state.loading
-          })
-        ])
-      ]),
-
-      (this.challenge1 || this.challenge2 || this.challenge3) && m('button', {
-        onclick: () => this.recover(),
-        disabled: state.loading,
-        style: 'margin-top: 10px;'
-      }, state.loading ? 'Recovering...' : 'Recover Account')
+        this.otpInputs.map((value, i) =>
+          m('.form-group', { key: i }, [
+            m('label', `Challenge Code ${i + 1}`),
+            m('input[type=text]', {
+              value,
+              placeholder: 'Enter code',
+              oninput: e => { this.otpInputs[i] = e.target.value },
+              disabled: state.loading
+            })
+          ])
+        ),
+        m('button', {
+          onclick: () => this.recover(),
+          disabled: state.loading,
+          style: 'margin-top: 10px;'
+        }, state.loading ? 'Recovering...' : 'Recover Account')
+      ])
     ])
   }
 }

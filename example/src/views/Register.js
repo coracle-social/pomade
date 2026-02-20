@@ -26,7 +26,7 @@ export const Register = {
 
       await state.client.setupRecovery(state.email, state.password)
 
-      await Client.requestChallenge(state.email, result.clientOptions.peers.slice(0, 1))
+      await Client.requestChallenge(state.email, result.clientOptions.peers)
 
       this.step = 2
       state.setStatus('Verification code sent! Check the email inbox on the right.', 'success')

@@ -15,8 +15,7 @@ A full-featured example client application demonstrating the Pomade protocol usi
 This example app uses:
 
 - **Mithril.js** - Lightweight UI framework
-- **Local Relay** - Welshman's LOCAL_RELAY_URL for in-memory relay
-- **Fake Signers** - 8 local signers running in the browser
+- **Fake Signers** - 8 local signers running in the browser, reachable via a monkey-patched `RPC.fetch`
 - **In-Memory Storage** - No persistence, resets on page reload
 
 ## Running the Example
@@ -75,7 +74,7 @@ This example demonstrates the Pomade protocol's key features:
 2. **Recovery Protocol**: Email/password-based recovery without storing secrets centrally
 3. **Session Management**: View and control which devices/sessions have access
 
-The fake signers run entirely in the browser, and the local relay keeps all data in memory. This makes the example fully self-contained and easy to understand.
+The fake signers run entirely in the browser. `RPC.fetch` is monkey-patched to route HTTP requests to the correct in-memory signer based on the URL, keeping the example fully self-contained.
 
 ## Code Structure
 
