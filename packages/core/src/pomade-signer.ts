@@ -33,7 +33,7 @@ export class PomadeSigner implements ISigner {
     const result = await this.client.sign(event)
 
     if (!result.event) {
-      throw new Error(result.messages[0]?.payload.message || "Failed to sign event")
+      throw new Error(result.messages[0]?.res?.message || "Failed to sign event")
     }
 
     return result.event as SignedEvent
@@ -63,9 +63,5 @@ export class PomadeSigner implements ISigner {
 
       return nt44.v2.decrypt(message, sharedSecret)
     },
-  }
-
-  async cleanup() {
-    this.client.rpc.stop()
   }
 }

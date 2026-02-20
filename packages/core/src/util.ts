@@ -1,24 +1,10 @@
-import * as nt44 from "nostr-tools/nip44"
 import {argon2id} from "hash-wasm"
 import {bytesToHex} from "@noble/hashes/utils.js"
-import {cached, once, uniq, textEncoder, hexToBytes} from "@welshman/lib"
-import type {EventTemplate} from "@welshman/util"
-import {
-  prep,
-  sign,
-  getPubkey,
-  RELAYS,
-  getTagValues,
-  normalizeRelayUrl,
-  isRelayUrl,
-} from "@welshman/util"
-import {publish, request} from "@welshman/net"
+import {cached, once, textEncoder} from "@welshman/lib"
+import * as nt44 from "nostr-tools/nip44"
+import {hexToBytes} from "@welshman/lib"
 
 // Signing and encryption
-
-export function prepAndSign(secret: string, event: EventTemplate) {
-  return sign(prep(event, getPubkey(secret)), secret)
-}
 
 export const nip44 = {
   getSharedSecret: cached({
@@ -68,22 +54,27 @@ const defaultArgonImpl: ArgonImpl = async (value, salt, options) => {
 
 const emailHashCache = new Map<string, string>()
 
-export async function hashEmail(email: string, signer: string) {
-  let hash = emailHashCache.get(email + signer)
+export async function hashEmail(email: string, signerUrl: string) {
+  const key = email + signerUrl
+  let hash = emailHashCache.get(key)
   if (!hash) {
     hash = bytesToHex(
-      await context.argonImpl(textEncoder.encode(email), hexToBytes(signer), argonOptions),
+      await context.argonImpl(
+        textEncoder.encode(email),
+        textEncoder.encode(signerUrl),
+        argonOptions,
+      ),
     )
-    emailHashCache.set(email + signer, hash)
+    emailHashCache.set(key, hash)
   }
 
   return hash!
 }
 
-export async function hashPassword(email: string, password: string, signer: string) {
+export async function hashPassword(email: string, password: string, signerUrl: string) {
   // Concatenate email and password before hashing to prevent cross-account correlation
   const input = textEncoder.encode(email + password)
-  return bytesToHex(await context.argonImpl(input, hexToBytes(signer), argonOptions))
+  return bytesToHex(await context.argonImpl(input, textEncoder.encode(signerUrl), argonOptions))
 }
 
 // Context
@@ -91,30 +82,19 @@ export async function hashPassword(email: string, password: string, signer: stri
 export type Context = {
   debug: boolean
   registerPow: number
-  signerPubkeys: string[]
-  indexerRelays: string[]
+  signerUrls: string[]
   argonImpl: ArgonImpl
-  setSignerPubkeys: (pubkeys: string[]) => void
-  setIndexerRelays: (relays: string[]) => void
+  setSignerUrls: (urls: string[]) => void
   setArgonWorker: (workerModuleOrPromise: any) => void
 }
 
 export const context: Context = {
   debug: false,
   registerPow: 20,
-  signerPubkeys: [],
-  indexerRelays: ["wss://indexer.coracle.social/", "wss://relay.damus.io/", "wss://purplepag.es/"],
+  signerUrls: [],
   argonImpl: defaultArgonImpl,
-  setSignerPubkeys(pubkeys: string[]) {
-    context.signerPubkeys = pubkeys
-
-    // Prime our relay cache
-    for (const pubkey of pubkeys) {
-      fetchRelays(pubkey, AbortSignal.timeout(5000))
-    }
-  },
-  setIndexerRelays(relays: string[]) {
-    context.indexerRelays = relays.filter(isRelay).map(normalizeRelay)
+  setSignerUrls(urls: string[]) {
+    context.signerUrls = urls
   },
   setArgonWorker(workerModuleOrPromise: any) {
     context.argonImpl = async (value, salt, options) => {
@@ -143,57 +123,4 @@ export function debug(...args: any) {
   if (context.debug) {
     console.log(...args)
   }
-}
-
-// Relays
-
-export const LOCAL_RELAY_URL = "local://welshman.relay/"
-
-export const isRelay = (url: string) => (url === LOCAL_RELAY_URL ? true : isRelayUrl(url))
-
-export const normalizeRelay = (url: string) =>
-  url === LOCAL_RELAY_URL ? url : normalizeRelayUrl(url)
-
-export const relayCache = new Map<string, string[]>()
-
-export const fetchRelays = async (pubkey: string, signal?: AbortSignal) => {
-  let relays = relayCache.get(pubkey)
-
-  if (!relays || relays?.length === 0) {
-    const timeout = AbortSignal.timeout(5000)
-    const [relayList] = await request({
-      autoClose: true,
-      relays: context.indexerRelays,
-      filters: [{kinds: [RELAYS], authors: [pubkey]}],
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    })
-
-    relays = getTagValues("r", relayList?.tags || [])
-      .filter(isRelay)
-      .map(normalizeRelay)
-
-    relayCache.set(pubkey, relays)
-  }
-
-  return relays
-}
-
-export function publishRelays({
-  secret,
-  signal,
-  relays,
-}: {
-  secret: string
-  signal?: AbortSignal
-  relays: string[]
-}) {
-  return publish({
-    signal,
-    relays: uniq([...relays, ...context.indexerRelays]),
-    event: prepAndSign(secret, {
-      kind: RELAYS,
-      content: "",
-      tags: relays.map(url => ["r", url]),
-    }),
-  })
 }

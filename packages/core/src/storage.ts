@@ -8,19 +8,19 @@ export type ICollection<T> = {
 }
 
 export type IStorage = {
-  tx: (f: () => Promise<unknown>) => Promise<unknown>
+  tx: <T>(f: () => Promise<T>) => Promise<T>
   collection: <T>(name: string) => ICollection<T>
 }
 
 let lock = Promise.resolve()
 
-export const inMemoryStorage = {
-  tx: <R>(f: () => Promise<R>) => {
+export const inMemoryStorage: IStorage = {
+  tx: <R>(f: () => Promise<R>): Promise<R> => {
     const p = lock.then(f)
 
-    lock = p.then(() => undefined)
+    lock = p.then(() => undefined) as Promise<void>
 
-    return lock
+    return p
   },
   collection: <T>(name: string): ICollection<T> => {
     const data = new Map<string, T>()

@@ -1,29 +1,5 @@
 import * as z from "zod"
 
-export enum Method {
-  ChallengeRequest = "challenge/request",
-  EcdhRequest = "ecdh/request",
-  EcdhResult = "ecdh/result",
-  LoginStart = "login/start",
-  LoginOptions = "login/options",
-  LoginSelect = "login/select",
-  LoginResult = "login/result",
-  RecoveryStart = "recovery/start",
-  RecoveryOptions = "recovery/options",
-  RecoverySelect = "recovery/select",
-  RecoveryResult = "recovery/result",
-  RecoverySetup = "recovery/setup",
-  RecoverySetupResult = "recovery/setup/result",
-  RegisterRequest = "register/request",
-  RegisterResult = "register/result",
-  SessionDelete = "session/delete",
-  SessionDeleteResult = "session/delete/result",
-  SessionList = "session/list",
-  SessionListResult = "session/list/result",
-  SignRequest = "sign/request",
-  SignResult = "sign/result",
-}
-
 // Security limits to prevent DoS attacks via unbounded payloads
 const MAX_HASHES_PER_REQUEST = 10 // Maximum number of hashes in a single signature request
 const MAX_HASH_VECTORS = 10 // Maximum number of hash vectors per request
@@ -58,6 +34,7 @@ const share = z.object({
 })
 
 const psig_entry = z.tuple([hex32, hex32])
+
 // Use tuple with rest to maintain type compatibility while enforcing max length
 const sighash_vec = z
   .tuple([hex32])
@@ -65,16 +42,6 @@ const sighash_vec = z
   .refine(arr => arr.length <= MAX_HASHES_PER_REQUEST, {
     message: `Maximum ${MAX_HASHES_PER_REQUEST} hashes allowed per request`,
   })
-
-const event = z.object({
-  sig: hex,
-  id: hex32,
-  pubkey: hex32,
-  kind: z.int().nonnegative(),
-  tags: z.string().array().array(),
-  content: z.string(),
-  created_at: z.int().positive(),
-})
 
 const sessionItem = z.object({
   pubkey: hex32,
@@ -105,106 +72,19 @@ export type OTPAuth = z.infer<typeof otpAuth>
 export type Auth = z.infer<typeof auth>
 
 export const isPasswordAuth = (auth: Auth): auth is PasswordAuth =>
-  Boolean((auth as any).password_hash)
+  Boolean((auth as unknown as PasswordAuth).password_hash)
 
-export const isOTPAuth = (auth: Auth): auth is OTPAuth => Boolean((auth as any).otp)
+export const isOTPAuth = (auth: Auth): auth is OTPAuth => Boolean((auth as unknown as OTPAuth).otp)
 
 export const Schema = {
-  ecdhRequest: z.object({
-    idx: z.number(),
-    members: z.number().array().max(MAX_MEMBERS),
-    ecdh_pk: hex32,
-  }),
-  ecdhResult: z.object({
-    result: z.optional(
-      z.object({
-        idx: z.number(),
-        keyshare: hex,
-        members: z.number().array().max(MAX_MEMBERS),
-        ecdh_pk: hex,
-      }),
-    ),
-    ok: z.boolean(),
-    message: z.string(),
-    prev: hex32,
-  }),
-  challengeRequest: z.object({
-    prefix: z.string().regex(/^\d{2}$/),
-    email_hash: z.string(),
-  }),
-  loginStart: z.object({
-    auth,
-  }),
-  loginOptions: z.object({
-    items: z.array(sessionItem).optional(),
-    ok: z.boolean(),
-    message: z.string(),
-    prev: hex32,
-  }),
-  loginSelect: z.object({
-    client: hex32,
-  }),
-  loginResult: z.object({
-    group: group.optional(),
-    ok: z.boolean(),
-    message: z.string(),
-    prev: hex32,
-  }),
-  recoveryStart: z.object({
-    auth,
-  }),
-  recoveryOptions: z.object({
-    items: z.array(sessionItem).optional(),
-    ok: z.boolean(),
-    message: z.string(),
-    prev: hex32,
-  }),
-  recoverySelect: z.object({
-    client: hex32,
-  }),
-  recoveryResult: z.object({
-    share: share.optional(),
-    group: group.optional(),
-    ok: z.boolean(),
-    message: z.string(),
-    prev: hex32,
-  }),
-  recoverySetup: z.object({
-    email: z.string().email(),
-    password_hash: z.string(),
-  }),
-  recoverySetupResult: z.object({
-    ok: z.boolean(),
-    message: z.string(),
-    prev: hex32,
-  }),
   registerRequest: z.object({
     share: share,
     group: group,
     recovery: z.boolean(),
   }),
-  registerResult: z.object({
+  registerResponse: z.object({
     ok: z.boolean(),
     message: z.string(),
-    prev: hex32,
-  }),
-  sessionDelete: z.object({
-    client: hex32,
-    auth: event,
-  }),
-  sessionDeleteResult: z.object({
-    ok: z.boolean(),
-    message: z.string(),
-    prev: hex32,
-  }),
-  sessionList: z.object({
-    auth: event,
-  }),
-  sessionListResult: z.object({
-    items: z.array(sessionItem),
-    ok: z.boolean(),
-    message: z.string(),
-    prev: hex32,
   }),
   signRequest: z.object({
     request: z.object({
@@ -217,17 +97,95 @@ export const Schema = {
       sid: hex32,
     }),
   }),
-  signResult: z.object({
-    result: z.optional(
-      z.object({
+  signResponse: z.object({
+    ok: z.boolean(),
+    message: z.string(),
+    result: z
+      .object({
         idx: z.number(),
         psigs: psig_entry.array(),
         pubkey: hex33,
         sid: hex32,
-      }),
-    ),
+      })
+      .optional(),
+  }),
+  ecdhRequest: z.object({
+    idx: z.number(),
+    members: z.number().array().max(MAX_MEMBERS),
+    ecdh_pk: hex32,
+  }),
+  ecdhResponse: z.object({
     ok: z.boolean(),
     message: z.string(),
-    prev: hex32,
+    result: z
+      .object({
+        idx: z.number(),
+        keyshare: hex,
+        members: z.number().array().max(MAX_MEMBERS),
+        ecdh_pk: hex,
+      })
+      .optional(),
+  }),
+  recoverySetupRequest: z.object({
+    email: z.string().email(),
+    password_hash: z.string(),
+  }),
+  recoverySetupResponse: z.object({
+    ok: z.boolean(),
+    message: z.string(),
+  }),
+  challengeRequest: z.object({
+    prefix: z.string().regex(/^\d{2}$/),
+    email_hash: z.string(),
+  }),
+  challengeResponse: z.object({
+    ok: z.literal(true),
+    message: z.string(),
+  }),
+  loginStartRequest: z.object({
+    auth,
+  }),
+  loginStartResponse: z.object({
+    ok: z.boolean(),
+    message: z.string(),
+    items: z.array(sessionItem).optional(),
+  }),
+  loginSelectRequest: z.object({
+    client: hex32,
+  }),
+  loginSelectResponse: z.object({
+    ok: z.boolean(),
+    message: z.string(),
+    group: group.optional(),
+  }),
+  recoveryStartRequest: z.object({
+    auth,
+  }),
+  recoveryStartResponse: z.object({
+    ok: z.boolean(),
+    message: z.string(),
+    items: z.array(sessionItem).optional(),
+  }),
+  recoverySelectRequest: z.object({
+    client: hex32,
+  }),
+  recoverySelectResponse: z.object({
+    ok: z.boolean(),
+    message: z.string(),
+    share: share.optional(),
+    group: group.optional(),
+  }),
+  sessionListRequest: z.object({}),
+  sessionListResponse: z.object({
+    ok: z.boolean(),
+    message: z.string(),
+    items: z.array(sessionItem),
+  }),
+  sessionDeleteRequest: z.object({
+    client: hex32,
+  }),
+  sessionDeleteResponse: z.object({
+    ok: z.boolean(),
+    message: z.string(),
   }),
 }

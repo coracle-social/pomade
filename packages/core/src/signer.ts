@@ -1,8 +1,8 @@
+import * as z from "zod"
 import {Lib} from "@frostr/bifrost"
 import {randomBytes} from "@noble/hashes/utils.js"
 import type {GroupPackage, SharePackage} from "@frostr/bifrost"
 import {
-  not,
   now,
   filter,
   remove,
@@ -15,51 +15,36 @@ import {
   int,
   ago,
   MINUTE,
-  HOUR,
   YEAR,
 } from "@welshman/lib"
-import {verifyEvent, getTagValue, HTTP_AUTH} from "@welshman/util"
-import type {TrustedEvent, SignedEvent} from "@welshman/util"
+import {verifyEvent, getTagValue, getPow, HTTP_AUTH} from "@welshman/util"
+import type {SignedEvent} from "@welshman/util"
 import type {ISigner} from "@welshman/signer"
-import {Method, SessionItem, Auth, isPasswordAuth, isOTPAuth} from "./schema.js"
-import {RPC, WithEvent} from "./rpc.js"
+import {SessionItem, Auth, isPasswordAuth, isOTPAuth, Schema} from "./schema.js"
 import {IStorage, ICollection} from "./storage.js"
 import {hashEmail, debug, context} from "./util.js"
-import {getPow} from "@welshman/util"
 import {
-  ChallengeRequest,
-  EcdhRequest,
-  isChallengeRequest,
-  isEcdhRequest,
-  isLoginSelect,
-  isLoginStart,
-  isRecoverySetup,
-  isRecoverySelect,
-  isRecoveryStart,
-  isRegisterRequest,
-  isSessionDelete,
-  isSessionList,
-  isSignRequest,
-  LoginSelect,
-  LoginStart,
-  makeEcdhResult,
-  makeLoginOptions,
-  makeLoginResult,
-  makeRecoverySetupResult,
-  makeRecoveryOptions,
-  makeRecoveryResult,
-  makeRegisterResult,
-  makeSessionDeleteResult,
-  makeSessionListResult,
-  makeSignResult,
-  RecoverySetup,
-  RecoverySelect,
-  RecoveryStart,
   RegisterRequest,
-  SessionDelete,
-  SessionList,
-  SessionListResult,
+  RegisterResponse,
+  RecoverySetupRequest,
+  RecoverySetupResponse,
+  ChallengeRequest,
+  ChallengeResponse,
+  LoginStartRequest,
+  LoginStartResponse,
+  LoginSelectRequest,
+  LoginSelectResponse,
+  RecoveryStartRequest,
+  RecoveryStartResponse,
+  RecoverySelectRequest,
+  RecoverySelectResponse,
+  SessionListResponse,
+  SessionDeleteRequest,
+  SessionDeleteResponse,
   SignRequest,
+  SignResponse,
+  EcdhRequest,
+  EcdhResponse,
 } from "./message.js"
 import {
   RateLimitBucket,
@@ -70,7 +55,6 @@ import {
   cleanupRateLimits,
 } from "./ratelimit.js"
 
-// Rate limiting for client requests (sign + ecdh combined)
 const CLIENT_RATE_LIMITS: RateLimitConfig = {
   maxAttempts: 100,
   windowSeconds: int(1, MINUTE),
@@ -81,7 +65,7 @@ const EMAIL_RATE_LIMITS: RateLimitConfig = {
   windowSeconds: int(2, MINUTE),
 }
 
-// Utils
+type Handler<T, R> = (pubkey: SignedEvent, data: T) => Promise<R>
 
 function randomInt(min: number, max: number): number {
   const bytes = randomBytes(4)
@@ -93,7 +77,7 @@ function makeSessionItem(session: SignerSession): SessionItem {
   return {
     pubkey: session.group.group_pk.slice(2),
     client: session.client,
-    created_at: session.event.created_at,
+    created_at: session.created_at,
     last_activity: session.last_activity,
     threshold: session.group.threshold,
     total: session.group.commits.length,
@@ -102,14 +86,12 @@ function makeSessionItem(session: SignerSession): SessionItem {
   }
 }
 
-// Storage types
-
 export type SignerSession = {
   client: string
   share: SharePackage
   group: GroupPackage
   recovery: boolean
-  event: TrustedEvent
+  created_at: number
   last_activity: number
   email?: string
   email_hash?: string
@@ -127,21 +109,19 @@ export type SignerRecoverOption = {
 }
 
 export type SignerRecovery = {
-  event: TrustedEvent
+  created_at: number
   clients: string[]
 }
 
 export type SignerLogin = {
-  event: TrustedEvent
+  created_at: number
   clients: string[]
 }
 
 export type SignerChallenge = {
-  event: TrustedEvent
+  created_at: number
   otp: string
 }
-
-// Signer
 
 export type ChallengePayload = {
   email: string
@@ -149,14 +129,13 @@ export type ChallengePayload = {
 }
 
 export type SignerOptions = {
+  url: string
   signer: ISigner
-  relays: string[]
   storage: IStorage
   sendChallenge: (payload: ChallengePayload) => Promise<void>
 }
 
 export class Signer {
-  rpc: RPC
   intervals: number[]
   logins: ICollection<SignerLogin>
   sessions: ICollection<SignerSession>
@@ -174,42 +153,22 @@ export class Signer {
     this.sessionsByEmailHash = options.storage.collection("sessionsByEmailHash")
     this.rateLimitByEmailHash = options.storage.collection("rateLimitByEmailHash")
     this.rateLimitByClient = options.storage.collection("rateLimitByClient")
-    this.rpc = new RPC(options.signer, options.relays)
-    this.rpc.subscribe(message => {
-      // Ignore events with weird timestamps
-      if (!between([now() - int(1, HOUR), now() + int(1, HOUR)], message.event.created_at)) {
-        return debug("[signer]: ignoring event", message.event.id)
-      }
 
-      if (isRegisterRequest(message)) this.handleRegisterRequest(message)
-      if (isRecoverySetup(message)) this.handleRecoverySetup(message)
-      if (isChallengeRequest(message)) this.handleChallengeRequest(message)
-      if (isRecoveryStart(message)) this.handleRecoveryStart(message)
-      if (isRecoverySelect(message)) this.handleRecoverySelect(message)
-      if (isLoginStart(message)) this.handleLoginStart(message)
-      if (isLoginSelect(message)) this.handleLoginSelect(message)
-      if (isSignRequest(message)) this.handleSignRequest(message)
-      if (isEcdhRequest(message)) this.handleEcdhRequest(message)
-      if (isSessionList(message)) this.handleSessionList(message)
-      if (isSessionDelete(message)) this.handleSessionDelete(message)
-    })
-
-    // Periodically clean up recovery requests and rate limits
     this.intervals = [
       setInterval(
         async () => {
           debug("[signer]: cleaning up logins, recoveries, and rate limits")
 
           for (const [client, recovery] of await this.recoveries.entries()) {
-            if (recovery.event.created_at < ago(15, MINUTE)) await this.recoveries.delete(client)
+            if (recovery.created_at < ago(15, MINUTE)) await this.recoveries.delete(client)
           }
 
           for (const [client, login] of await this.logins.entries()) {
-            if (login.event.created_at < ago(15, MINUTE)) await this.logins.delete(client)
+            if (login.created_at < ago(15, MINUTE)) await this.logins.delete(client)
           }
 
           for (const [client, challenge] of await this.challenges.entries()) {
-            if (challenge.event.created_at < ago(15, MINUTE)) await this.challenges.delete(client)
+            if (challenge.created_at < ago(15, MINUTE)) await this.challenges.delete(client)
           }
 
           await cleanupRateLimits(this.rateLimitByEmailHash, EMAIL_RATE_LIMITS.windowSeconds)
@@ -229,11 +188,32 @@ export class Signer {
   }
 
   stop() {
-    this.rpc.stop()
     this.intervals.forEach(clearInterval)
   }
 
   // Internal utils
+
+  _parseAuth(header?: string, path = "") {
+    if (header?.startsWith("Nostr ")) {
+      let auth: SignedEvent
+      try {
+        auth = JSON.parse(atob(header.slice(6)))
+      } catch {
+        return
+      }
+
+      if (
+        verifyEvent(auth) &&
+        auth.kind === HTTP_AUTH &&
+        auth.created_at >= ago(15) &&
+        auth.created_at <= now() + 5 &&
+        getTagValue("u", auth.tags) === `${this.options.url}${path}` &&
+        getTagValue("method", auth.tags) === "POST"
+      ) {
+        return auth
+      }
+    }
+  }
 
   async _checkAndRecordRateLimit(client: string): Promise<boolean> {
     const bucket = await this.rateLimitByClient.get(client)
@@ -246,14 +226,12 @@ export class Signer {
       return false
     }
 
-    // Record the attempt
     const updatedBucket = recordAttempt(bucket, CLIENT_RATE_LIMITS)
     await this.rateLimitByClient.set(client, updatedBucket)
     return true
   }
 
   async _getAuthenticatedSessions(auth: Auth): Promise<SignerSession[]> {
-    // Check rate limit for auth attempts
     const bucket = await this.rateLimitByEmailHash.get(auth.email_hash)
 
     if (isRateLimited(bucket, EMAIL_RATE_LIMITS)) {
@@ -290,7 +268,6 @@ export class Signer {
       }
     }
 
-    // Record failed authentication attempt for rate limiting
     if (sessions.length === 0) {
       await this.rateLimitByEmailHash.set(auth.email_hash, recordAttempt(bucket, EMAIL_RATE_LIMITS))
     }
@@ -298,55 +275,23 @@ export class Signer {
     return sessions
   }
 
-  async _isNip98AuthValid(auth: SignedEvent, method: Method) {
-    const pubkey = await this.options.signer.getPubkey()
-
-    return (
-      verifyEvent(auth) &&
-      auth.kind === HTTP_AUTH &&
-      auth.created_at > ago(15) &&
-      auth.created_at < now() + 5 &&
-      getTagValue("u", auth.tags) === pubkey &&
-      getTagValue("method", auth.tags) === method
-    )
-  }
-
-  async _checkKeyReuse(event: TrustedEvent) {
-    if (await this.sessions.get(event.pubkey)) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: session key re-used`)
-
-      return this.rpc.channel(event.pubkey, false).send(
-        makeRecoveryOptions({
-          ok: false,
-          message: "Do not re-use session keys.",
-          prev: event.id,
-        }),
-      )
+  async _checkKeyReuse(client: string): Promise<boolean> {
+    if (await this.sessions.get(client)) {
+      debug(`[client ${client.slice(0, 8)}]: session key re-used`)
+      return true
     }
 
-    if (await this.recoveries.get(event.pubkey)) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: recovery key re-used`)
-
-      return this.rpc.channel(event.pubkey, false).send(
-        makeRecoveryOptions({
-          ok: false,
-          message: "Do not re-use recovery keys.",
-          prev: event.id,
-        }),
-      )
+    if (await this.recoveries.get(client)) {
+      debug(`[client ${client.slice(0, 8)}]: recovery key re-used`)
+      return true
     }
 
-    if (await this.logins.get(event.pubkey)) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: login key re-used`)
-
-      return this.rpc.channel(event.pubkey, false).send(
-        makeRecoveryOptions({
-          ok: false,
-          message: "Do not re-use login keys.",
-          prev: event.id,
-        }),
-      )
+    if (await this.logins.get(client)) {
+      debug(`[client ${client.slice(0, 8)}]: login key re-used`)
+      return true
     }
+
+    return false
   }
 
   async _addSession(client: string, session: SignerSession) {
@@ -387,137 +332,100 @@ export class Signer {
     }
   }
 
-  // Registration
+  // Handlers
 
-  async handleRegisterRequest({payload, event}: WithEvent<RegisterRequest>) {
+  async _handleRegister(auth: SignedEvent, data: RegisterRequest): Promise<RegisterResponse> {
     return this.options.storage.tx(async () => {
-      const {group, share, recovery} = payload
-      const cb = (ok: boolean, message: string) =>
-        this.rpc
-          .channel(event.pubkey, false)
-          .send(makeRegisterResult({ok, message, prev: event.id}))
+      const {pubkey: client} = auth
+      const {group, share, recovery} = data
 
-      if (await this._checkKeyReuse(event)) return
+      if (await this._checkKeyReuse(client)) {
+        return {ok: false, message: "Do not re-use session keys."}
+      }
 
-      if (getPow(event) < context.registerPow) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: insufficient proof of work`)
-        return cb(false, "Registration requires 20 bits of proof of work (NIP-13).")
+      if (getPow(auth) < context.registerPow) {
+        debug(`[client ${client.slice(0, 8)}]: insufficient proof of work`)
+        return {ok: false, message: "Registration requires 20 bits of proof of work (NIP-13)."}
       }
 
       if (!between([0, group.commits.length], group.threshold)) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: invalid group threshold`)
-        return cb(false, "Invalid group threshold.")
+        debug(`[client ${client.slice(0, 8)}]: invalid group threshold`)
+        return {ok: false, message: "Invalid group threshold."}
       }
 
       if (!Lib.is_group_member(group, share)) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: share does not belong to the provided group`)
-        return cb(false, "Share does not belong to the provided group.")
+        debug(`[client ${client.slice(0, 8)}]: share does not belong to the provided group`)
+        return {ok: false, message: "Share does not belong to the provided group."}
       }
 
       if (uniq(group.commits.map(c => c.idx)).length !== group.commits.length) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: group contains duplicate member indices`)
-        return cb(false, "Group contains duplicate member indices.")
+        debug(`[client ${client.slice(0, 8)}]: group contains duplicate member indices`)
+        return {ok: false, message: "Group contains duplicate member indices."}
       }
 
       if (!group.commits.find(c => c.idx === share.idx)) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: share index not found in group commits`)
-        return cb(false, "Share index not found in group commits.")
+        debug(`[client ${client.slice(0, 8)}]: share index not found in group commits`)
+        return {ok: false, message: "Share index not found in group commits."}
       }
 
-      if (await this.sessions.get(event.pubkey)) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: client is already registered`)
-        return cb(false, "Client is already registered.")
+      if (await this.sessions.get(client)) {
+        debug(`[client ${client.slice(0, 8)}]: client is already registered`)
+        return {ok: false, message: "Client is already registered."}
       }
 
-      await this._addSession(event.pubkey, {
-        client: event.pubkey,
-        event,
+      await this._addSession(client, {
+        client,
         share,
         group,
         recovery,
+        created_at: now(),
         last_activity: now(),
       })
 
-      debug(`[client ${event.pubkey.slice(0, 8)}]: registered`)
+      debug(`[client ${client.slice(0, 8)}]: registered`)
 
-      return cb(true, "Your key has been registered")
+      return {ok: true, message: "Your key has been registered"}
     })
   }
 
-  // Recovery setup
-
-  async handleRecoverySetup({payload, event}: WithEvent<RecoverySetup>) {
+  async _handleRecoverySetup({pubkey: client}: SignedEvent, data: RecoverySetupRequest): Promise<RecoverySetupResponse> {
     return this.options.storage.tx(async () => {
-      const session = await this.sessions.get(event.pubkey)
+      const session = await this.sessions.get(client)
 
       if (!session) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: no session found for recovery setup`)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeRecoverySetupResult({
-            ok: false,
-            message: "No session found.",
-            prev: event.id,
-          }),
-        )
+        debug(`[client ${client.slice(0, 8)}]: no session found for recovery setup`)
+        return {ok: false, message: "No session found."}
       }
 
       if (!session.recovery) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: recovery is disabled for session`)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeRecoverySetupResult({
-            ok: false,
-            message: "Recovery is disabled on this session.",
-            prev: event.id,
-          }),
-        )
+        debug(`[client ${client.slice(0, 8)}]: recovery is disabled for session`)
+        return {ok: false, message: "Recovery is disabled on this session."}
       }
 
-      // recovery method has to be bound at (or shorly after) session, otherwise an attacker with access
-      // to any session could escalate permissions by setting up their own recovery method
-      if (session.event.created_at < ago(15, MINUTE)) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: recovery method set too late`)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeRecoverySetupResult({
-            ok: false,
-            message: "Recovery method must be set within 15 minutes of session.",
-            prev: event.id,
-          }),
-        )
+      if (session.created_at < ago(15, MINUTE)) {
+        debug(`[client ${client.slice(0, 8)}]: recovery method set too late`)
+        return {ok: false, message: "Recovery method must be set within 15 minutes of session."}
       }
 
       if (session.email) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: recovery is already set`)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeRecoverySetupResult({
-            ok: false,
-            message: "Recovery has already been initialized.",
-            prev: event.id,
-          }),
-        )
+        debug(`[client ${client.slice(0, 8)}]: recovery is already set`)
+        return {ok: false, message: "Recovery has already been initialized."}
       }
 
-      if (!payload.password_hash.match(/^[a-f0-9]{64}$/)) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: invalid password_hash provided on setup`)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeRecoverySetupResult({
-            ok: false,
-            message:
-              "Recovery method password hash must be an argon2id hash of user email and password.",
-            prev: event.id,
-          }),
-        )
+      if (!data.password_hash.match(/^[a-f0-9]{64}$/)) {
+        debug(`[client ${client.slice(0, 8)}]: invalid password_hash provided on setup`)
+        return {
+          ok: false,
+          message:
+            "Recovery method password hash must be an argon2id hash of user email and password.",
+        }
       }
 
-      const {email, password_hash} = payload
-      const pubkey = await this.options.signer.getPubkey()
-      const email_hash = await hashEmail(email, pubkey)
+      const {email, password_hash} = data
+      const signerUrl = new URL(this.options.url).origin
+      const email_hash = await hashEmail(email, signerUrl)
 
-      await this._addSession(event.pubkey, {
+      await this._addSession(client, {
         ...session,
         last_activity: now(),
         email,
@@ -525,450 +433,307 @@ export class Signer {
         password_hash,
       })
 
-      debug(`[client ${event.pubkey.slice(0, 8)}]: recovery method initialized`)
+      debug(`[client ${client.slice(0, 8)}]: recovery method initialized`)
 
-      this.rpc.channel(event.pubkey, false).send(
-        makeRecoverySetupResult({
-          ok: true,
-          message: "Recovery method successfully initialized.",
-          prev: event.id,
-        }),
-      )
+      return {ok: true, message: "Recovery method successfully initialized."}
     })
   }
 
-  async handleChallengeRequest({payload, event}: WithEvent<ChallengeRequest>) {
-    // Check rate limit for challenge requests per email_hash
-    const bucket = await this.rateLimitByEmailHash.get(payload.email_hash)
+  async _handleChallenge(_auth: SignedEvent, data: ChallengeRequest): Promise<ChallengeResponse> {
+    const bucket = await this.rateLimitByEmailHash.get(data.email_hash)
 
     if (isRateLimited(bucket, EMAIL_RATE_LIMITS)) {
-      const resetTime = getRateLimitResetTime(bucket, EMAIL_RATE_LIMITS)
-      debug(
-        `[signer]: challenge rate limit exceeded for email_hash ${payload.email_hash.slice(0, 8)}, reset in ${resetTime}s`,
-      )
-      return
+      return {ok: true, message: "Please check your email inbox for a one-time password."}
     }
 
-    const index = await this.sessionsByEmailHash.get(payload.email_hash)
+    const index = await this.sessionsByEmailHash.get(data.email_hash)
 
     if (index && index.clients.length > 0) {
       const session = await this.sessions.get(index.clients[0])
 
       if (session?.email) {
         await this.rateLimitByEmailHash.set(
-          payload.email_hash,
+          data.email_hash,
           recordAttempt(bucket, EMAIL_RATE_LIMITS),
         )
 
-        const otp = payload.prefix + randomInt(100000, 1000000).toString()
+        const otp = data.prefix + randomInt(100000, 1000000).toString()
 
-        await this.challenges.set(payload.email_hash, {otp, event})
+        await this.challenges.set(data.email_hash, {otp, created_at: now()})
 
         this.options.sendChallenge({email: session.email, otp})
 
-        debug(`[client ${event.pubkey.slice(0, 8)}]: challenge sent for ${payload.email_hash}`)
+        debug(`[challenge]: sent for ${data.email_hash}`)
       }
     } else {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: no session found for ${payload.email_hash}`)
+      debug(`[challenge]: no session found for ${data.email_hash}`)
     }
+
+    return {ok: true, message: "Please check your email inbox for a one-time password."}
   }
 
-  // Recovery
-
-  async handleRecoveryStart({payload, event}: WithEvent<RecoveryStart>) {
+  async _handleRecoveryStart({pubkey: client}: SignedEvent, data: RecoveryStartRequest): Promise<RecoveryStartResponse> {
     return this.options.storage.tx(async () => {
-      if (await this._checkKeyReuse(event)) return
-
-      const sessions = await this._getAuthenticatedSessions(payload.auth)
-
-      if (sessions.length === 0) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: no sessions found for recovery`)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeRecoveryOptions({
-            ok: false,
-            message: "No sessions found.",
-            prev: event.id,
-          }),
-        )
+      if (await this._checkKeyReuse(client)) {
+        return {ok: false, message: "Do not re-use session keys."}
       }
 
-      debug(`[client ${event.pubkey.slice(0, 8)}]: sending recovery options`)
+      const sessions = await this._getAuthenticatedSessions(data.auth)
+
+      if (sessions.length === 0) {
+        debug(`[client ${client.slice(0, 8)}]: no sessions found for recovery`)
+        return {ok: false, message: "No sessions found."}
+      }
+
+      debug(`[client ${client.slice(0, 8)}]: sending recovery options`)
 
       const clients = sessions.map(s => s.client)
       const items = sessions.map(makeSessionItem)
 
-      await this.recoveries.set(event.pubkey, {event, clients})
+      await this.recoveries.set(client, {created_at: now(), clients})
 
-      this.rpc.channel(event.pubkey, false).send(
-        makeRecoveryOptions({
-          items,
-          ok: true,
-          message: "Successfully retrieved recovery options.",
-          prev: event.id,
-        }),
-      )
+      return {ok: true, message: "Successfully retrieved recovery options.", items}
     })
   }
 
-  async handleRecoverySelect({payload, event}: WithEvent<RecoverySelect>) {
-    const recovery = await this.recoveries.get(event.pubkey)
+  async _handleRecoverySelect({pubkey: client}: SignedEvent, data: RecoverySelectRequest): Promise<RecoverySelectResponse> {
+    const recovery = await this.recoveries.get(client)
 
     if (!recovery) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: no active recovery found`)
-
-      return this.rpc.channel(event.pubkey, false).send(
-        makeRecoveryResult({
-          ok: false,
-          message: `No active recovery found.`,
-          prev: event.id,
-        }),
-      )
+      debug(`[client ${client.slice(0, 8)}]: no active recovery found`)
+      return {ok: false, message: "No active recovery found."}
     }
 
-    // Cleanup right away
-    await this.recoveries.delete(event.pubkey)
+    await this.recoveries.delete(client)
 
-    if (!recovery.clients.includes(payload.client)) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: invalid session selected for recovery`)
-
-      return this.rpc.channel(event.pubkey, false).send(
-        makeRecoveryResult({
-          ok: false,
-          message: `Invalid session selected for recovery.`,
-          prev: event.id,
-        }),
-      )
+    if (!recovery.clients.includes(data.client)) {
+      debug(`[client ${client.slice(0, 8)}]: invalid session selected for recovery`)
+      return {ok: false, message: "Invalid session selected for recovery."}
     }
 
-    const session = await this.sessions.get(payload.client)
+    const session = await this.sessions.get(data.client)
 
     if (!session) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: recovery session not found`)
-
-      return this.rpc.channel(event.pubkey, false).send(
-        makeRecoveryResult({
-          ok: false,
-          message: `Recovery session not found.`,
-          prev: event.id,
-        }),
-      )
+      debug(`[client ${client.slice(0, 8)}]: recovery session not found`)
+      return {ok: false, message: "Recovery session not found."}
     }
 
-    this.rpc.channel(event.pubkey, false).send(
-      makeRecoveryResult({
-        ok: true,
-        message: "Recovery successfully completed.",
-        group: session.group,
-        share: session.share,
-        prev: event.id,
-      }),
-    )
+    debug(`[client ${client.slice(0, 8)}]: recovery successfully completed`)
 
-    debug(`[client ${event.pubkey.slice(0, 8)}]: recovery successfully completed`)
+    return {
+      ok: true,
+      message: "Recovery successfully completed.",
+      group: session.group,
+      share: session.share,
+    }
   }
 
-  // Login
-
-  async handleLoginStart({payload, event}: WithEvent<LoginStart>) {
+  async _handleLoginStart({pubkey: client}: SignedEvent, data: LoginStartRequest): Promise<LoginStartResponse> {
     return this.options.storage.tx(async () => {
-      if (await this._checkKeyReuse(event)) return
-
-      const sessions = await this._getAuthenticatedSessions(payload.auth)
-
-      if (sessions.length === 0) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: no sessions found for login`)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeLoginOptions({
-            ok: false,
-            message: "No sessions found.",
-            prev: event.id,
-          }),
-        )
+      if (await this._checkKeyReuse(client)) {
+        return {ok: false, message: "Do not re-use session keys."}
       }
 
-      debug(`[client ${event.pubkey.slice(0, 8)}]: sending login options`)
+      const sessions = await this._getAuthenticatedSessions(data.auth)
+
+      if (sessions.length === 0) {
+        debug(`[client ${client.slice(0, 8)}]: no sessions found for login`)
+        return {ok: false, message: "No sessions found."}
+      }
+
+      debug(`[client ${client.slice(0, 8)}]: sending login options`)
 
       const clients = sessions.map(s => s.client)
       const items = sessions.map(makeSessionItem)
 
-      await this.logins.set(event.pubkey, {event, clients})
+      await this.logins.set(client, {created_at: now(), clients})
 
-      this.rpc.channel(event.pubkey, false).send(
-        makeLoginOptions({
-          items,
-          ok: true,
-          message: "Successfully retrieved login options.",
-          prev: event.id,
-        }),
-      )
+      return {ok: true, message: "Successfully retrieved login options.", items}
     })
   }
 
-  async handleLoginSelect({payload, event}: WithEvent<LoginSelect>) {
-    const login = await this.logins.get(event.pubkey)
+  async _handleLoginSelect({pubkey: client}: SignedEvent, data: LoginSelectRequest): Promise<LoginSelectResponse> {
+    const login = await this.logins.get(client)
 
     if (!login) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: no active login found`)
-
-      return this.rpc.channel(event.pubkey, false).send(
-        makeLoginResult({
-          ok: false,
-          message: `No active login found.`,
-          prev: event.id,
-        }),
-      )
+      debug(`[client ${client.slice(0, 8)}]: no active login found`)
+      return {ok: false, message: "No active login found."}
     }
 
-    // Cleanup right away
-    await this.logins.delete(event.pubkey)
+    await this.logins.delete(client)
 
-    if (!login.clients.includes(payload.client)) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: invalid session selected for login`)
-
-      return this.rpc.channel(event.pubkey, false).send(
-        makeLoginResult({
-          ok: false,
-          message: `Invalid session selected for login.`,
-          prev: event.id,
-        }),
-      )
+    if (!login.clients.includes(data.client)) {
+      debug(`[client ${client.slice(0, 8)}]: invalid session selected for login`)
+      return {ok: false, message: "Invalid session selected for login."}
     }
 
-    const session = await this.sessions.get(payload.client)
+    const session = await this.sessions.get(data.client)
 
     if (!session) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: login session not found`)
-
-      return this.rpc.channel(event.pubkey, false).send(
-        makeLoginResult({
-          ok: false,
-          message: `Login session not found.`,
-          prev: event.id,
-        }),
-      )
+      debug(`[client ${client.slice(0, 8)}]: login session not found`)
+      return {ok: false, message: "Login session not found."}
     }
 
-    await this._addSession(event.pubkey, {
-      event,
+    await this._addSession(client, {
       recovery: true,
-      client: event.pubkey,
+      client,
       share: session.share,
       group: session.group,
       email: session.email,
       email_hash: session.email_hash,
       password_hash: session.password_hash,
+      created_at: now(),
       last_activity: now(),
     })
 
-    this.rpc.channel(event.pubkey, false).send(
-      makeLoginResult({
-        ok: true,
-        message: "Login successfully completed.",
-        group: session.group,
-        prev: event.id,
-      }),
-    )
+    debug(`[client ${client.slice(0, 8)}]: login successfully completed`)
 
-    debug(`[client ${event.pubkey.slice(0, 8)}]: login successfully completed`)
+    return {ok: true, message: "Login successfully completed.", group: session.group}
   }
 
-  // Signing
-
-  async handleSignRequest({payload, event}: WithEvent<SignRequest>) {
+  async _handleSign({pubkey: client}: SignedEvent, data: SignRequest): Promise<SignResponse> {
     return this.options.storage.tx(async () => {
-      const session = await this.sessions.get(event.pubkey)
+      const session = await this.sessions.get(client)
 
       if (!session) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: signing failed - no session found`)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeSignResult({
-            ok: false,
-            message: "No session found for client",
-            prev: event.id,
-          }),
-        )
+        debug(`[client ${client.slice(0, 8)}]: signing failed - no session found`)
+        return {ok: false, message: "No session found for client"}
       }
 
-      // Check rate limit
-      const allowed = await this._checkAndRecordRateLimit(event.pubkey)
+      const allowed = await this._checkAndRecordRateLimit(client)
       if (!allowed) {
-        return this.rpc.channel(event.pubkey, false).send(
-          makeSignResult({
-            ok: false,
-            message: "Rate limit exceeded. Please try again later.",
-            prev: event.id,
-          }),
-        )
+        return {ok: false, message: "Rate limit exceeded. Please try again later."}
       }
 
       try {
-        const ctx = Lib.get_session_ctx(session.group, payload.request)
+        const ctx = Lib.get_session_ctx(session.group, data.request)
         const partialSignature = Lib.create_psig_pkg(ctx, session.share)
 
-        await this.sessions.set(event.pubkey, {...session, last_activity: now()})
+        await this.sessions.set(client, {...session, last_activity: now()})
 
-        debug(`[client ${event.pubkey.slice(0, 8)}]: signing complete`)
+        debug(`[client ${client.slice(0, 8)}]: signing complete`)
 
-        this.rpc.channel(event.pubkey, false).send(
-          makeSignResult({
-            result: partialSignature,
-            ok: true,
-            message: "Successfully signed event",
-            prev: event.id,
-          }),
-        )
-      } catch (e: any) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: signing failed - ${e.message || e}`)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeSignResult({
-            ok: false,
-            message: "Failed to sign event",
-            prev: event.id,
-          }),
-        )
+        return {result: partialSignature, ok: true, message: "Successfully signed event"}
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        debug(`[client ${client.slice(0, 8)}]: signing failed - ${msg}`)
+        return {ok: false, message: "Failed to sign event"}
       }
     })
   }
 
-  // Key exchange
-
-  async handleEcdhRequest({payload, event}: WithEvent<EcdhRequest>) {
+  async _handleEcdh({pubkey: client}: SignedEvent, {members, ecdh_pk}: EcdhRequest): Promise<EcdhResponse> {
     return this.options.storage.tx(async () => {
-      const session = await this.sessions.get(event.pubkey)
+      const session = await this.sessions.get(client)
 
       if (!session) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: ecdh failed - no session found`)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeSignResult({
-            ok: false,
-            message: "No session found for client",
-            prev: event.id,
-          }),
-        )
+        debug(`[client ${client.slice(0, 8)}]: ecdh failed - no session found`)
+        return {ok: false, message: "No session found for client"}
       }
 
-      // Check rate limit
-      const allowed = await this._checkAndRecordRateLimit(event.pubkey)
+      const allowed = await this._checkAndRecordRateLimit(client)
       if (!allowed) {
-        return this.rpc.channel(event.pubkey, false).send(
-          makeEcdhResult({
-            ok: false,
-            message: "Rate limit exceeded. Please try again later.",
-            prev: event.id,
-          }),
-        )
+        return {ok: false, message: "Rate limit exceeded. Please try again later."}
       }
-
-      const {members, ecdh_pk} = payload
 
       try {
         const ecdhPackage = Lib.create_ecdh_pkg(members, ecdh_pk, session.share)
 
-        await this.sessions.set(event.pubkey, {...session, last_activity: now()})
+        await this.sessions.set(client, {...session, last_activity: now()})
 
-        debug(`[client ${event.pubkey.slice(0, 8)}]: ecdh complete`)
+        debug(`[client ${client.slice(0, 8)}]: ecdh complete`)
 
-        this.rpc.channel(event.pubkey, false).send(
-          makeEcdhResult({
-            result: ecdhPackage,
-            ok: true,
-            message: "Successfully signed event",
-            prev: event.id,
-          }),
-        )
-      } catch (e: any) {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: ecdh failed - ${e.message || e}`)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeSignResult({
-            ok: false,
-            message: "Key derivation failed",
-            prev: event.id,
-          }),
-        )
+        return {result: ecdhPackage, ok: true, message: "Successfully derived shared secret"}
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        debug(`[client ${client.slice(0, 8)}]: ecdh failed - ${msg}`)
+        return {ok: false, message: "Key derivation failed"}
       }
     })
   }
 
-  // Session management
-
-  async handleSessionList({payload, event}: WithEvent<SessionList>) {
-    if (not(await this._isNip98AuthValid(payload.auth, Method.SessionList))) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: invalid auth event for session list`)
-
-      return this.rpc.channel(event.pubkey, false).send(
-        makeSessionListResult({
-          items: [],
-          ok: false,
-          message: "Failed to validate authentication.",
-          prev: event.id,
-        }),
-      )
-    }
-
-    const items: SessionListResult["payload"]["items"] = []
+  async _handleSessionList({pubkey}: SignedEvent, _data: Record<string, never>): Promise<SessionListResponse> {
+    const items: SessionListResponse["items"] = []
     for (const [_, session] of await this.sessions.entries()) {
-      if (session.group.group_pk.slice(2) === payload.auth.pubkey) {
+      if (session.group.group_pk.slice(2) === pubkey) {
         items.push(makeSessionItem(session))
       }
     }
 
-    debug(`[client ${event.pubkey.slice(0, 8)}]: successfully retrieved session list`)
+    debug(`[session/list]: successfully retrieved ${items.length} sessions`)
 
-    this.rpc.channel(event.pubkey, false).send(
-      makeSessionListResult({
-        items,
-        ok: true,
-        message: "Successfully retrieved session list.",
-        prev: event.id,
-      }),
-    )
+    return {items, ok: true, message: "Successfully retrieved session list."}
   }
 
-  async handleSessionDelete({payload, event}: WithEvent<SessionDelete>) {
-    if (not(await this._isNip98AuthValid(payload.auth, Method.SessionDelete))) {
-      debug(`[client ${event.pubkey.slice(0, 8)}]: invalid auth event for session deletion`)
-
-      return this.rpc.channel(event.pubkey, false).send(
-        makeSessionDeleteResult({
-          ok: false,
-          message: "Failed to delete selected session.",
-          prev: event.id,
-        }),
-      )
-    }
-
+  async _handleSessionDelete({pubkey}: SignedEvent, data: SessionDeleteRequest): Promise<SessionDeleteResponse> {
     return this.options.storage.tx(async () => {
-      const session = await this.sessions.get(payload.client)
+      const session = await this.sessions.get(data.client)
 
-      if (session?.group.group_pk.slice(2) === payload.auth.pubkey) {
-        await this._deleteSession(payload.client)
+      if (session?.group.group_pk.slice(2) === pubkey) {
+        await this._deleteSession(data.client)
 
-        debug(`[client ${event.pubkey.slice(0, 8)}]: deleted session`, payload.client)
+        debug(`[session/delete]: deleted session ${data.client.slice(0, 8)}`)
 
-        this.rpc.channel(event.pubkey, false).send(
-          makeSessionDeleteResult({
-            ok: true,
-            message: "Successfully deleted selected session.",
-            prev: event.id,
-          }),
-        )
+        return {ok: true, message: "Successfully deleted selected session."}
       } else {
-        debug(`[client ${event.pubkey.slice(0, 8)}]: failed to delete session`, payload.client)
-
-        return this.rpc.channel(event.pubkey, false).send(
-          makeSessionDeleteResult({
-            ok: false,
-            message: "Failed to logout selected client.",
-            prev: event.id,
-          }),
-        )
+        debug(`[session/delete]: failed to delete session ${data.client.slice(0, 8)}`)
+        return {ok: false, message: "Failed to logout selected client."}
       }
     })
+  }
+
+  // Routing handlers
+
+  async _handle<T>(
+    auth: SignedEvent,
+    body: Record<string, unknown>,
+    schema: z.ZodType<T>,
+    handler: Handler<T, unknown>,
+  ) {
+    const result = schema.safeParse(body)
+
+    if (!result.success) {
+      debug(`[route]: failed to validate request body: ${result.error.message}`)
+      return {ok: false, message: "Failed to validate request data."}
+    }
+
+    return handler(auth, result.data)
+  }
+
+  async handle(path: string, authHeader: string, body: Record<string, unknown>) {
+    const auth = this._parseAuth(authHeader, path)
+
+    if (!auth) {
+      debug(`[path]: failed to validate authentication`)
+
+      return {ok: false, message: "Failed to validate authentication."}
+    }
+
+    switch (path) {
+      case "/challenge":
+        return this._handle(auth, body, Schema.challengeRequest, this._handleChallenge.bind(this))
+      case "/ecdh":
+        return this._handle(auth, body, Schema.ecdhRequest, this._handleEcdh.bind(this))
+      case "/login/select":
+        return this._handle(auth, body, Schema.loginSelectRequest, this._handleLoginSelect.bind(this))
+      case "/login/start":
+        return this._handle(auth, body, Schema.loginStartRequest, this._handleLoginStart.bind(this))
+      case "/recovery/select":
+        return this._handle(auth, body, Schema.recoverySelectRequest, this._handleRecoverySelect.bind(this))
+      case "/recovery/setup":
+        return this._handle(auth, body, Schema.recoverySetupRequest, this._handleRecoverySetup.bind(this))
+      case "/recovery/start":
+        return this._handle(auth, body, Schema.recoveryStartRequest, this._handleRecoveryStart.bind(this))
+      case "/register":
+        return this._handle(auth, body, Schema.registerRequest, this._handleRegister.bind(this))
+      case "/session/delete":
+        return this._handle(auth, body, Schema.sessionDeleteRequest, this._handleSessionDelete.bind(this))
+      case "/session/list":
+        return this._handle(auth, body, Schema.sessionListRequest, this._handleSessionList.bind(this))
+      case "/sign":
+        return this._handle(auth, body, Schema.signRequest, this._handleSign.bind(this))
+      default:
+        return {ok: false, message: "Not found"}
+    }
   }
 }

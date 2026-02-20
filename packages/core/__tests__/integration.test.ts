@@ -6,7 +6,7 @@ import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
 import {beforeHook, makeEmail, challengePayloads, afterHook, makeClientWithRecovery} from "./util"
 import {Client} from "../src"
 
-const doLet = <T>(x: T, f: <R>(x: T) => R) => f(x)
+const doLet = <T>(x: T, f: (x: T) => void) => f(x)
 
 describe("protocol flows", () => {
   beforeEach(beforeHook)
@@ -54,7 +54,7 @@ describe("protocol flows", () => {
       const actual = sortBy(
         sortFn,
         result.messages.flatMap(m =>
-          m.payload.items.map(item => ({client: item.client, peer: m.event.pubkey})),
+          m.res!.items.map(item => ({client: item.client, peer: m.url})),
         ),
       )
 
@@ -105,7 +105,7 @@ describe("protocol flows", () => {
       const result = await client.sign(makeEvent(1))
 
       expect(result.ok).toBe(true)
-      expect(verifyEvent(result.event)).toBe(true)
+      expect(verifyEvent(result.event!)).toBe(true)
     })
 
     it("successfully signs an event with 2/3 threshold", async () => {
@@ -114,7 +114,7 @@ describe("protocol flows", () => {
       const result = await client.sign(makeEvent(1))
 
       expect(result.ok).toBe(true)
-      expect(verifyEvent(result.event)).toBe(true)
+      expect(verifyEvent(result.event!)).toBe(true)
     })
   })
 
@@ -163,9 +163,9 @@ describe("protocol flows", () => {
       await makeClientWithRecovery(email, password)
 
       const res1 = await Client.loginWithPassword(email, password)
-      const messages = res1.messages.filter(m => m.payload.ok)
-      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m.event.pubkey)
+      const messages = res1.messages.filter(m => m.res?.ok)
+      const clients = uniq(messages.flatMap(m => m.res!.items!.map(it => it.client)))
+      const peers = messages.map(m => m.url)
 
       expect(clients.length).toBe(1)
       expect(peers.length).toBe(3)
@@ -173,7 +173,7 @@ describe("protocol flows", () => {
       const res2 = await Client.selectLogin(res1.clientSecret, clients[0], peers)
 
       expect(res2.ok).toBe(true)
-      expect(res2.messages.every(m => m.payload.group)).toBe(true)
+      expect(res2.messages.every(m => m.res?.group)).toBe(true)
     })
 
     it("rejects invalid password without revealing registration", async () => {
@@ -202,9 +202,9 @@ describe("protocol flows", () => {
       await makeClientWithRecovery(email, password)
 
       const res1 = await Client.loginWithPassword(email, password)
-      const messages = res1.messages.filter(m => m.payload.ok)
-      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m.event.pubkey)
+      const messages = res1.messages.filter(m => m.res?.ok)
+      const clients = uniq(messages.flatMap(m => m.res!.items!.map(it => it.client)))
+      const peers = messages.map(m => m.url)
       const res2 = await Client.selectLogin(makeSecret(), clients[0], peers)
 
       expect(res2.ok).toBe(false)
@@ -226,9 +226,9 @@ describe("protocol flows", () => {
 
       const otps = challengePayloads.map(p => p.otp)
       const res2 = await Client.loginWithChallenge(email, res1.peersByPrefix, otps)
-      const messages = res2.messages.filter(m => m?.payload.ok)
-      const clients = uniq(messages.flatMap(m => m!.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m!.event.pubkey)
+      const messages = res2.messages.filter(m => m.res?.ok)
+      const clients = uniq(messages.flatMap(m => m.res!.items!.map(it => it.client)))
+      const peers = messages.map(m => m.url)
 
       expect(clients.length).toBe(1)
       expect(peers.length).toBe(3)
@@ -236,7 +236,7 @@ describe("protocol flows", () => {
       const res3 = await Client.selectLogin(res2.clientSecret, clients[0], peers)
 
       expect(res3.ok).toBe(true)
-      expect(res3.messages.every(m => m.payload.group)).toBe(true)
+      expect(res3.messages.every(m => m.res?.group)).toBe(true)
     })
 
     it("rejects invalid challenge without revealing registration", async () => {
@@ -268,9 +268,9 @@ describe("protocol flows", () => {
 
       const otps = challengePayloads.map(p => p.otp)
       const res2 = await Client.loginWithChallenge(email, res1.peersByPrefix, otps)
-      const messages = res2.messages.filter(m => m?.payload.ok)
-      const clients = uniq(messages.flatMap(m => m!.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m!.event.pubkey)
+      const messages = res2.messages.filter(m => m.res?.ok)
+      const clients = uniq(messages.flatMap(m => m.res!.items!.map(it => it.client)))
+      const peers = messages.map(m => m.url)
 
       expect(clients.length).toBe(1)
       expect(peers.length).toBe(3)
@@ -296,9 +296,9 @@ describe("protocol flows", () => {
       await client.setupRecovery(email, password)
 
       const res1 = await Client.recoverWithPassword(email, password)
-      const messages = res1.messages.filter(m => m.payload.ok)
-      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m.event.pubkey)
+      const messages = res1.messages.filter(m => m.res?.ok)
+      const clients = uniq(messages.flatMap(m => m.res!.items!.map(it => it.client)))
+      const peers = messages.map(m => m.url)
 
       expect(clients.length).toBe(1)
       expect(peers.length).toBe(3)
@@ -306,7 +306,7 @@ describe("protocol flows", () => {
       const res2 = await Client.selectRecovery(res1.clientSecret, clients[0], peers)
 
       expect(res2.ok).toBe(true)
-      expect(res2.messages.every(m => m.payload.share && m.payload.group)).toBe(true)
+      expect(res2.messages.every(m => m.res?.share && m.res?.group)).toBe(true)
       expect(getPubkey(res2.userSecret!)).toBe(expectedPubkey)
     })
 
@@ -336,9 +336,9 @@ describe("protocol flows", () => {
       await makeClientWithRecovery(email, password)
 
       const res1 = await Client.recoverWithPassword(email, password)
-      const messages = res1.messages.filter(m => m.payload.ok)
-      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m.event.pubkey)
+      const messages = res1.messages.filter(m => m.res?.ok)
+      const clients = uniq(messages.flatMap(m => m.res!.items!.map(it => it.client)))
+      const peers = messages.map(m => m.url)
       const res2 = await Client.selectRecovery(makeSecret(), clients[0], peers)
 
       expect(res2.ok).toBe(false)
@@ -360,9 +360,9 @@ describe("protocol flows", () => {
 
       const otps = challengePayloads.map(p => p.otp)
       const res2 = await Client.recoverWithChallenge(email, res1.peersByPrefix, otps)
-      const messages = res2.messages.filter(m => m?.payload.ok)
-      const clients = uniq(messages.flatMap(m => m!.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m!.event.pubkey)
+      const messages = res2.messages.filter(m => m.res?.ok)
+      const clients = uniq(messages.flatMap(m => m.res!.items!.map(it => it.client)))
+      const peers = messages.map(m => m.url)
 
       expect(clients.length).toBe(1)
       expect(peers.length).toBe(3)
@@ -370,7 +370,7 @@ describe("protocol flows", () => {
       const res3 = await Client.selectRecovery(res2.clientSecret, clients[0], peers)
 
       expect(res3.ok).toBe(true)
-      expect(res3.messages.every(m => m.payload.share && m.payload.group)).toBe(true)
+      expect(res3.messages.every(m => m.res?.share && m.res?.group)).toBe(true)
     })
 
     it("rejects invalid challenge without revealing registration", async () => {
@@ -402,9 +402,9 @@ describe("protocol flows", () => {
 
       const otps = challengePayloads.map(p => p.otp)
       const res2 = await Client.recoverWithChallenge(email, res1.peersByPrefix, otps)
-      const messages = res2.messages.filter(m => m?.payload.ok)
-      const clients = uniq(messages.flatMap(m => m!.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m!.event.pubkey)
+      const messages = res2.messages.filter(m => m.res?.ok)
+      const clients = uniq(messages.flatMap(m => m.res!.items!.map(it => it.client)))
+      const peers = messages.map(m => m.url)
 
       expect(clients.length).toBe(1)
       expect(peers.length).toBe(3)
@@ -423,9 +423,9 @@ describe("protocol flows", () => {
       await makeClientWithRecovery(email, password)
 
       const res1 = await Client.loginWithPassword(email, password)
-      const messages = res1.messages.filter(m => m.payload.ok)
-      const clients = uniq(messages.flatMap(m => m.payload.items.map(it => it.client)))
-      const peers = messages.map(m => m.event.pubkey)
+      const messages = res1.messages.filter(m => m.res?.ok)
+      const clients = uniq(messages.flatMap(m => m.res!.items!.map(it => it.client)))
+      const peers = messages.map(m => m.url)
 
       expect(clients.length).toBe(1)
       expect(peers.length).toBe(3)
@@ -444,14 +444,14 @@ describe("protocol flows", () => {
       await makeClientWithRecovery(email, password2)
 
       const res1 = await Client.loginWithPassword(email, password1)
-      const messages1 = res1.messages.filter(m => m.payload.ok)
-      const clients1 = uniq(messages1.flatMap(m => m.payload.items.map(it => it.client)))
+      const messages1 = res1.messages.filter(m => m.res?.ok)
+      const clients1 = uniq(messages1.flatMap(m => m.res!.items!.map(it => it.client)))
 
       expect(clients1.length).toBe(2)
 
       const res2 = await Client.recoverWithPassword(email, password2)
-      const messages2 = res2.messages.filter(m => m.payload.ok)
-      const clients2 = uniq(messages2.flatMap(m => m.payload.items.map(it => it.client)))
+      const messages2 = res2.messages.filter(m => m.res?.ok)
+      const clients2 = uniq(messages2.flatMap(m => m.res!.items!.map(it => it.client)))
 
       expect(clients2.length).toBe(1)
 
@@ -459,8 +459,8 @@ describe("protocol flows", () => {
 
       const otps = challengePayloads.map(p => p.otp)
       const res3 = await Client.loginWithChallenge(email, res.peersByPrefix, otps)
-      const messages3 = res3.messages.filter(m => m.payload.ok)
-      const clients3 = uniq(messages3.flatMap(m => m.payload.items.map(it => it.client)))
+      const messages3 = res3.messages.filter(m => m.res?.ok)
+      const clients3 = uniq(messages3.flatMap(m => m.res!.items!.map(it => it.client)))
 
       expect(clients3.length).toBe(3)
     }, 10_000)

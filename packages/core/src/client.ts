@@ -1,5 +1,4 @@
 import {
-  Maybe,
   tryCatch,
   groupBy,
   removeUndefined,
@@ -9,51 +8,32 @@ import {
   first,
   last,
   isDefined,
-  identity,
   sample,
   textEncoder,
 } from "@welshman/lib"
 import {extract} from "@noble/hashes/hkdf.js"
 import {sha256} from "@noble/hashes/sha2.js"
 import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
-import {prep, makeSecret, makeHttpAuth} from "@welshman/util"
-import type {SignedEvent, StampedEvent} from "@welshman/util"
+import {prep, makeSecret} from "@welshman/util"
+import type {StampedEvent, SignedEvent} from "@welshman/util"
 import {Lib} from "@frostr/bifrost"
-import type {GroupPackage, ECDHPackage} from "@frostr/bifrost"
-import {Method} from "./schema.js"
+import type {GroupPackage} from "@frostr/bifrost"
 import {context, hashEmail, hashPassword} from "./util.js"
-import {RPC, WithEvent} from "./rpc.js"
+import {RPC} from "./rpc.js"
+import {PomadeSigner} from "./pomade-signer.js"
 import {
-  isEcdhResult,
-  isLoginOptions,
-  isLoginResult,
-  isRecoveryOptions,
-  isRecoveryResult,
-  isRecoverySetupResult,
-  isRegisterResult,
-  isSessionDeleteResult,
-  isSessionListResult,
-  isSignResult,
-  makeChallengeRequest,
-  makeEcdhRequest,
-  makeLoginStart,
-  makeLoginSelect,
-  makeRecoveryStart,
-  makeRecoverySelect,
-  makeRecoverySetup,
-  makeRegisterRequest,
-  makeSessionDelete,
-  makeSessionList,
-  makeSignRequest,
-  LoginOptions,
-  LoginResult,
-  RecoveryOptions,
-  RecoveryResult,
-  RecoverySetupResult,
-  RegisterResult,
-  SessionDeleteResult,
-  SessionListResult,
-  SignResult,
+  Message,
+  ChallengeResponse,
+  LoginStartResponse,
+  RecoveryStartResponse,
+  LoginSelectResponse,
+  RecoverySelectResponse,
+  RecoverySetupResponse,
+  RegisterResponse,
+  SessionDeleteResponse,
+  SessionListResponse,
+  SignResponse,
+  EcdhResponse,
 } from "./message.js"
 
 export type ClientOptions = {
@@ -65,7 +45,7 @@ export type ClientOptions = {
 export type ClientOptionsResult<T> = {
   ok: boolean
   options: [string, string[]][]
-  messages: Maybe<T>[]
+  messages: Message<T>[]
   clientSecret: string
 }
 
@@ -82,25 +62,21 @@ export class Client {
     this.userPubkey = this.group.group_pk.slice(2)
   }
 
-  stop() {
-    this.rpc.stop()
-  }
-
   getPubkey() {
     return this.rpc.signer.getPubkey()
   }
 
-  static _buildOptions<T extends WithEvent<LoginOptions | RecoveryOptions>>(
+  static _buildOptions<T extends LoginStartResponse | RecoveryStartResponse>(
     clientSecret: string,
-    messages: Maybe<T>[],
+    messages: Message<T>[],
     threshold: "total" | "threshold",
   ): ClientOptionsResult<T> {
     // Extract all items with their metadata
     const items = messages.flatMap(
       m =>
-        m?.payload.items?.map(item => ({
+        m.res?.items?.map(item => ({
           client: item.client,
-          peer: m.event.pubkey,
+          url: m.url,
           idx: item.idx,
           total: item.total,
           threshold: item.threshold,
@@ -116,6 +92,7 @@ export class Client {
     for (const [client, clientItems] of itemsByClient) {
       // Get the expected total (should be the same for all items of this client)
       const total = clientItems[0]?.[threshold]
+
       if (!total || clientItems.length < total) continue
 
       // Check that we have all indices from 1 to total
@@ -127,30 +104,29 @@ export class Client {
       if (!hasAllIndices) continue
 
       // Sort by idx and map to peers
-      const peers = sortBy(item => item.idx, clientItems).map(item => item.peer)
+      const peers = sortBy(item => item.idx, clientItems).map(item => item.url)
+
       options.push([client, peers])
     }
 
-    const ok = messages.some(m => m?.payload.ok) && options.length > 0
+    const ok = messages.some(m => m.res?.ok) && options.length > 0
 
     return {ok, options, messages, clientSecret}
   }
 
   static _getKnownPeers() {
-    if (context.signerPubkeys.length === 0) {
-      console.log("[pomade]: You can configure available signer pubkeys using setSignerPubkeys")
-      throw new Error("No signer pubkeys available")
+    if (context.signerUrls.length === 0) {
+      console.log("[pomade]: You can configure available signer URLs using setSignerUrls")
+      throw new Error("No signer URLs available")
     }
 
-    return context.signerPubkeys
+    return context.signerUrls
   }
 
-  // Register
-
   static async register(threshold: number, n: number, userSecret: string, recovery = true) {
-    if (context.signerPubkeys.length < n) {
-      console.log("[pomade]: You can configure available signer pubkeys using setSignerPubkeys")
-      throw new Error("Not enough signer pubkeys available")
+    if (context.signerUrls.length < n) {
+      console.log("[pomade]: You can configure available signer URLs using setSignerUrls")
+      throw new Error("Not enough signer URLs available")
     }
 
     if (threshold <= 0) {
@@ -160,33 +136,28 @@ export class Client {
     const secret = makeSecret()
     const rpc = RPC.fromSecret(secret)
     const {group, shares} = Lib.generate_dealer_pkg(threshold, n, [userSecret])
-    const remainingSignerPubkeys = shuffle(context.signerPubkeys)
+    const remainingSignerUrls = shuffle(context.signerUrls)
     const peersByIndex = new Map<number, string>()
 
     const messages = await Promise.all(
       shares.map(async (share, i) => {
-        while (remainingSignerPubkeys.length > 0) {
-          const messages = await rpc
-            .channel(remainingSignerPubkeys.shift()!)
-            .send(makeRegisterRequest({share, group, recovery}), context.registerPow)
-            .receive<RegisterResult>((message, resolve) => {
-              if (isRegisterResult(message)) {
-                if (message.payload.ok) {
-                  peersByIndex.set(i, message.event.pubkey)
-                }
+        while (remainingSignerUrls.length > 0) {
+          const url = remainingSignerUrls.shift()!
+          const message = await rpc.post<RegisterResponse>(
+            url,
+            "/register",
+            {share, group, recovery},
+            context.registerPow,
+          )
 
-                resolve(message)
-              }
-            })
-
-          if (peersByIndex.has(i)) {
-            return messages
+          if (message.res?.ok) {
+            peersByIndex.set(i, url)
           }
+
+          return message
         }
       }),
     )
-
-    rpc.stop()
 
     const ok = peersByIndex.size === n
     const peers = sortBy(first, peersByIndex).map(last) as string[]
@@ -202,78 +173,54 @@ export class Client {
     }
   }
 
-  // Recovery setup
-
   async setupRecovery(email: string, password: string) {
     const messages = await Promise.all(
-      this.peers.map(async (peer, i) => {
-        const password_hash = await hashPassword(email, password, peer)
+      this.peers.map(async url => {
+        const password_hash = await hashPassword(email, password, url)
 
-        return this.rpc
-          .channel(peer)
-          .send(makeRecoverySetup({email, password_hash}))
-          .receive<WithEvent<RecoverySetupResult>>((message, resolve) => {
-            if (isRecoverySetupResult(message)) {
-              resolve(message)
-            }
-          })
+        return this.rpc.post<RecoverySetupResponse>(url, "/recovery/setup", {email, password_hash})
       }),
     )
 
-    return {ok: messages.every(m => m?.payload.ok), messages}
+    return {ok: messages.every(m => m.res?.ok), messages}
   }
-
-  // Challenge
 
   static async requestChallenge(email: string, peers = Client._getKnownPeers()) {
     const clientSecret = makeSecret()
     const rpc = RPC.fromSecret(clientSecret)
     const peersByPrefix = new Map<string, string>()
 
-    const oks = await Promise.all(
-      peers.map(async (peer, i) => {
+    const results = await Promise.all(
+      peers.map(async url => {
         let prefix = randomId().slice(-2)
         while (peersByPrefix.has(prefix)) {
           prefix = randomId().slice(-2)
         }
 
-        peersByPrefix.set(prefix, peer)
+        peersByPrefix.set(prefix, url)
 
-        const email_hash = await hashEmail(email, peer)
+        const email_hash = await hashEmail(email, url)
 
-        return rpc.channel(peer).send(makeChallengeRequest({prefix, email_hash})).ok
+        return rpc.post<ChallengeResponse>(url, "/challenge", {prefix, email_hash})
       }),
     )
 
-    rpc.stop()
-
-    return {ok: oks.every(identity), peersByPrefix}
+    return {ok: results.every(r => r.res?.ok), peersByPrefix}
   }
-
-  // Login
 
   static async loginWithPassword(email: string, password: string) {
     const clientSecret = makeSecret()
     const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
-      Client._getKnownPeers().map(async (peer, i) => {
-        const email_hash = await hashEmail(email, peer)
-        const password_hash = await hashPassword(email, password, peer)
+      Client._getKnownPeers().map(async url => {
+        const email_hash = await hashEmail(email, url)
+        const password_hash = await hashPassword(email, password, url)
         const auth = {email_hash, password_hash}
 
-        return rpc
-          .channel(peer)
-          .send(makeLoginStart({auth}))
-          .receive<WithEvent<LoginOptions>>((message, resolve) => {
-            if (isLoginOptions(message)) {
-              resolve(message)
-            }
-          })
+        return rpc.post<LoginStartResponse>(url, "/login/start", {auth})
       }),
     )
-
-    rpc.stop()
 
     return this._buildOptions(clientSecret, messages, "total")
   }
@@ -286,27 +233,20 @@ export class Client {
     const clientSecret = makeSecret()
     const rpc = RPC.fromSecret(clientSecret)
 
-    const messages = await Promise.all(
-      otps.map(async otp => {
-        const peer = peersByPrefix.get(otp.slice(0, 2))
+    const messages = removeUndefined(
+      await Promise.all(
+        otps.map(async otp => {
+          const url = peersByPrefix.get(otp.slice(0, 2))
 
-        if (peer) {
-          const email_hash = await hashEmail(email, peer)
-          const auth = {email_hash, otp}
+          if (url) {
+            const email_hash = await hashEmail(email, url)
+            const auth = {email_hash, otp}
 
-          return rpc
-            .channel(peer)
-            .send(makeLoginStart({auth}))
-            .receive<WithEvent<LoginOptions>>((message, resolve) => {
-              if (isLoginOptions(message)) {
-                resolve(message)
-              }
-            })
-        }
-      }),
+            return rpc.post<LoginStartResponse>(url, "/login/start", {auth})
+          }
+        }),
+      ),
     )
-
-    rpc.stop()
 
     return this._buildOptions(clientSecret, messages, "total")
   }
@@ -315,51 +255,29 @@ export class Client {
     const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
-      peers.map((peer, i) => {
-        return rpc
-          .channel(peer)
-          .send(makeLoginSelect({client}))
-          .receive<WithEvent<LoginResult>>((message, resolve) => {
-            if (isLoginResult(message)) {
-              resolve(message)
-            }
-          })
-      }),
+      peers.map(url => rpc.post<LoginSelectResponse>(url, "/login/select", {client})),
     )
 
-    rpc.stop()
-
-    const group = messages.find(m => m?.payload.group)?.payload.group
-    const ok = Boolean(group && messages.every(m => m?.payload.ok))
+    const group = messages.find(m => m.res?.group)?.res?.group
+    const ok = Boolean(group && messages.every(m => m.res?.ok))
     const clientOptions = ok ? ({group, peers, secret: clientSecret} as ClientOptions) : undefined
 
     return {ok, messages, clientOptions}
   }
-
-  // Recovery
 
   static async recoverWithPassword(email: string, password: string) {
     const clientSecret = makeSecret()
     const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
-      Client._getKnownPeers().map(async (peer, i) => {
-        const email_hash = await hashEmail(email, peer)
-        const password_hash = await hashPassword(email, password, peer)
+      Client._getKnownPeers().map(async url => {
+        const email_hash = await hashEmail(email, url)
+        const password_hash = await hashPassword(email, password, url)
         const auth = {email_hash, password_hash}
 
-        return rpc
-          .channel(peer)
-          .send(makeRecoveryStart({auth}))
-          .receive<WithEvent<RecoveryOptions>>((message, resolve) => {
-            if (isRecoveryOptions(message)) {
-              resolve(message)
-            }
-          })
+        return rpc.post<RecoveryStartResponse>(url, "/recovery/start", {auth})
       }),
     )
-
-    rpc.stop()
 
     return this._buildOptions(clientSecret, messages, "threshold")
   }
@@ -372,27 +290,20 @@ export class Client {
     const clientSecret = makeSecret()
     const rpc = RPC.fromSecret(clientSecret)
 
-    const messages = await Promise.all(
-      otps.map(async otp => {
-        const peer = peersByPrefix.get(otp.slice(0, 2))
+    const messages = removeUndefined(
+      await Promise.all(
+        otps.map(async otp => {
+          const url = peersByPrefix.get(otp.slice(0, 2))
 
-        if (peer) {
-          const email_hash = await hashEmail(email, peer)
-          const auth = {email_hash, otp}
+          if (url) {
+            const email_hash = await hashEmail(email, url)
+            const auth = {email_hash, otp}
 
-          return rpc
-            .channel(peer)
-            .send(makeRecoveryStart({auth}))
-            .receive<WithEvent<RecoveryOptions>>((message, resolve) => {
-              if (isRecoveryOptions(message)) {
-                resolve(message)
-              }
-            })
-        }
-      }),
+            return rpc.post<RecoveryStartResponse>(url, "/recovery/start", {auth})
+          }
+        }),
+      ),
     )
-
-    rpc.stop()
 
     return this._buildOptions(clientSecret, messages, "threshold")
   }
@@ -401,29 +312,17 @@ export class Client {
     const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
-      peers.map(peer => {
-        return rpc
-          .channel(peer)
-          .send(makeRecoverySelect({client}))
-          .receive<WithEvent<RecoveryResult>>((message, resolve) => {
-            if (isRecoveryResult(message)) {
-              resolve(message)
-            }
-          })
-      }),
+      peers.map(url => rpc.post<RecoverySelectResponse>(url, "/recovery/select", {client})),
     )
 
-    rpc.stop()
-
-    const group = messages.find(m => m?.payload.group)?.payload.group
-    const shares = removeUndefined(messages.map(m => m?.payload.share))
+    const group = messages.find(m => m.res?.group)?.res?.group
+    const shares = removeUndefined(messages.map(m => m.res?.share))
     const userSecret = tryCatch(() => Lib.recover_secret_key(group!, shares))
 
     return {ok: Boolean(userSecret), messages, userSecret}
   }
 
   async sign(stampedEvent: StampedEvent) {
-    // TODO: optimize this so that all signers are asked, but only the fastest results get used
     const {threshold, commits} = this.group
     const event = prep(stampedEvent, this.userPubkey)
     const members = sample(threshold, commits).map(c => c.idx)
@@ -435,22 +334,15 @@ export class Client {
 
     const messages = await Promise.all(
       members.map(idx => {
-        const peer = this.peers[idx - 1]!
+        const url = this.peers[idx - 1]!
 
-        return this.rpc
-          .channel(peer)
-          .send(makeSignRequest({request}))
-          .receive<WithEvent<SignResult>>((message, resolve) => {
-            if (isSignResult(message)) {
-              resolve(message)
-            }
-          })
+        return this.rpc.post<SignResponse>(url, "/sign", {request})
       }),
     )
 
-    if (messages.every(m => m?.payload.ok)) {
+    if (messages.every(m => m.res?.ok)) {
       const ctx = Lib.get_session_ctx(this.group, request)
-      const pkgs = messages.map(m => m!.payload.result!)
+      const pkgs = messages.map(m => m.res!.result!)
       const sig = Lib.combine_signature_pkgs(ctx, pkgs)[0]?.[2]
 
       if (sig) {
@@ -462,22 +354,16 @@ export class Client {
   }
 
   async getConversationKey(ecdh_pk: string) {
-    // TODO: optimize this so that all signers are asked, but only the fastest results get used
     const {threshold, commits} = this.group
     const members = sample(threshold, commits).map(c => c.idx)
 
     const results = await Promise.all(
       members.map(idx => {
-        const peer = this.peers[idx - 1]!
-        const channel = this.rpc.channel(peer)
+        const url = this.peers[idx - 1]!
 
-        return channel
-          .send(makeEcdhRequest({idx, members, ecdh_pk}))
-          .receive<ECDHPackage>((message, resolve) => {
-            if (isEcdhResult(message)) {
-              resolve(message.payload.result)
-            }
-          })
+        return this.rpc
+          .post<EcdhResponse>(url, "/ecdh", {idx, members, ecdh_pk})
+          .then(r => r.res?.result)
       }),
     )
 
@@ -493,44 +379,24 @@ export class Client {
   }
 
   async listSessions() {
-    const messages = await Promise.all(
-      Client._getKnownPeers().map(async (peer, i) => {
-        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.SessionList))
+    const userRpc = new RPC(new PomadeSigner(this))
 
-        if (auth) {
-          return this.rpc
-            .channel(peer)
-            .send(makeSessionList({auth}))
-            .receive<WithEvent<SessionListResult>>((message, resolve) => {
-              if (isSessionListResult(message)) {
-                resolve(message)
-              }
-            })
-        }
-      }),
+    const messages = await Promise.all(
+      Client._getKnownPeers().map(url =>
+        userRpc.post<SessionListResponse>(url, "/session/list", {}),
+      ),
     )
 
-    return {ok: messages.every(m => m?.payload.ok), messages}
+    return {ok: messages.every(m => m.res?.ok), messages}
   }
 
   async deleteSession(client: string, peers: string[]) {
-    const messages = await Promise.all(
-      peers.map(async (peer, i) => {
-        const {event: auth} = await this.sign(await makeHttpAuth(peer, Method.SessionDelete))
+    const userRpc = new RPC(new PomadeSigner(this))
 
-        if (auth) {
-          return this.rpc
-            .channel(peer)
-            .send(makeSessionDelete({client, auth}))
-            .receive<WithEvent<SessionDeleteResult>>((message, resolve) => {
-              if (isSessionDeleteResult(message)) {
-                resolve(message)
-              }
-            })
-        }
-      }),
+    const messages = await Promise.all(
+      peers.map(url => userRpc.post<SessionDeleteResponse>(url, "/session/delete", {client})),
     )
 
-    return {ok: messages.every(m => m?.payload.ok), messages}
+    return {ok: messages.every(m => m.res?.ok), messages}
   }
 }
