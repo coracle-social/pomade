@@ -12,73 +12,62 @@ WARNING: this project should be considered ALPHA, and not ready for use in produ
 
 ### Client
 
-A _client_ is an application that can be trusted to (temporarily) handle key material and request signatures on a user's behalf. A client identifies itself to signers by a freshly generated session-specific nostr public key.
+A _client_ is an application that can be trusted to (temporarily) handle key material and request signatures on a user's behalf. A client identifies itself to signers using NIP 98 HTTP AUTH with a freshly generated session-specific nostr keypair (a `client key`).
 
 ### Signer
 
-A _signer_ is a headless application that can be trusted to store key shares and collaborate in building threshold signatures. A signer is identified by a nostr public key. Communication is brokered following NIP 65. Signers are also responsible for sending OTP codes over email in some flows.
+A _signer_ is a headless application identified by a URL that can be trusted to store key shares and collaborate in building threshold signatures. Communication happens directly via HTTPS JSON POST requests. Signers are also responsible for sending OTP codes over email in some flows.
 
 ## Protocol Overview
 
-In order to protect message metadata, this protocol uses a single event kind, `28350`, for all requests. These events are `p`-tagged to the recipient, and their `content` is set to the nip44-encrypted JSON-encoded message. Messages contain a `method` that determines the semantics of its `payload`.
+Requests are POSTed to specific URL paths over HTTP, and MUST be accompanied by the following headers:
 
-```typescript
-{
-  kind: 28350,
-  pubkey: author,
-  content: nip44_encrypt({method, payload}),
-  tags: [["p", recipient]],
-  // other fields
-}
-```
+- A `Content-Type` header containing `application/json`
+- [NIP 98 HTTP AUTH](https://github.com/nostr-protocol/nips/blob/master/98.md) signed by either the `client key` or the `user key` depending on the endpoint.
+
+Request and response schemas are described below.
 
 ### Registration
 
-To create a new signing session, a client must first generate a new `client secret` which it will use to communicate with signers. This key MUST NOT be re-used, and MUST be distinct from the user's pubkey.
+To create a new signing session, a client must first generate a new `client secret` which it will use to communicate with signers. This key MUST NOT be re-used for multiple sessions, and MUST be distinct from the user's pubkey.
 
-The client then shards the user's `secret key` using FROST and registers each share with a different signer by creating a `register/request` event.
+The client then shards the user's `secret key` using FROST and registers each share with a different signer by sending a `register` request to the signer's URL.
 
-Registration events MUST include at least 20 bits of proof of work as defined in [NIP-13](https://github.com/nostr-protocol/nips/blob/master/13.md). This requirement helps prevent spam and denial-of-service attacks against signers.
+Registration requests MUST include at least 20 bits of proof of work as defined in [NIP-13](https://github.com/nostr-protocol/nips/blob/master/13.md) in the NIP 98 authorization event. This requirement helps prevent spam and denial-of-service attacks against signers.
 
 ```typescript
+POST /register
 {
-  method: "register/request"
-  payload: {
-    share: {
+  share: {
+    idx: number // commit index
+    binder_sn: string // 32 byte hex string
+    hidden_sn: string // 32 byte hex string
+    seckey: string // 32 byte hex string
+  }
+  group: {
+    commits: Array<{
       idx: number // commit index
-      binder_sn: string // 32 byte hex string
-      hidden_sn: string // 32 byte hex string
-      seckey: string // 32 byte hex string
-    }
-    group: {
-      commits: Array<{
-        idx: number // commit index
-        pubkey: string // 33 byte hex string
-        hidden_pn: string // 33 byte hex string
-        binder_pn: string // 33 byte hex string
-      }>
-      group_pk: string // 33 byte hex string
-      threshold: number // integer signing threshold
-    }
-    recovery: boolean // whether recovery is enabled for this session
+      pubkey: string // 33 byte hex string
+      hidden_pn: string // 33 byte hex string
+      binder_pn: string // 33 byte hex string
+    }>
+    group_pk: string // 33 byte hex string
+    threshold: number // integer signing threshold
   }
+  recovery: boolean // whether recovery is enabled for this session
 }
 ```
 
-Each signer must then explicitly accept or (optionally) reject the share:
+Each signer must then explicitly accept or (optionally) reject the share by returning a response:
 
 ```typescript
 {
-  method: "register/result"
-  payload: {
-    ok: boolean // whether registration succeeded
-    message: string // a human-readable error/success message
-    prev: string // 32 byte hex id of request event
-  }
+  ok: boolean // whether registration succeeded
+  message: string // a human-readable error/success message
 }
 ```
 
-If a session exists with the same pubkey, signers SHOULD create a new session rather than replacing the old one or rejecting the new one.
+If a session exists with the same user pubkey, signers SHOULD create a new session rather than replacing the old one or rejecting the new one.
 
 The same signer MUST NOT be used multiple times for multiple shares of the same key. The same client key MUST NOT be used multiple times for different sessions.
 
@@ -87,37 +76,31 @@ The same signer MUST NOT be used multiple times for multiple shares of the same 
 When a client wants to sign an event, it must choose at least `threshold` signers and send a request to each signer:
 
 ```typescript
+POST /sign
 {
-  method: "sign/request"
-  payload: {
-    request: {
-      content: string | null   // optional metadata about the signing session
-      hashes: string[][]       // array of sighash vectors: [sighash, ...tweaks] for each message to sign
-      members: number[]        // array of participating member indices (commit indices)
-      stamp: number            // unix timestamp when the session was created
-      type: string             // session type identifier (e.g., "nostr-event", "message")
-      gid: string              // group id: 32 byte hash identifying the signing group
-      sid: string              // session id: 32 byte hash uniquely identifying this signing session
-    }
+  request: {
+    content: string | null   // optional metadata about the signing session
+    hashes: string[][]       // array of sighash vectors: [sighash, ...tweaks] for each message to sign
+    members: number[]        // array of participating member indices (commit indices)
+    stamp: number            // unix timestamp when the session was created
+    type: string             // session type identifier (e.g., "nostr-event", "message")
+    gid: string              // group id: 32 byte hash identifying the signing group
+    sid: string              // session id: 32 byte hash uniquely identifying this signing session
   }
 }
 ```
 
-The signer must then look up the session corresponding to the client's pubkey and respond:
+The signer must then look up the session corresponding to the authorized `client key` and respond:
 
 ```typescript
 {
-  method: "sign/result"
-  payload: {
-    result?: {
-      idx: number        // signer index
-      pubkey: string     // signer's hex public key (compressed, 33 bytes)
-      sid: string        // session id
-      psigs: string[][]  // array of partial signatures: [sighash, partial_signature]
-    }
-    ok: boolean          // whether the flow was successful
-    message: string      // human-readable error/success message
-    prev: string         // 32 byte hex encoded sign/request event id
+  ok: boolean          // whether the flow was successful
+  message: string      // human-readable error/success message
+  result?: {
+    idx: number        // signer index
+    pubkey: string     // signer's hex public key (compressed, 33 bytes)
+    sid: string        // session id
+    psigs: string[][]  // array of partial signatures: [sighash, partial_signature]
   }
 }
 ```
@@ -131,31 +114,25 @@ In order asymmetrically encrypt or decrypt a payload, a shared secret must be de
 When a client wants to encrypt or an event, it must choose at least `threshold` signers and ask for a shared secret:
 
 ```typescript
+POST /ecdh
 {
-  method: "ecdh/request"
-  payload: {
-    idx: number       // signer index
-    members: number[] // array of participating member indices (commit indices)
-    ecdh_pk: string   // 32 byte hex encoded counterparty pubkey
-  }
+  idx: number       // signer index
+  members: number[] // array of participating member indices (commit indices)
+  ecdh_pk: string   // 32 byte hex encoded counterparty pubkey
 }
 ```
 
-The signer must then look up the session corresponding to the client's pubkey and respond:
+The signer must then look up the session corresponding to the authorized `client key` and respond:
 
 ```typescript
 {
-  method: "ecdh/result"
-  payload: {
-    result?: {
-      idx: number            // signer index
-      keyshare: string       // shared secret for use in encryption
-      members: number[]      // array of participating member indices (commit indices)
-      ecdh_pk: string        // hex encoded counterparty pubkey
-    },
-    ok: boolean              // whether the flow was successful
-    message: string          // human-readable error/success message
-    prev: string             // 32 byte hex encoded ecdh/request event id
+  ok: boolean              // whether the flow was successful
+  message: string          // human-readable error/success message
+  result?: {
+    idx: number            // signer index
+    keyshare: string       // shared secret for use in encryption
+    members: number[]      // array of participating member indices (commit indices)
+    ecdh_pk: string        // hex encoded counterparty pubkey
   }
 }
 ```
@@ -183,12 +160,10 @@ Users MAY set a recovery method by sending a request to the signers for a given 
 Clients SHOULD validate the user's email address prior to sending it to the signers.
 
 ```typescript
+POST /recovery/setup
 {
-  method: "recovery/setup"
-  payload: {
-    email: string          // user's email address
-    password_hash: string  // argon2id(email || password, signer pubkey, t=3, m=65536, p=2)
-  }
+  email: string          // user's email address
+  password_hash: string  // argon2id(email || password, signer url, t=3, m=65536, p=2)
 }
 ```
 
@@ -198,12 +173,8 @@ Signers must respond as follows:
 
 ```typescript
 {
-  method: "recovery/setup/result"
-  payload: {
-    ok: boolean      // whether the flow was successful
-    message: string  // human-readable error/success message
-    prev: string     // 32 byte hex encoded recovery/setup event id
-  }
+  ok: boolean      // whether the flow was successful
+  message: string  // human-readable error/success message
 }
 ```
 
@@ -211,9 +182,9 @@ A recovery method MUST be set within a short time (e.g., 15 minutes) of registra
 
 #### Password Authentication
 
-In order to authenticate with a password, the client must calculate both `argon2id(email, signer pubkey, t=3, m=65536, p=2)` and `argon2id(email || password, signer pubkey, t=3, m=65536, p=2)` and send it in the `auth` payload as `{email_hash, password_hash}`.
+In order to authenticate with a password, the client must calculate both `argon2id(email, signer url, t=3, m=65536, p=2)` and `argon2id(email || password, signer url, t=3, m=65536, p=2)` and send it in the `auth` payload as `{email_hash, password_hash}`.
 
-Because it's not known at this point which signers hold the user's key shares, clients will have to send this payload to all known signers. In order to prevent signers from logging in to one another, the signer pubkey is used as the salt. The email is concatenated with the password before hashing to prevent cross-account correlation, ensuring that the same password produces different hashes for different users. Signers MUST validate that the `password_hash` sent on setup is a 32 byte hex string. Clients MUST ensure that users pick strong passwords.
+Because it's not known at this point which signers hold the user's key shares, clients will have to send this payload to all known signers. In order to prevent signers from logging in to one another, the signer URL is used as the salt. The email is concatenated with the password before hashing to prevent cross-account correlation, ensuring that the same password produces different hashes for different users. Signers MUST validate that the `password_hash` sent on setup is a 32 byte hex string. Clients MUST ensure that users pick strong passwords.
 
 #### One-Time Password Authentication
 
@@ -222,48 +193,53 @@ In order to authenticate with only an email address (in the case of the user for
 The client first chooses the signers it wishes to authenticate with and generates a unique two-digit integer OTP prefix for each one. It then sends a request for a one-time-password to each one:
 
 ```typescript
+POST /challenge
 {
-  method: "challenge/request"
-  payload: {
-    prefix: string              // random 2-digit OTP prefix
-    email_hash: string          // argon2id(email, signer pubkey, t=3, m=65536, p=2)
-  }
+  prefix: string              // random 2-digit OTP prefix
+  email_hash: string          // argon2id(email, signer url, t=3, m=65536, p=2)
 }
 ```
 
-In order to avoid leaking the user's email address to signers, the email should be hashed using `argon2id(email, signer pubkey, t=3, m=65536, p=2)`. This allows the signers that already know the user's email to look it up quickly, but makes it difficult to brute force it for others.
+Signers must respond as follows:
+
+```typescript
+{
+  ok: boolean      // MUST be true to prevent probing for email
+  message: string  // MUST always be the same success message
+}
+```
+
+In order to avoid leaking the user's email address to signers not already in posession of it, the email should be hashed using `argon2id(email, signer url, t=3, m=65536, p=2)`. This allows the signers that already know the user's email to look it up quickly, but makes it difficult to brute force it for others.
 
 If this is used for recovery from an active session, the client should only send this request to the selected signers. If used for logging in after a password has been forgotten, it won't be known which signers hold the user's key shares, so clients will have to send this request to all known signers. As a result, if a user has multiple active sessions they may receive more than `total` OTPs. Clients should handle this by allowing the user to paste any number of OTPs, or by keeping track out of band which signers were used for a given email address.
 
-Signers do not respond, since they should not indicate whether the user's email has been found anyway. Instead, each signer sends an email to the user containing an OTP constructed by concatenating the client-provided prefix with at least 6 additional random digits. The user must then copy this into the requesting client.
+Each signer sends an email to the user containing an OTP constructed by concatenating the client-provided prefix with at least 6 additional random digits. The user must then copy this into the requesting client.
 
 The client must then identify which signer each OTP should be sent to using each code's prefix. OTPs MUST be invalidated after a single use, and MUST expire after a short time (but long enough for users to complete a given flow, e.g. 15 minutes).
 
 #### Auth Payload
 
-Below is a definition for payloads' `auth` key, including either password-based or OTP authentication:
+Below is a definition for payloads' `auth` key as used in login/recovery requests below which covers both password-based and OTP authentication:
 
 ```typescript
 type AuthPayload =
   {
-    email_hash: string        // argon2id(email, signer pubkey, t=3, m=65536, p=2)
-    password_hash: string     // argon2id(email || password, signer pubkey, t=3, m=65536, p=2)
+    email_hash: string        // argon2id(email, signer url, t=3, m=65536, p=2)
+    password_hash: string     // argon2id(email || password, signer url, t=3, m=65536, p=2)
   } | {
-    email_hash: string        // argon2id(email, signer pubkey, t=3, m=65536, p=2)
+    email_hash: string        // argon2id(email, signer url, t=3, m=65536, p=2)
     otp: string               // OTP obtained via email flow
   }
 ```
 
 ### Login
 
-To recover remote access to the user's secret by email alone, a client can send a request to all known signers using a fresh `client key` to initiate the login flow. This request is authenticated using the user's email and password/otp. Subsequent requests MUST use the same `client key` in order to be considered valid.
+To recover remote access to the user's secret by email alone, a client can send a request to all known signers using a fresh `client key` to initiate the login flow. This request is authenticated using the user's email and password/otp in the payload, in addition to NIP 98 HTTP AUTH. Subsequent requests MUST use the same `client key` in order to be considered valid.
 
 ```typescript
+POST /login/start
 {
-  method: "login/start"
-  payload: {
-    auth: AuthPayload
-  }
+  auth: AuthPayload
 }
 ```
 
@@ -271,33 +247,27 @@ Signers should respond with a list of sessions that the client can log into:
 
 ```typescript
 {
-  method: "login/options"
-  payload: {
-    items?: {
-      pubkey: string         // 32 byte hex encoded user pubkey
-      client: string         // 32 byte hex encoded client pubkey (doubles as session id)
-      created_at: number     // seconds-resolution timestamp when the session was created
-      last_activity: number  // seconds-resolution timestamp when the session was last used
-      threshold: number      // signing threshold for the group
-      total: number          // how many total signers are in the group
-      idx: number            // the signer's index in the signing group
-      email?: string         // recovery email
-    }[],
-    ok: boolean              // whether the flow was successful
-    message: string          // human-readable error/success message
-    prev: string             // 32 byte hex encoded login/start event id
-  }
+  ok: boolean              // whether the flow was successful
+  message: string          // human-readable error/success message
+  items?: {
+    pubkey: string         // 32 byte hex encoded user pubkey
+    client: string         // 32 byte hex encoded client pubkey (doubles as session id)
+    created_at: number     // seconds-resolution timestamp when the session was created
+    last_activity: number  // seconds-resolution timestamp when the session was last used
+    threshold: number      // signing threshold for the group
+    total: number          // how many total signers are in the group
+    idx: number            // the signer's index in the signing group
+    email?: string         // recovery email
+  }[]
 }
 ```
 
 Clients should then select a `client` and notify the signer:
 
 ```typescript
+POST /login/select
 {
-  method: "login/select"
-  payload: {
-    client: string
-  }
+  client: string
 }
 ```
 
@@ -305,37 +275,31 @@ Signers should respond as follows:
 
 ```typescript
 {
-  method: "login/result"
-  payload: {
-    group?: {
-      commits: Array<{
-        idx: number          // commit index
-        pubkey: string       // 33 byte hex string
-        hidden_pn: string    // 33 byte hex string
-        binder_pn: string    // 33 byte hex string
-      }>
-      group_pk: string       // 33 byte hex string
-      threshold: number      // integer signing threshold
-    }
-    ok: boolean              // whether the flow was successful
-    message: string          // human-readable error/success message
-    prev: string             // 32 byte hex encoded login/select event id
+  ok: boolean              // whether the flow was successful
+  message: string          // human-readable error/success message
+  group?: {
+    commits: Array<{
+      idx: number          // commit index
+      pubkey: string       // 33 byte hex string
+      hidden_pn: string    // 33 byte hex string
+      binder_pn: string    // 33 byte hex string
+    }>
+    group_pk: string       // 33 byte hex string
+    threshold: number      // integer signing threshold
   }
 }
 ```
 
-Signers SHOULD NOT associate the new `client key` with the existing session, but instead should create an entirely new session with the key used to sign the request as the authorized `client key`.
+Signers SHOULD NOT associate the new `client key` with the existing session, but instead should create an entirely new session with the authorized `client key`.
 
 ### Recovery
 
-To recover a user's secret key by email alone, a client can send a request to all known signers to initiate a recovery flow. This request is authenticated using the user's email and password/otp. Subsequent requests MUST use the same `client key` in order to be considered valid.
+To recover a user's secret key by email alone, a client can send a request to all known signers to initiate a recovery flow. This request is authenticated using the user's email and password/otp in the payload in addition to NIP 98 HTTP AUTH. Subsequent requests MUST use the same `client key` in order to be considered valid.
 
 ```typescript
+POST /recovery/start
 {
-  method: "recovery/start"
-  payload: {
-    auth: AuthPayload
-  }
+  auth: AuthPayload
 }
 ```
 
@@ -343,33 +307,27 @@ Signers should respond with a list of sessions that the client can recover from:
 
 ```typescript
 {
-  method: "recovery/options"
-  payload: {
-    items?: {
-      pubkey: string         // 32 byte hex encoded user pubkey
-      client: string         // 32 byte hex encoded client pubkey (doubles as session id)
-      created_at: number     // seconds-resolution timestamp when the session was created
-      last_activity: number  // seconds-resolution timestamp when the session was last used
-      threshold: number      // signing threshold for the group
-      total: number          // how many total signers are in the group
-      idx: number            // the signer's index in the signing group
-      email?: string         // recovery email
-    }[],
-    ok: boolean              // whether the flow was successful
-    message: string          // human-readable error/success message
-    prev: string             // 32 byte hex encoded login/start event id
-  }
+  ok: boolean              // whether the flow was successful
+  message: string          // human-readable error/success message
+  items?: {
+    pubkey: string         // 32 byte hex encoded user pubkey
+    client: string         // 32 byte hex encoded client pubkey (doubles as session id)
+    created_at: number     // seconds-resolution timestamp when the session was created
+    last_activity: number  // seconds-resolution timestamp when the session was last used
+    threshold: number      // signing threshold for the group
+    total: number          // how many total signers are in the group
+    idx: number            // the signer's index in the signing group
+    email?: string         // recovery email
+  }[]
 }
 ```
 
 Clients should then select a `client` and notify the signer:
 
 ```typescript
+POST /recovery/select
 {
-  method: "recovery/select"
-  payload: {
-    client: string
-  }
+  client: string
 }
 ```
 
@@ -377,28 +335,24 @@ Signers should respond as follows:
 
 ```typescript
 {
-  method: "recovery/result"
-  payload: {
-    share?: {
-      idx: number            // commit index
-      binder_sn: string      // 32 byte hex string
-      hidden_sn: string      // 32 byte hex string
-      seckey: string         // 32 byte hex string
-    }
-    group?: {
-      commits: Array<{
-        idx: number          // commit index
-        pubkey: string       // 33 byte hex string
-        hidden_pn: string    // 33 byte hex string
-        binder_pn: string    // 33 byte hex string
-      }>
-      group_pk: string       // 33 byte hex string
-      threshold: number      // integer signing threshold
-    }
-    ok: boolean              // whether the flow was successful
-    message: string          // human-readable error/success message
-    prev: string             // 32 byte hex encoded recovery/select event id
+  share?: {
+    idx: number            // commit index
+    binder_sn: string      // 32 byte hex string
+    hidden_sn: string      // 32 byte hex string
+    seckey: string         // 32 byte hex string
   }
+  group?: {
+    commits: Array<{
+      idx: number          // commit index
+      pubkey: string       // 33 byte hex string
+      hidden_pn: string    // 33 byte hex string
+      binder_pn: string    // 33 byte hex string
+    }>
+    group_pk: string       // 33 byte hex string
+    threshold: number      // integer signing threshold
+  }
+  ok: boolean              // whether the flow was successful
+  message: string          // human-readable error/success message
 }
 ```
 
@@ -406,49 +360,38 @@ The client can then reconstitute the user's private key. This flow does not resu
 
 ### Session management
 
-A user can request all active sessions for their pubkey by requesting them from all known signers (not just the ones the user is currently using). This message is authenticated not based on the signing `client`, but based on a NIP 98 event signed by the user's own key with the signer's pubkey as the `u` tag and "session/list" as the `method`. The event's timestamp MUST be current to avoid replay attacks.
+A user can request all active sessions for their pubkey by requesting them from all known signers (not just the ones the user is currently using). This message is authenticated using NIP 98 HTTP AUTH signed by **the user's own key**.
 
 ```typescript
-{
-  method: "session/list"
-  payload: {
-    auth: SignedEvent // NIP 98 auth event signed by user
-  }
-}
+POST /session/list
+{}
 ```
 
 Each signer must then respond with a list of sessions for the given user:
 
 ```typescript
 {
-  method: "session/list/result"
-  payload: {
-    items: {
-      pubkey: string         // 32 byte hex encoded user pubkey
-      client: string         // 32 byte hex encoded client pubkey (doubles as session id)
-      created_at: number     // seconds-resolution timestamp when the session was created
-      last_activity: number  // seconds-resolution timestamp when the session was last used
-      threshold: number      // signing threshold for the group
-      total: number          // how many total signers are in the group
-      idx: number            // the signer's index in the signing group
-      email?: string         // recovery email
-    }[]
-    ok: boolean              // whether the flow was successful
-    message: string          // human-readable error/success message
-    prev: string             // 32 byte hex encoded session/list event id
-  }
+  ok: boolean              // whether the flow was successful
+  message: string          // human-readable error/success message
+  items: {
+    pubkey: string         // 32 byte hex encoded user pubkey
+    client: string         // 32 byte hex encoded client pubkey (doubles as session id)
+    created_at: number     // seconds-resolution timestamp when the session was created
+    last_activity: number  // seconds-resolution timestamp when the session was last used
+    threshold: number      // signing threshold for the group
+    total: number          // how many total signers are in the group
+    idx: number            // the signer's index in the signing group
+    email?: string         // recovery email
+  }[]
 }
 ```
 
-These results may then be aggregated across all signers and displayed to the user. If a user wishes to log out of a session, they may send a session deletion request to the signers in question. This message is authenticated not based on the signing `client`, but based on a NIP 98 event signed by the user's own key with the signer's pubkey as the `u` tag and "session/delete" as the `method`. The event's timestamp MUST be current to avoid replay attacks.
+These results may then be aggregated across all signers and displayed to the user. If a user wishes to log out of a session, they may send a session deletion request to the signers in question. This message is authenticated using NIP 98 HTTP AUTH signed by **the user's own key**.
 
 ```typescript
+POST /session/delete
 {
-  method: "session/delete"
-  payload: {
-    client: string // 32 byte hex encoded client pubkey
-    auth: SignedEvent // NIP 98 auth event signed by user
-  }
+  client: string // 32 byte hex encoded client pubkey
 }
 ```
 
@@ -456,18 +399,14 @@ Signers should then respond by confirming the deletion:
 
 ```typescript
 {
-  method: "session/delete/result"
-  payload: {
-    ok: boolean // whether the deletion was successful
-    message: string // human-readable error/success message
-    prev: string // 32 byte hex encoded session/delete event id
-  }
+  ok: boolean // whether the deletion was successful
+  message: string // human-readable error/success message
 }
 ```
 
 ## Implementation Details
 
-This implementation uses @frostr/bifrost for all cryptographic functionality.
+This implementation uses @frostr/bifrost as the standard for all cryptographic functionality.
 
 If a user wishes to change their email or password for a given session, they should go through the `login` flow and set their new recovery information on the new session, optionally deleting the previous session afterwards.
 
