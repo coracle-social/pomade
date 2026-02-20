@@ -1,0 +1,23 @@
+[package]
+name = "frost-taproot"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+k256 = { version = "0.13", features = ["arithmetic", "hash2curve", "schnorr"] }
+sha2 = "0.10"
+hmac = "0.12"
+rand = "0.8"
+thiserror = "1"
+signature = "2"
+
+[dev-dependencies]
+hex = "0.4"
+
+[[test]]
+name = "interop"
+path = "tests/integration/interop.rs"
+
+[[test]]
+name = "flows"
+path = "tests/integration/flows.rs"

@@ -9,3 +9,4 @@ runlocal
 *.db-wal
 *.db-shm
 test-runner-profile
+target

@@ -14,10 +14,12 @@ For protocol specification and implementation details, see [PROTOCOL.md](PROTOCO
 
 ## Structure
 
-This monorepo contains four packages:
+This monorepo contains several packages:
 
-- **[@pomade/core](packages/core)** - Core library with client and signer classes, types, and interfaces
-- **[@pomade/signer](packages/signer)** - Standalone signer service for managing multisig sessions
+- **[frost-taproot](frost-taproot)** - Rust implementation of BIP-340 FROST signatures including trusted key dealer and DKG flows, compatible with the @cmdruid/frost typescript implementation
+- **[@pomade/core](packages/core)** - Core typescript library with client and signer classes
+- **[pomade-signer](pomade-signer)** - Rust signer implementation (recommended)
+- **[@pomade/signer](packages/signer)** - Typescript signer implementation
 
 ## Getting Started
 
