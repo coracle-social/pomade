@@ -388,7 +388,10 @@ export class Signer {
     })
   }
 
-  async _handleRecoverySetup({pubkey: client}: SignedEvent, data: RecoverySetupRequest): Promise<RecoverySetupResponse> {
+  async _handleRecoverySetup(
+    {pubkey: client}: SignedEvent,
+    data: RecoverySetupRequest,
+  ): Promise<RecoverySetupResponse> {
     return this.options.storage.tx(async () => {
       const session = await this.sessions.get(client)
 
@@ -472,7 +475,10 @@ export class Signer {
     return {ok: true, message: "Please check your email inbox for a one-time password."}
   }
 
-  async _handleRecoveryStart({pubkey: client}: SignedEvent, data: RecoveryStartRequest): Promise<RecoveryStartResponse> {
+  async _handleRecoveryStart(
+    {pubkey: client}: SignedEvent,
+    data: RecoveryStartRequest,
+  ): Promise<RecoveryStartResponse> {
     return this.options.storage.tx(async () => {
       if (await this._checkKeyReuse(client)) {
         return {ok: false, message: "Do not re-use session keys."}
@@ -496,7 +502,10 @@ export class Signer {
     })
   }
 
-  async _handleRecoverySelect({pubkey: client}: SignedEvent, data: RecoverySelectRequest): Promise<RecoverySelectResponse> {
+  async _handleRecoverySelect(
+    {pubkey: client}: SignedEvent,
+    data: RecoverySelectRequest,
+  ): Promise<RecoverySelectResponse> {
     const recovery = await this.recoveries.get(client)
 
     if (!recovery) {
@@ -528,7 +537,10 @@ export class Signer {
     }
   }
 
-  async _handleLoginStart({pubkey: client}: SignedEvent, data: LoginStartRequest): Promise<LoginStartResponse> {
+  async _handleLoginStart(
+    {pubkey: client}: SignedEvent,
+    data: LoginStartRequest,
+  ): Promise<LoginStartResponse> {
     return this.options.storage.tx(async () => {
       if (await this._checkKeyReuse(client)) {
         return {ok: false, message: "Do not re-use session keys."}
@@ -552,7 +564,10 @@ export class Signer {
     })
   }
 
-  async _handleLoginSelect({pubkey: client}: SignedEvent, data: LoginSelectRequest): Promise<LoginSelectResponse> {
+  async _handleLoginSelect(
+    {pubkey: client}: SignedEvent,
+    data: LoginSelectRequest,
+  ): Promise<LoginSelectResponse> {
     const login = await this.logins.get(client)
 
     if (!login) {
@@ -622,7 +637,10 @@ export class Signer {
     })
   }
 
-  async _handleEcdh({pubkey: client}: SignedEvent, {members, ecdh_pk}: EcdhRequest): Promise<EcdhResponse> {
+  async _handleEcdh(
+    {pubkey: client}: SignedEvent,
+    {members, ecdh_pk}: EcdhRequest,
+  ): Promise<EcdhResponse> {
     return this.options.storage.tx(async () => {
       const session = await this.sessions.get(client)
 
@@ -652,7 +670,10 @@ export class Signer {
     })
   }
 
-  async _handleSessionList({pubkey}: SignedEvent, _data: Record<string, never>): Promise<SessionListResponse> {
+  async _handleSessionList(
+    {pubkey}: SignedEvent,
+    _data: Record<string, never>,
+  ): Promise<SessionListResponse> {
     const items: SessionListResponse["items"] = []
     for (const [_, session] of await this.sessions.entries()) {
       if (session.group.group_pk.slice(2) === pubkey) {
@@ -665,7 +686,10 @@ export class Signer {
     return {items, ok: true, message: "Successfully retrieved session list."}
   }
 
-  async _handleSessionDelete({pubkey}: SignedEvent, data: SessionDeleteRequest): Promise<SessionDeleteResponse> {
+  async _handleSessionDelete(
+    {pubkey}: SignedEvent,
+    data: SessionDeleteRequest,
+  ): Promise<SessionDeleteResponse> {
     return this.options.storage.tx(async () => {
       const session = await this.sessions.get(data.client)
 
@@ -715,21 +739,51 @@ export class Signer {
       case "/ecdh":
         return this._handle(auth, body, Schema.ecdhRequest, this._handleEcdh.bind(this))
       case "/login/select":
-        return this._handle(auth, body, Schema.loginSelectRequest, this._handleLoginSelect.bind(this))
+        return this._handle(
+          auth,
+          body,
+          Schema.loginSelectRequest,
+          this._handleLoginSelect.bind(this),
+        )
       case "/login/start":
         return this._handle(auth, body, Schema.loginStartRequest, this._handleLoginStart.bind(this))
       case "/recovery/select":
-        return this._handle(auth, body, Schema.recoverySelectRequest, this._handleRecoverySelect.bind(this))
+        return this._handle(
+          auth,
+          body,
+          Schema.recoverySelectRequest,
+          this._handleRecoverySelect.bind(this),
+        )
       case "/recovery/setup":
-        return this._handle(auth, body, Schema.recoverySetupRequest, this._handleRecoverySetup.bind(this))
+        return this._handle(
+          auth,
+          body,
+          Schema.recoverySetupRequest,
+          this._handleRecoverySetup.bind(this),
+        )
       case "/recovery/start":
-        return this._handle(auth, body, Schema.recoveryStartRequest, this._handleRecoveryStart.bind(this))
+        return this._handle(
+          auth,
+          body,
+          Schema.recoveryStartRequest,
+          this._handleRecoveryStart.bind(this),
+        )
       case "/register":
         return this._handle(auth, body, Schema.registerRequest, this._handleRegister.bind(this))
       case "/session/delete":
-        return this._handle(auth, body, Schema.sessionDeleteRequest, this._handleSessionDelete.bind(this))
+        return this._handle(
+          auth,
+          body,
+          Schema.sessionDeleteRequest,
+          this._handleSessionDelete.bind(this),
+        )
       case "/session/list":
-        return this._handle(auth, body, Schema.sessionListRequest, this._handleSessionList.bind(this))
+        return this._handle(
+          auth,
+          body,
+          Schema.sessionListRequest,
+          this._handleSessionList.bind(this),
+        )
       case "/sign":
         return this._handle(auth, body, Schema.signRequest, this._handleSign.bind(this))
       default:

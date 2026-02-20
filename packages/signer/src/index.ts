@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
 import "dotenv/config"
-import {call, on} from '@welshman/lib'
-import {Socket, SocketEvent, SocketStatus} from '@welshman/net'
+import http from "node:http"
 import {Nip01Signer} from "@welshman/signer"
 import {Signer, context} from "@pomade/core"
 import {sqliteStorage} from "./storage.js"
@@ -13,7 +12,8 @@ context.debug = true
 
 // Load configuration from environment variables
 const secret = process.env.POMADE_SECRET
-const relays = process.env.POMADE_RELAYS?.split(",") || []
+const url = process.env.POMADE_URL
+const port = parseInt(process.env.POMADE_PORT || "3000", 10)
 const dbPath = process.env.POMADE_DB_PATH || "./pomade-signer.db"
 
 // Validate required configuration
@@ -22,8 +22,8 @@ if (!secret) {
   process.exit(1)
 }
 
-if (relays.length === 0) {
-  console.error("Error: POMADE_RELAYS environment variable is required")
+if (!url) {
+  console.error("Error: POMADE_URL environment variable is required")
   process.exit(1)
 }
 
@@ -43,8 +43,8 @@ const signer = Nip01Signer.fromSecret(secret)
 const storage = sqliteStorage({path: dbPath, signer})
 
 const service = new Signer({
+  url,
   signer,
-  relays,
   storage,
   sendChallenge: async payload => {
     try {
@@ -55,11 +55,40 @@ const service = new Signer({
   },
 })
 
+const server = http.createServer(async (req, res) => {
+  if (req.method !== "POST") {
+    res.writeHead(405, {"Content-Type": "application/json"})
+    res.end(JSON.stringify({ok: false, message: "Method not allowed"}))
+    return
+  }
+
+  let body: Record<string, unknown> = {}
+  try {
+    const chunks: Buffer[] = []
+    for await (const chunk of req) chunks.push(chunk as Buffer)
+    const raw = Buffer.concat(chunks).toString()
+    if (raw) body = JSON.parse(raw)
+  } catch {
+    res.writeHead(400, {"Content-Type": "application/json"})
+    res.end(JSON.stringify({ok: false, message: "Invalid JSON"}))
+    return
+  }
+
+  const path = new URL(req.url || "/", url).pathname
+  const authHeader = req.headers["authorization"] || ""
+  const result = await service.handle(path, authHeader, body)
+
+  res.writeHead(200, {"Content-Type": "application/json"})
+  res.end(JSON.stringify(result))
+})
+
 signer.getPubkey().then((pubkey: string) => {
   console.log(`Running as: ${pubkey}`)
 })
 
-console.log(`Listening on relays: ${relays.join(", ")}`)
+server.listen(port, () => {
+  console.log(`Listening on port ${port} (${url})`)
+})
 
 // Handle unhandled rejections
 process.on("unhandledRejection", (reason, promise) => {
@@ -79,11 +108,11 @@ process.on("uncaughtException", (error) => {
 process.on("SIGINT", () => {
   console.log("\nShutting down signer service...")
   service.stop()
-  process.exit(0)
+  server.close(() => process.exit(0))
 })
 
 process.on("SIGTERM", () => {
   console.log("\nShutting down signer service...")
   service.stop()
-  process.exit(0)
+  server.close(() => process.exit(0))
 })
