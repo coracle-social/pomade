@@ -19,6 +19,7 @@ use axum::{
 };
 use clap::Parser;
 use serde_json::Value;
+use tokio::signal;
 use tower_http::cors::{Any, CorsLayer};
 
 use mailer::{
@@ -123,7 +124,7 @@ async fn main() {
         .allow_headers(Any);
 
     let app = Router::new()
-        .route("/{*path}", post(handle))
+        .route("/*path", post(handle))
         .with_state(signer)
         .layer(cors);
 
@@ -133,7 +134,32 @@ async fn main() {
 
     log::info!("listening on {}", args.listen);
 
-    axum::serve(listener, app).await.expect("server error");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .expect("server error");
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    log::info!("signal received, starting graceful shutdown");
 }
 
 async fn handle(

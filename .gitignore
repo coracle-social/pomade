@@ -11,4 +11,4 @@ runlocal
 test-runner-profile
 target
 ref
-signer3.sled
+signer*.sled

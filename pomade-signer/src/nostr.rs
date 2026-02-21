@@ -102,9 +102,9 @@ pub fn parse_auth(header: &str, url: &str, path: &str) -> Option<NostrEvent> {
     if event.kind != HTTP_AUTH {
         return None;
     }
-    // created_at must be within ±15 seconds of now
+    // created_at must be within ±60 seconds of now
     let t = event.created_at;
-    if t < now().saturating_sub(15) || t > now() + 5 {
+    if t < now().saturating_sub(60) || t > now() + 5 {
         return None;
     }
     let expected_url = format!("{}{}", url, path);

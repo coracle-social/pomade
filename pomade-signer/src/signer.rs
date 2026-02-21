@@ -462,13 +462,13 @@ impl Signer {
             SignerSession {
                 last_activity: now(),
                 email: Some(data.email),
-                email_hash: Some(email_hash),
+                email_hash: Some(email_hash.clone()),
                 password_hash: Some(data.password_hash),
                 ..session
             },
         );
 
-        log::debug!("[client {}]: recovery method initialized", &client[..8]);
+        log::debug!("[client {}]: recovery method initialized {}", &client[..8], &email_hash[..8]);
         RecoverySetupResponse {
             ok: true,
             message: "Recovery method successfully initialized.".into(),
@@ -517,7 +517,7 @@ impl Signer {
                 }
             }
         } else {
-            log::debug!("[challenge]: no session found for {}", &data.email_hash);
+            log::debug!("[challenge]: no session found for {}", &data.email_hash[..8]);
         }
 
         ChallengeResponse {
@@ -913,25 +913,46 @@ fn regex_is_hex64(s: &str) -> bool {
     s.len() == 64 && s.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
 }
 
-/// Simple email hash: SHA-256(email || signer_origin).
-/// The TS version uses argon2id; we use SHA-256 here as a placeholder
-/// since argon2 is not yet wired up.
+/// Email hash using argon2id to match TypeScript implementation.
+/// Uses argon2id with params: t=3, m=64*1024, p=2, hashLength=32
 fn hash_email(email: &str, url: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let origin = extract_origin(url);
-    let mut h = Sha256::new();
-    h.update(email.as_bytes());
-    h.update(origin.as_bytes());
-    hex::encode(h.finalize())
+    use argon2::{Argon2, Params, Version};
+
+    let params = Params::new(64 * 1024, 3, 2, Some(32)).expect("valid argon2 params");
+    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
+    
+    let mut output = [0u8; 32];
+    argon2
+        .hash_password_into(email.as_bytes(), url.as_bytes(), &mut output)
+        .expect("argon2 hash failed");
+    
+    hex::encode(output)
 }
 
-fn extract_origin(url: &str) -> &str {
-    // Minimal origin extraction: strip path after third slash
-    let after_scheme = url.find("://").map(|i| i + 3).unwrap_or(0);
-    let rest = &url[after_scheme..];
-    let end = rest
-        .find('/')
-        .map(|i| after_scheme + i)
-        .unwrap_or(url.len());
-    &url[..end]
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hash_email() {
+        let email = "test@example.com";
+        let url = "http://localhost:3002";
+        let hash = hash_email(email, url);
+        
+        // Hash should be 64 hex characters (32 bytes)
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+        
+        // Same inputs should produce same hash
+        let hash2 = hash_email(email, url);
+        assert_eq!(hash, hash2);
+        
+        // Different URL should produce different hash
+        let hash3 = hash_email(email, "http://localhost:3003");
+        assert_ne!(hash, hash3);
+        
+        println!("Email: {}", email);
+        println!("URL: {}", url);
+        println!("Hash: {}", hash);
+    }
 }

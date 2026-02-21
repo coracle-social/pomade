@@ -205,7 +205,7 @@ export class Signer {
       if (
         verifyEvent(auth) &&
         auth.kind === HTTP_AUTH &&
-        auth.created_at >= ago(15) &&
+        auth.created_at >= ago(60) &&
         auth.created_at <= now() + 5 &&
         getTagValue("u", auth.tags) === `${this.options.url}${path}` &&
         getTagValue("method", auth.tags) === "POST"
