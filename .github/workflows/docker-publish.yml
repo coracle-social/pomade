@@ -19,8 +19,10 @@ jobs:
     strategy:
       matrix:
         service:
-          - name: signer
+          - name: signer-ts
             dockerfile: packages/signer/Dockerfile
+          - name: signer-rust
+            dockerfile: pomade-signer/Dockerfile
 
     steps:
       - name: Checkout repository

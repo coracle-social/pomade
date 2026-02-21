@@ -1,3 +1,4 @@
+--ignore-dir=target
 --ignore-dir=context
 --ignore-dir=test-runner-profile
 --ignore-file=match:pnpm-lock.yaml

@@ -2,15 +2,7 @@
 
 Rust HTTP signer server for the Pomade protocol.
 
-## Features
-
-- **HTTP API** - Built with axum for high performance
-- **Sled storage** - Embedded database for session persistence
-- **Email recovery** - OTP-based recovery via email (Postmark, SendGrid, Mailgun, SendLayer, Resend)
-- **Password recovery** - Argon2id hashed password authentication
-- **Proof-of-work** - NIP-13 proof-of-work required for registration
-- **Rate limiting** - Per-client and per-email rate limiting
-- **Nostr auth** - NIP-42 HTTP authentication
+For protocol specification, see [PROTOCOL.md](../PROTOCOL.md)
 
 ## Configuration
 
@@ -35,13 +27,45 @@ Email provider specific variables:
 
 ## Running
 
+### From source
+
 ```bash
+cd pomade-signer
 SIGNER_URL=https://signer.example.com \
   MAIL_PROVIDER=resend \
   MAIL_FROM_EMAIL=mailer@example.com \
   MAIL_FROM_NAME="Nostr Signer" \
   RESEND_API_KEY=your_key \
   cargo run --release
+```
+
+### With Docker (from repository)
+
+```bash
+mkdir -p data
+docker build -f pomade-signer/Dockerfile -t pomade-signer-rust .
+docker run -v $(pwd)/data:/data \
+  -e SIGNER_URL=https://signer.example.com \
+  -e MAIL_PROVIDER=resend \
+  -e MAIL_FROM_EMAIL=mailer@example.com \
+  -e MAIL_FROM_NAME="Nostr Signer" \
+  -e RESEND_API_KEY=your_key \
+  -p 3000:3000 \
+  pomade-signer-rust
+```
+
+### From ghcr
+
+```bash
+mkdir -p data
+docker run -v $(pwd)/data:/data \
+  -e SIGNER_URL=https://signer.example.com \
+  -e MAIL_PROVIDER=resend \
+  -e MAIL_FROM_EMAIL=mailer@example.com \
+  -e MAIL_FROM_NAME="Nostr Signer" \
+  -e RESEND_API_KEY=your_key \
+  -p 3000:3000 \
+  ghcr.io/coracle-social/pomade-signer-rust:latest
 ```
 
 ## API Endpoints

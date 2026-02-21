@@ -2,6 +2,8 @@
 
 Standalone signer service for pomade. This service manages multisig sessions, handles signing requests, and coordinates recovery flows.
 
+For protocol specification, see [PROTOCOL.md](../../PROTOCOL.md)
+
 ## Configuration
 
 Required environment variables:
@@ -18,19 +20,39 @@ For detailed email provider configuration, see [MAILERS.md](../../MAILERS.md).
 
 ## Running
 
-From ghcr:
+### From source
 
-```sh
-mkdir -p data
-cp packages/signer/.env{.example,} # Edit the env file to fill in your details
-docker run -v $(pwd)/data:/data --env-file packages/signer/.env ghcr.io/coracle-social/pomade-signer:latest
+```bash
+cd packages/signer
+pnpm install
+POMADE_SECRET=your_nsec POMADE_RELAYS=wss://relay.example.com MAIL_PROVIDER=resend MAIL_FROM_EMAIL=mailer@example.com RESEND_API_KEY=your_key pnpm start
 ```
 
-From the repository root:
+### With Docker (from repository)
 
-```sh
+```bash
 mkdir -p data
-cp packages/signer/.env{.example,} # Edit the env file to fill in your details
-docker build -f packages/signer/Dockerfile -t pomade-signer .
-docker run -v $(pwd)/data:/data --env-file packages/signer/.env pomade-signer
+docker build -f packages/signer/Dockerfile -t pomade-signer-ts .
+docker run -v $(pwd)/data:/data \
+  -e POMADE_SECRET=your_nsec \
+  -e POMADE_RELAYS=wss://relay.example.com \
+  -e MAIL_PROVIDER=resend \
+  -e MAIL_FROM_EMAIL=mailer@example.com \
+  -e RESEND_API_KEY=your_key \
+  -p 3000:3000 \
+  pomade-signer-ts
+```
+
+### From ghcr
+
+```bash
+mkdir -p data
+docker run -v $(pwd)/data:/data \
+  -e POMADE_SECRET=your_nsec \
+  -e POMADE_RELAYS=wss://relay.example.com \
+  -e MAIL_PROVIDER=resend \
+  -e MAIL_FROM_EMAIL=mailer@example.com \
+  -e RESEND_API_KEY=your_key \
+  -p 3000:3000 \
+  ghcr.io/coracle-social/pomade-signer-ts:latest
 ```
