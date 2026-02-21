@@ -937,6 +937,75 @@ fn hash_email(email: &str, url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::{BoundedVec, Commit, Group, Hex32, Hex33, Share};
+    use crate::storage::Storage;
+    use tempfile::TempDir;
+
+    fn create_test_storage() -> (Storage, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = Storage::open(&temp_dir.path().join("test.db")).unwrap();
+        (storage, temp_dir)
+    }
+
+    fn create_test_signer_options() -> SignerOptions {
+        SignerOptions {
+            url: "http://localhost:3000".to_string(),
+            register_pow: 0, // Disable PoW for tests
+            from_email: "test@example.com".to_string(),
+            from_name: "Test Signer".to_string(),
+            mailer: None,
+        }
+    }
+
+    fn create_test_commit(idx: u32) -> Commit {
+        Commit {
+            idx,
+            pubkey: Hex33("02".to_string() + &"a".repeat(64)),
+            hidden_pn: Hex33("02".to_string() + &"b".repeat(64)),
+            binder_pn: Hex33("02".to_string() + &"c".repeat(64)),
+        }
+    }
+
+    fn create_test_group(threshold: u32, total: usize) -> Group {
+        let commits: Vec<Commit> = (0..total).map(|i| create_test_commit(i as u32)).collect();
+        Group {
+            commits: BoundedVec(commits),
+            group_pk: Hex33("02".to_string() + &"d".repeat(64)),
+            threshold,
+        }
+    }
+
+    fn create_test_share(idx: u32) -> Share {
+        Share {
+            idx,
+            binder_sn: Hex32("e".repeat(64)),
+            hidden_sn: Hex32("f".repeat(64)),
+            seckey: Hex32("1".repeat(64)),
+        }
+    }
+
+    fn create_test_nostr_event(pubkey: &str) -> NostrEvent {
+        use crate::nostr::HTTP_AUTH;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        NostrEvent {
+            id: "a".repeat(64),
+            pubkey: pubkey.to_string(),
+            created_at: now,
+            kind: HTTP_AUTH,
+            tags: vec![
+                vec!["u".to_string(), "http://localhost:3000/test".to_string()],
+                vec!["method".to_string(), "POST".to_string()],
+            ],
+            content: "".to_string(),
+            sig: "b".repeat(128),
+        }
+    }
 
     #[test]
     fn test_hash_email() {
@@ -956,8 +1025,250 @@ mod tests {
         let hash3 = hash_email(email, "http://localhost:3003");
         assert_ne!(hash, hash3);
 
-        println!("Email: {}", email);
-        println!("URL: {}", url);
-        println!("Hash: {}", hash);
+        // Different email should produce different hash
+        let hash4 = hash_email("other@example.com", url);
+        assert_ne!(hash, hash4);
+    }
+
+    #[test]
+    fn test_hex_to_id() {
+        let hex = "a".repeat(64);
+        let id = hex_to_id(&hex);
+        assert_eq!(id.len(), 32);
+        assert_eq!(hex::encode(id), hex);
+
+        // Invalid hex should return zeros
+        let invalid = hex_to_id("invalid");
+        assert_eq!(invalid, [0u8; 32]);
+
+        // Wrong length should be padded/truncated
+        let short = hex_to_id("aa");
+        assert_eq!(short.len(), 32);
+    }
+
+    #[test]
+    fn test_regex_is_hex64() {
+        assert!(regex_is_hex64(&"a".repeat(64)));
+        assert!(regex_is_hex64(&"0".repeat(64)));
+        assert!(regex_is_hex64(&"f".repeat(64)));
+        assert!(regex_is_hex64("0123456789abcdef".repeat(4).as_str()));
+
+        assert!(!regex_is_hex64(&"a".repeat(63))); // Too short
+        assert!(!regex_is_hex64(&"a".repeat(65))); // Too long
+        assert!(!regex_is_hex64("g".repeat(64).as_str())); // Invalid char
+        assert!(!regex_is_hex64("ABCDEF".repeat(11).as_str())); // Uppercase
+        assert!(!regex_is_hex64(""));
+    }
+
+    #[test]
+    fn test_now() {
+        let t1 = now();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let t2 = now();
+        assert!(t2 >= t1);
+        assert!(t1 > 1_700_000_000); // Should be after 2023
+    }
+
+    #[test]
+    fn test_random_int() {
+        let r1 = random_int(100, 200);
+        assert!(r1 >= 100 && r1 < 200);
+
+        let r2 = random_int(0, 1_000_000);
+        assert!(r2 < 1_000_000);
+
+        // Should produce different values (with high probability)
+        let r3 = random_int(0, 1_000_000);
+        let r4 = random_int(0, 1_000_000);
+        // Not guaranteed, but extremely likely - just verify it runs
+        let _ = (r3, r4);
+    }
+
+    #[test]
+    fn test_signer_open() {
+        let (storage, _temp) = create_test_storage();
+        let options = create_test_signer_options();
+        let signer = Signer::open(options, &storage);
+        assert!(signer.is_ok());
+    }
+
+    #[test]
+    fn test_check_key_reuse() {
+        let (storage, _temp) = create_test_storage();
+        let options = create_test_signer_options();
+        let signer = Signer::open(options, &storage).unwrap();
+
+        let client = "test_client_key";
+        assert!(!signer.check_key_reuse(client));
+
+        // Add a session
+        let session = SignerSession {
+            client: client.to_string(),
+            share: create_test_share(0),
+            group: create_test_group(1, 2),
+            recovery: true,
+            created_at: now(),
+            last_activity: now(),
+            email: None,
+            email_hash: None,
+            password_hash: None,
+        };
+        signer.add_session(client, session);
+
+        // Now it should be detected as reused
+        assert!(signer.check_key_reuse(client));
+    }
+
+    #[test]
+    fn test_add_and_get_session() {
+        let (storage, _temp) = create_test_storage();
+        let options = create_test_signer_options();
+        let signer = Signer::open(options, &storage).unwrap();
+
+        let client = "test_client";
+        let session = SignerSession {
+            client: client.to_string(),
+            share: create_test_share(0),
+            group: create_test_group(1, 2),
+            recovery: true,
+            created_at: now(),
+            last_activity: now(),
+            email: Some("test@example.com".to_string()),
+            email_hash: Some("hash123".to_string()),
+            password_hash: Some("pw_hash".to_string()),
+        };
+
+        signer.add_session(client, session.clone());
+        let retrieved = signer.sessions.get(client);
+
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.client, client);
+        assert_eq!(retrieved.email, Some("test@example.com".to_string()));
+    }
+
+    #[test]
+    fn test_delete_session() {
+        let (storage, _temp) = create_test_storage();
+        let options = create_test_signer_options();
+        let signer = Signer::open(options, &storage).unwrap();
+
+        let client = "test_client";
+        let session = SignerSession {
+            client: client.to_string(),
+            share: create_test_share(0),
+            group: create_test_group(1, 2),
+            recovery: true,
+            created_at: now(),
+            last_activity: now(),
+            email: Some("test@example.com".to_string()),
+            email_hash: Some("hash123".to_string()),
+            password_hash: None,
+        };
+
+        signer.add_session(client, session);
+        assert!(signer.sessions.get(client).is_some());
+
+        signer.delete_session(client);
+        assert!(signer.sessions.get(client).is_none());
+    }
+
+    #[test]
+    fn test_rate_limiting() {
+        let (storage, _temp) = create_test_storage();
+        let options = create_test_signer_options();
+        let signer = Signer::open(options, &storage).unwrap();
+
+        let client = "rate_limited_client";
+
+        // First 100 attempts should succeed
+        for _ in 0..100 {
+            assert!(signer.check_and_record_rate_limit(client));
+        }
+
+        // 101st attempt should fail (rate limited)
+        assert!(!signer.check_and_record_rate_limit(client));
+    }
+
+    #[test]
+    fn test_cleanup() {
+        let (storage, _temp) = create_test_storage();
+        let options = create_test_signer_options();
+        let signer = Signer::open(options, &storage).unwrap();
+
+        // Add an old session (more than 1 year ago)
+        let old_client = "old_client";
+        let old_session = SignerSession {
+            client: old_client.to_string(),
+            share: create_test_share(0),
+            group: create_test_group(1, 2),
+            recovery: true,
+            created_at: now().saturating_sub(YEAR_SECS + 1),
+            last_activity: now().saturating_sub(YEAR_SECS + 1),
+            email: None,
+            email_hash: None,
+            password_hash: None,
+        };
+        signer.add_session(old_client, old_session);
+
+        // Add a recent session
+        let recent_client = "recent_client";
+        let recent_session = SignerSession {
+            client: recent_client.to_string(),
+            share: create_test_share(0),
+            group: create_test_group(1, 2),
+            recovery: true,
+            created_at: now(),
+            last_activity: now(),
+            email: None,
+            email_hash: None,
+            password_hash: None,
+        };
+        signer.add_session(recent_client, recent_session);
+
+        // Run cleanup
+        signer.cleanup();
+
+        // Old session should be deleted
+        assert!(signer.sessions.get(old_client).is_none());
+        // Recent session should still exist
+        assert!(signer.sessions.get(recent_client).is_some());
+    }
+
+    #[test]
+    fn test_challenge_email_format() {
+        let otp = "12345678";
+        let email = challenge_email(otp);
+
+        assert!(email.subject.contains("Login Challenge"));
+        assert!(email.text.contains(otp));
+        assert!(email.html.contains(otp));
+        assert!(email.text.contains("15 minutes"));
+        assert!(email.html.contains("15 minutes"));
+        assert_eq!(email.to, ""); // Should be filled by caller
+    }
+
+    #[test]
+    fn test_make_session_item() {
+        let session = SignerSession {
+            client: "client123".to_string(),
+            share: create_test_share(1),
+            group: create_test_group(2, 3),
+            recovery: true,
+            created_at: 1234567890,
+            last_activity: 1234567891,
+            email: Some("user@example.com".to_string()),
+            email_hash: None,
+            password_hash: None,
+        };
+
+        let item = make_session_item(&session);
+
+        assert_eq!(item.client.0, "client123");
+        assert_eq!(item.idx, 1);
+        assert_eq!(item.threshold, 2);
+        assert_eq!(item.total, 3);
+        assert_eq!(item.created_at, 1234567890);
+        assert_eq!(item.email, Some("user@example.com".to_string()));
     }
 }

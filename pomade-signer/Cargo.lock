@@ -1292,6 +1292,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sled",
+ "tempfile",
  "tokio",
  "tower-http 0.5.2",
 ]

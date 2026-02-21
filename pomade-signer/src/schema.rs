@@ -360,3 +360,364 @@ pub struct SessionDeleteResponse {
     pub ok: bool,
     pub message: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_hex_validation() {
+        assert!(is_hex("aabbcc"));
+        assert!(is_hex("0123456789abcdef"));
+        assert!(is_hex("AABBCC")); // Uppercase is valid
+        assert!(!is_hex("")); // Empty is invalid
+        assert!(!is_hex("aabbc")); // Odd length is invalid
+        assert!(!is_hex("gggg")); // Invalid chars
+        assert!(!is_hex("aabbcg")); // Contains invalid char
+    }
+
+    #[test]
+    fn test_hex32_deserialization() {
+        let valid = "\"aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccdd\"";
+        let result: Result<Hex32, _> = serde_json::from_str(valid);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().0.len(), 64);
+
+        // Too short
+        let short = "\"aabbcc\"";
+        let result: Result<Hex32, _> = serde_json::from_str(short);
+        assert!(result.is_err());
+
+        // Too long
+        let long = "\"aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccddee\"";
+        let result: Result<Hex32, _> = serde_json::from_str(long);
+        assert!(result.is_err());
+
+        // Invalid hex
+        let invalid = "\"gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg\"";
+        let result: Result<Hex32, _> = serde_json::from_str(invalid);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hex33_deserialization() {
+        let valid = "\"02aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccdd\"";
+        let result: Result<Hex33, _> = serde_json::from_str(valid);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().0.len(), 66);
+
+        // Too short
+        let short = "\"02aabbcc\"";
+        let result: Result<Hex33, _> = serde_json::from_str(short);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_bounded_vec_deserialization() {
+        // Valid: within bounds
+        let valid = "[1, 2, 3]";
+        let result: Result<BoundedVec<u32, 5>, _> = serde_json::from_str(valid);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().0.len(), 3);
+
+        // At limit
+        let at_limit = "[1, 2, 3, 4, 5]";
+        let result: Result<BoundedVec<u32, 5>, _> = serde_json::from_str(at_limit);
+        assert!(result.is_ok());
+
+        // Exceeds limit
+        let exceeds = "[1, 2, 3, 4, 5, 6]";
+        let result: Result<BoundedVec<u32, 5>, _> = serde_json::from_str(exceeds);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sighash_vec_deserialization() {
+        // Valid: non-empty, within bounds
+        let valid = r#"["aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccdd"]"#;
+        let result: Result<SighashVec, _> = serde_json::from_str(valid);
+        assert!(result.is_ok());
+
+        // Empty is invalid
+        let empty = "[]";
+        let result: Result<SighashVec, _> = serde_json::from_str(empty);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_auth_enum() {
+        let password_auth = PasswordAuth {
+            email_hash: "hash123".to_string(),
+            password_hash: "pw_hash".to_string(),
+        };
+        let auth = Auth::Password(password_auth.clone());
+        assert_eq!(auth.email_hash(), "hash123");
+        assert!(auth.is_password());
+        assert!(!auth.is_otp());
+
+        let otp_auth = OtpAuth {
+            email_hash: "hash456".to_string(),
+            otp: "123456".to_string(),
+        };
+        let auth = Auth::Otp(otp_auth);
+        assert_eq!(auth.email_hash(), "hash456");
+        assert!(!auth.is_password());
+        assert!(auth.is_otp());
+    }
+
+    #[test]
+    fn test_group_serialization() {
+        let group = Group {
+            commits: BoundedVec(vec![Commit {
+                idx: 0,
+                pubkey: Hex33("02".to_string() + &"a".repeat(64)),
+                hidden_pn: Hex33("02".to_string() + &"b".repeat(64)),
+                binder_pn: Hex33("02".to_string() + &"c".repeat(64)),
+            }]),
+            group_pk: Hex33("02".to_string() + &"d".repeat(64)),
+            threshold: 1,
+        };
+
+        let json = serde_json::to_string(&group).unwrap();
+        let deserialized: Group = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.threshold, 1);
+        assert_eq!(deserialized.commits.0.len(), 1);
+    }
+
+    #[test]
+    fn test_share_serialization() {
+        let share = Share {
+            idx: 0,
+            binder_sn: Hex32("a".repeat(64)),
+            hidden_sn: Hex32("b".repeat(64)),
+            seckey: Hex32("c".repeat(64)),
+        };
+
+        let json = serde_json::to_string(&share).unwrap();
+        let deserialized: Share = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.idx, 0);
+    }
+
+    #[test]
+    fn test_request_response_types() {
+        // RegisterRequest
+        let register = RegisterRequest {
+            share: Share {
+                idx: 0,
+                binder_sn: Hex32("a".repeat(64)),
+                hidden_sn: Hex32("b".repeat(64)),
+                seckey: Hex32("c".repeat(64)),
+            },
+            group: Group {
+                commits: BoundedVec(vec![]),
+                group_pk: Hex33("02".to_string() + &"d".repeat(64)),
+                threshold: 1,
+            },
+            recovery: true,
+        };
+        let json = serde_json::to_string(&register).unwrap();
+        let _deserialized: RegisterRequest = serde_json::from_str(&json).unwrap();
+
+        // RegisterResponse
+        let response = RegisterResponse {
+            ok: true,
+            message: "Success".to_string(),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let deserialized: RegisterResponse = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.ok);
+    }
+
+    #[test]
+    fn test_session_item_serialization() {
+        let item = SessionItem {
+            pubkey: Hex32("a".repeat(64)),
+            client: Hex32("b".repeat(64)),
+            created_at: 1234567890,
+            last_activity: 1234567891,
+            threshold: 2,
+            total: 3,
+            idx: 1,
+            email: Some("test@example.com".to_string()),
+        };
+
+        let json = serde_json::to_string(&item).unwrap();
+        let deserialized: SessionItem = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.created_at, 1234567890);
+        assert_eq!(deserialized.email, Some("test@example.com".to_string()));
+    }
+
+    #[test]
+    fn test_sign_request_validation() {
+        // Valid sign request
+        let valid = SignRequest {
+            request: SignRequestInner {
+                content: Some("test content".to_string()),
+                hashes: BoundedVec(vec![SighashVec(vec![Hex32("a".repeat(64))])]),
+                members: BoundedVec(vec![0, 1]),
+                stamp: 1234567890,
+                kind: "sign".to_string(),
+                gid: Hex32("b".repeat(64)),
+                sid: Hex32("c".repeat(64)),
+            },
+        };
+        let json = serde_json::to_string(&valid).unwrap();
+        let _deserialized: SignRequest = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    fn test_challenge_request_response() {
+        let request = ChallengeRequest {
+            prefix: "AB".to_string(),
+            email_hash: "hash123".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let deserialized: ChallengeRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.prefix, "AB");
+
+        let response = ChallengeResponse {
+            ok: true,
+            message: "Check your email".to_string(),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let deserialized: ChallengeResponse = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.ok);
+    }
+
+    #[test]
+    fn test_recovery_setup_request() {
+        let request = RecoverySetupRequest {
+            email: "user@example.com".to_string(),
+            password_hash: "a".repeat(64),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let deserialized: RecoverySetupRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.email, "user@example.com");
+    }
+
+    #[test]
+    fn test_login_flow_types() {
+        // LoginStartRequest
+        let start = LoginStartRequest {
+            auth: Auth::Password(PasswordAuth {
+                email_hash: "hash".to_string(),
+                password_hash: "pw".to_string(),
+            }),
+        };
+        let json = serde_json::to_string(&start).unwrap();
+        let _deserialized: LoginStartRequest = serde_json::from_str(&json).unwrap();
+
+        // LoginStartResponse
+        let start_response = LoginStartResponse {
+            ok: true,
+            message: "Found sessions".to_string(),
+            items: Some(vec![]),
+        };
+        let json = serde_json::to_string(&start_response).unwrap();
+        let deserialized: LoginStartResponse = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.items.is_some());
+
+        // LoginSelectRequest
+        let select = LoginSelectRequest {
+            client: Hex32("a".repeat(64)),
+        };
+        let json = serde_json::to_string(&select).unwrap();
+        let deserialized: LoginSelectRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.client.0, "a".repeat(64));
+    }
+
+    #[test]
+    fn test_recovery_flow_types() {
+        // RecoveryStartRequest
+        let start = RecoveryStartRequest {
+            auth: Auth::Otp(OtpAuth {
+                email_hash: "hash".to_string(),
+                otp: "123456".to_string(),
+            }),
+        };
+        let json = serde_json::to_string(&start).unwrap();
+        let _deserialized: RecoveryStartRequest = serde_json::from_str(&json).unwrap();
+
+        // RecoverySelectRequest
+        let select = RecoverySelectRequest {
+            client: Hex32("a".repeat(64)),
+        };
+        let json = serde_json::to_string(&select).unwrap();
+        let _deserialized: RecoverySelectRequest = serde_json::from_str(&json).unwrap();
+
+        // RecoverySelectResponse
+        let response = RecoverySelectResponse {
+            ok: true,
+            message: "Success".to_string(),
+            share: None,
+            group: None,
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let deserialized: RecoverySelectResponse = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.share.is_none());
+    }
+
+    #[test]
+    fn test_session_list_and_delete() {
+        // SessionListResponse
+        let list_response = SessionListResponse {
+            ok: true,
+            message: "Found sessions".to_string(),
+            items: vec![],
+        };
+        let json = serde_json::to_string(&list_response).unwrap();
+        let deserialized: SessionListResponse = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.items.is_empty());
+
+        // SessionDeleteRequest
+        let delete_req = SessionDeleteRequest {
+            client: Hex32("a".repeat(64)),
+        };
+        let json = serde_json::to_string(&delete_req).unwrap();
+        let _deserialized: SessionDeleteRequest = serde_json::from_str(&json).unwrap();
+
+        // SessionDeleteResponse
+        let delete_res = SessionDeleteResponse {
+            ok: true,
+            message: "Deleted".to_string(),
+        };
+        let json = serde_json::to_string(&delete_res).unwrap();
+        let deserialized: SessionDeleteResponse = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.ok);
+    }
+
+    #[test]
+    fn test_ecdh_types() {
+        // EcdhRequest
+        let request = EcdhRequest {
+            idx: 0,
+            members: BoundedVec(vec![0, 1]),
+            ecdh_pk: Hex32("a".repeat(64)),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let deserialized: EcdhRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.idx, 0);
+
+        // EcdhResult
+        let result = EcdhResult {
+            idx: 0,
+            keyshare: Hex("02".to_string() + &"b".repeat(64)),
+            members: BoundedVec(vec![0, 1]),
+            ecdh_pk: Hex("c".repeat(64)),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let deserialized: EcdhResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.keyshare.0.len(), 66);
+
+        // EcdhResponse
+        let response = EcdhResponse {
+            ok: true,
+            message: "Success".to_string(),
+            result: Some(result),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let deserialized: EcdhResponse = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.result.is_some());
+    }
+}
