@@ -53,13 +53,7 @@ The core library that can be integrated into any project. Provides:
 
 - Protocol type definitions and schemas
 - Client API for interacting with signers
-- Signer class for managing multisig sessions
-
-**Installation:**
-
-```bash
-npm install @pomade/core
-```
+- Signer class that can be used for demos or for managing a local shard
 
 See [packages/core/README.md](packages/core/README.md) for detailed documentation.
 
@@ -69,15 +63,17 @@ Standalone signer service that manages multisig sessions, handles signing reques
 
 See [packages/signer/README.md](packages/signer/README.md) for configuration and deployment.
 
-## Docker
+### frost-taproot
 
-The signer service includes a Dockerfile for easy deployment. Build from the repository root:
+Rust implementation of BIP-340 FROST signatures including trusted key dealer and DKG flows, compatible with the @cmdruid/frost typescript implementation.
 
-```bash
-# Build and run signer
-docker build -f packages/signer/Dockerfile -t pomade-signer .
-docker run -v $(pwd)/data:/data --env-file packages/signer/.env pomade-signer
-```
+See [frost-taproot/README.md](frost-taproot/README.md) for configuration and deployment.
+
+### pomade-signer
+
+Rust HTTP signer server with sled storage, email-based recovery, proof-of-work registration, and rate limiting.
+
+See [pomade-signer/README.md](pomade-signer/README.md) for configuration and deployment.
 
 ## License
 
