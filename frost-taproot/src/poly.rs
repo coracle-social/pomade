@@ -3,9 +3,9 @@
 
 use k256::Scalar;
 
+use crate::Error;
 use crate::ecc::util::{scalar_from_bytes, scalar_invert};
 use crate::util::assert;
-use crate::Error;
 
 /// Evaluate a polynomial at x using Horner's method.
 /// Coefficients are in ascending order: coeffs[0] + coeffs[1]*x + coeffs[2]*x^2 + ...
@@ -30,7 +30,7 @@ pub fn interpolate_root(points: &[(Scalar, Scalar)]) -> Result<Scalar, Error> {
     let mut p = Scalar::ZERO;
     for (x, y) in points {
         let delta = interpolate_x(&xs, *x)?;
-        p = p + delta * y;
+        p += delta * y;
     }
     Ok(p)
 }
@@ -49,8 +49,8 @@ pub fn interpolate_x(l: &[Scalar], x: Scalar) -> Result<Scalar, Error> {
         if x_j == x {
             continue;
         }
-        numerator = numerator * x_j;
-        denominator = denominator * (x_j + (-x)); // x_j - x
+        numerator *= x_j;
+        denominator *= x_j + (-x); // x_j - x
     }
 
     let inv = scalar_invert(&denominator)?;
@@ -70,8 +70,8 @@ pub fn calc_lagrange_coeff(l: &[Scalar], p: Scalar, x: Scalar) -> Result<Scalar,
         if x_j == p {
             continue;
         }
-        numerator = numerator * (x + (-x_j)); // x - x_j
-        denominator = denominator * (p + (-x_j)); // p - x_j
+        numerator *= x + (-x_j); // x - x_j
+        denominator *= p + (-x_j); // p - x_j
     }
 
     let inv = scalar_invert(&denominator)?;

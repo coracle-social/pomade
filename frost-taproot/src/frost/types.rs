@@ -2,7 +2,6 @@
 ///
 /// These mirror the bifrost TypeScript types, using raw byte arrays
 /// rather than hex strings for efficiency.
-
 /// A member's secret share of the group key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SharePackage {

@@ -1,7 +1,8 @@
 // Mirrors ref/frost/src/lib/sign.ts
 
-use k256::{elliptic_curve::point::AffineCoordinates, Scalar};
+use k256::{Scalar, elliptic_curve::point::AffineCoordinates};
 
+use crate::Error;
 use crate::commit::{get_bind_factor, get_group_binders, get_group_prefix, get_group_pubnonce};
 use crate::ecc::group::{element_add, scalar_base_multi, scalar_multi};
 use crate::ecc::util::{has_even_y, lift_x, scalar_from_bytes, scalar_to_bytes};
@@ -10,7 +11,6 @@ use crate::poly::{index_to_scalar, interpolate_x};
 use crate::types::{
     GroupKeyContext, GroupSigningCtx, PublicNonce, SecretNonce, SecretShare, ShareSignature,
 };
-use crate::Error;
 
 /// Produce a partial signature for a signing session.
 /// Mirrors `sign_msg` in the TS implementation.

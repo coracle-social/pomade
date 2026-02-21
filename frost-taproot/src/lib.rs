@@ -1,3 +1,6 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::needless_range_loop)]
+
 pub mod ecc;
 pub mod frost;
 pub mod types;

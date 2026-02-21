@@ -2,8 +2,8 @@
 // Group operations on secp256k1 using k256.
 
 use k256::{ProjectivePoint, Scalar};
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 
 use super::util::{deserialize_point, mod_n, scalar_from_bytes, scalar_to_bytes, serialize_point};
 use crate::Error;

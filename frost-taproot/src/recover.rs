@@ -2,12 +2,12 @@
 
 use k256::Scalar;
 
+use crate::Error;
 use crate::ecc::util::{scalar_from_bytes, scalar_to_bytes};
 use crate::poly::{calc_lagrange_coeff, index_to_scalar};
 use crate::types::{SecretShare, SecretSharePackage};
 use crate::util::assert;
 use crate::vss::{create_share_coeffs, get_share_commits};
-use crate::Error;
 
 /// Generate recovery shares that allow a target participant to reconstruct their share.
 /// Mirrors `gen_recovery_shares` in the TS implementation.

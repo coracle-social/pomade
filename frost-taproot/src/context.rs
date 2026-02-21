@@ -1,12 +1,12 @@
 // Mirrors ref/frost/src/lib/context.ts
 
+use crate::Error;
 use crate::commit::{get_group_binders, get_group_prefix, get_group_pubnonce, get_nonce_ids};
 use crate::ecc::group::serialize_element;
 use crate::ecc::state::get_point_state;
 use crate::ecc::util::lift_x;
 use crate::helpers::get_challenge;
 use crate::types::{GroupCommitContext, GroupKeyContext, GroupSigningCtx, PublicNonce};
-use crate::Error;
 
 /// Build the group key context, applying optional tweaks.
 /// Mirrors `get_group_key_context` in the TS implementation.

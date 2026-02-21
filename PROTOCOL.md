@@ -16,7 +16,7 @@ A _client_ is an application that can be trusted to (temporarily) handle key mat
 
 ### Signer
 
-A _signer_ is a headless application identified by a URL that can be trusted to store key shares and collaborate in building threshold signatures. Communication happens directly via HTTPS JSON POST requests. Signers are also responsible for sending OTP codes over email in some flows.
+A _signer_ is a headless application identified by a URL (normalized, and including protocol, port, path, etc) that can be trusted to store key shares and collaborate in building threshold signatures. Communication happens directly via HTTPS JSON POST requests. Signers are also responsible for sending OTP codes over email in some flows.
 
 ## Protocol Overview
 

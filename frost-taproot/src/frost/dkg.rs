@@ -1,3 +1,4 @@
+use crate::Error;
 /// Distributed Key Generation (Pedersen DKG).
 ///
 /// Eliminates the trusted dealer: each participant generates their own
@@ -27,7 +28,6 @@ use crate::ecc::util::{lift_x, pow_n};
 use crate::shares::{combine_set, verify_share};
 use crate::types::SecretShare;
 use crate::vss::{create_share_coeffs, get_share_commits, merge_share_commits};
-use crate::Error;
 
 use super::types::{
     DkgCommitPackage, DkgOutput, DkgSharePackage, GroupPackage, MemberPackage, SharePackage,
@@ -69,7 +69,7 @@ pub fn dkg_round2(
     use crate::ecc::util::scalar_from_bytes;
     use crate::poly::{evaluate_x, index_to_scalar};
 
-    let coeffs: Vec<_> = secret_coeffs.iter().map(|c| scalar_from_bytes(c)).collect();
+    let coeffs: Vec<_> = secret_coeffs.iter().map(scalar_from_bytes).collect();
     let x = index_to_scalar(recipient_idx);
     let share_scalar = evaluate_x(&coeffs, x)?;
 
@@ -216,7 +216,7 @@ fn sum_points(points: &[[u8; 33]]) -> Result<[u8; 33], Error> {
     }
     let mut acc = lift_x(&points[0])?;
     for p in &points[1..] {
-        acc = acc + lift_x(p)?;
+        acc += lift_x(p)?;
     }
     Ok(serialize_element(&acc))
 }

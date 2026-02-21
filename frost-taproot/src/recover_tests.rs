@@ -21,7 +21,7 @@ mod recover_tests {
         let pkg = gen_recovery_shares(&members, &group.shares[1], 1, 2, &[]).unwrap();
         assert_eq!(pkg.idx, 2); // originating share's idx
         assert_eq!(pkg.shares.len(), 2); // one per member
-                                         // vss_commits = rand_coeffs (threshold-1) + repair_coeff = threshold total
+        // vss_commits = rand_coeffs (threshold-1) + repair_coeff = threshold total
         assert_eq!(pkg.vss_commits.len(), 2);
     }
 

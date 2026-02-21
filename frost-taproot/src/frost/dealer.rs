@@ -1,9 +1,9 @@
 /// Trusted dealer key generation and group management.
 use sha2::{Digest, Sha256};
 
+use crate::Error;
 use crate::group::create_dealer_set;
 use crate::helpers::get_pubkey;
-use crate::Error;
 
 use super::types::{DealerPackage, GroupPackage, MemberPackage, SharePackage};
 
@@ -60,10 +60,10 @@ pub fn get_group_id(group: &GroupPackage) -> [u8; 32] {
     sorted.sort_by_key(|m| m.idx);
 
     let mut hasher = Sha256::new();
-    hasher.update(&group.group_pk);
+    hasher.update(group.group_pk);
     hasher.update((group.threshold as u32).to_be_bytes());
     for m in &sorted {
-        hasher.update(&m.pubkey);
+        hasher.update(m.pubkey);
     }
     hasher.finalize().into()
 }

@@ -1,10 +1,10 @@
 // Mirrors ref/frost/src/lib/group.ts
 // High-level share set creation (trusted dealer).
 
+use crate::Error;
 use crate::shares::create_shares;
 use crate::types::{DealerShareSet, SecretShareSet};
 use crate::vss::{create_share_coeffs, get_share_commits};
-use crate::Error;
 
 /// Create a set of secret shares and VSS commitments.
 /// Mirrors `create_share_set` in the TS implementation.

@@ -3,11 +3,11 @@
 
 use k256::Scalar;
 
+use crate::Error;
 use crate::ecc::group::{scalar_base_multi, serialize_element};
 use crate::ecc::util::mod_n;
 use crate::util::assert;
 use crate::util::helpers::random_bytes_32;
-use crate::Error;
 use k256::U256;
 
 /// Create polynomial coefficients for a Shamir secret sharing scheme.

@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::path::Path;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 pub struct Collection<T> {
     tree: sled::Tree,

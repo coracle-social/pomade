@@ -4,8 +4,8 @@ use k256::{ProjectivePoint, Scalar};
 
 use super::group::{element_add, scalar_base_multi};
 use super::util::{has_even_y, mod_n, negate_point, scalar_from_bytes};
-use crate::types::PointState;
 use crate::Error;
+use crate::types::PointState;
 use k256::U256;
 
 /// Computes the accumulative parity state for a given point with optional key tweaks.
@@ -31,7 +31,7 @@ pub fn get_point_state(element: ProjectivePoint, tweaks: &[[u8; 32]]) -> Result<
 
         point = element_add(Some(point), Some(tg))?;
 
-        state = state * parity;
+        state *= parity;
         tweak = mod_n(U256::from_be_slice(&(t + parity * tweak).to_bytes()));
     }
 

@@ -11,11 +11,11 @@ mod storage;
 use std::sync::Arc;
 
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::post,
-    Json, Router,
 };
 use clap::Parser;
 use serde_json::Value;
@@ -23,12 +23,12 @@ use tokio::signal;
 use tower_http::cors::{Any, CorsLayer};
 
 use mailer::{
+    Mailer,
     mailgun::{MailgunMailer, MailgunRegion},
     postmark::PostmarkMailer,
     resend::ResendMailer,
     sendgrid::SendgridMailer,
     sendlayer::SendlayerMailer,
-    Mailer,
 };
 use signer::{Signer, SignerOptions};
 use storage::Storage;

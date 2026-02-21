@@ -1,6 +1,7 @@
 /// High-level signing session management and partial signature operations.
 use sha2::{Digest, Sha256};
 
+use crate::Error;
 use crate::context::get_group_signing_ctx;
 use crate::sign::{
     combine_partial_sigs as low_combine, sign_msg, verify_final_sig,
@@ -10,7 +11,6 @@ use crate::types::{
     PublicNonce as LowPublicNonce, SecretNonce as LowSecretNonce, SecretShare as LowSecretShare,
     ShareSignature,
 };
-use crate::Error;
 
 use super::dealer::get_group_id;
 use super::types::{

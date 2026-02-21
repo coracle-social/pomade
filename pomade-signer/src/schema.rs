@@ -9,7 +9,7 @@ const MAX_MEMBERS: usize = 5;
 const MAX_COMMITS: usize = 5;
 
 fn is_hex(s: &str) -> bool {
-    !s.is_empty() && s.len() % 2 == 0 && s.chars().all(|c| c.is_ascii_hexdigit())
+    !s.is_empty() && s.len().is_multiple_of(2) && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn deserialize_hex<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {

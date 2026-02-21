@@ -1,7 +1,7 @@
 // Mirrors ref/frost/src/util/helpers.ts
 
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
 use crate::Error;
@@ -27,7 +27,7 @@ pub fn get_record<T: HasIdx + Clone>(records: &[T], idx: u32) -> Result<T, Error
         .iter()
         .find(|r| r.idx() == idx)
         .cloned()
-        .ok_or_else(|| Error::RecordNotFound(idx))
+        .ok_or(Error::RecordNotFound(idx))
 }
 
 /// Trait for types that carry a participant index.
@@ -48,7 +48,7 @@ pub fn taghash(tag: &str) -> [u8; 64] {
 pub fn hash340(tag: &str, data: &[&[u8]]) -> [u8; 32] {
     let prefix = taghash(tag);
     let mut hasher = Sha256::new();
-    hasher.update(&prefix);
+    hasher.update(prefix);
     for d in data {
         hasher.update(d);
     }

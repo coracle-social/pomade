@@ -3,8 +3,8 @@
 // Spec: draft-irtf-cfrg-frost-15, section 6.5.
 
 use k256::{
-    elliptic_curve::hash2curve::{ExpandMsg, ExpandMsgXmd, Expander},
     Scalar,
+    elliptic_curve::hash2curve::{ExpandMsg, ExpandMsgXmd, Expander},
 };
 use sha2::{Digest, Sha256};
 

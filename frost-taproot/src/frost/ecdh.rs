@@ -1,3 +1,4 @@
+use crate::Error;
 /// High-level threshold ECDH key derivation.
 ///
 /// Allows a threshold quorum to collaboratively derive a shared secret
@@ -5,7 +6,6 @@
 /// full group private key.
 use crate::ecdh::{create_ecdh_share, derive_ecdh_secret};
 use crate::types::{PublicShare, SecretShare as LowSecretShare};
-use crate::Error;
 
 use super::types::{EcdhEntry, EcdhPackage, SharePackage};
 

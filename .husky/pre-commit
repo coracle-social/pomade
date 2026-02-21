@@ -1,3 +1,11 @@
 pnpm run build
 pnpm run lint
 pnpm run test
+
+# Rust checks
+cargo fmt --manifest-path pomade-signer/Cargo.toml --check
+cargo fmt --manifest-path frost-taproot/Cargo.toml --check
+cargo clippy --manifest-path pomade-signer/Cargo.toml -- -D warnings
+cargo clippy --manifest-path frost-taproot/Cargo.toml --all-targets
+cargo check --manifest-path pomade-signer/Cargo.toml
+cargo check --manifest-path frost-taproot/Cargo.toml

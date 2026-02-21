@@ -1,13 +1,13 @@
 // Mirrors ref/frost/src/lib/shares.ts
 
-use k256::{elliptic_curve::point::AffineCoordinates, Scalar};
+use k256::{Scalar, elliptic_curve::point::AffineCoordinates};
 
+use crate::Error;
 use crate::ecc::group::{scalar_base_multi, scalar_multi};
 use crate::ecc::util::{lift_x, pow_n, scalar_from_bytes, scalar_to_bytes};
 use crate::poly::{evaluate_x, index_to_scalar, interpolate_root};
 use crate::types::SecretShare;
 use crate::util::assert;
-use crate::Error;
 
 /// Create secret shares by evaluating the polynomial at indices 1..=count.
 /// Mirrors `create_shares` in the TS implementation.

@@ -3,12 +3,12 @@
 /// Bridges the hex-string schema types (GroupPackage, SharePackage, SignRequest)
 /// to frost-taproot's byte-array types, implementing the bifrost session logic.
 use frost_taproot::{
+    Error,
     context::get_group_signing_ctx,
     ecdh::create_ecdh_share,
     helpers::{get_pubkey, tweak_pubkey, tweak_seckey},
     sign::sign_msg,
     types::{PublicNonce, SecretNonce, SecretShare},
-    Error,
 };
 use sha2::{Digest, Sha256};
 
@@ -156,7 +156,7 @@ fn compute_session_id(group: &Group, request: &crate::schema::SignRequestInner) 
     let group_id = compute_group_id(group);
 
     let mut hasher = Sha256::new();
-    hasher.update(&group_id);
+    hasher.update(group_id);
     for &m in &request.members.0 {
         hasher.update(m.to_be_bytes());
     }
@@ -273,6 +273,6 @@ pub fn create_ecdh_pkg(request: &EcdhRequest, share: &Share) -> Result<EcdhResul
         idx: ecdh_share.idx,
         keyshare: crate::schema::Hex(encode33(&ecdh_share.pubkey)),
         members: crate::schema::BoundedVec(members),
-        ecdh_pk: crate::schema::Hex(hex::encode(&ecdh_pk)),
+        ecdh_pk: crate::schema::Hex(hex::encode(ecdh_pk)),
     })
 }

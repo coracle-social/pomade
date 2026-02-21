@@ -696,12 +696,16 @@ mod signing_tests {
         let psig2 = create_partial_sig_package(&session, &pkg.shares[1], &secret_nonce2).unwrap();
 
         // Verify each partial sig
-        assert!(verify_partial_sig_package(&session, &pkg.group, &psig1)
-            .unwrap()
-            .is_none());
-        assert!(verify_partial_sig_package(&session, &pkg.group, &psig2)
-            .unwrap()
-            .is_none());
+        assert!(
+            verify_partial_sig_package(&session, &pkg.group, &psig1)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            verify_partial_sig_package(&session, &pkg.group, &psig2)
+                .unwrap()
+                .is_none()
+        );
 
         // Combine and verify final signature
         let sigs = combine_signatures(&session, &pkg.group, &[psig1, psig2]).unwrap();

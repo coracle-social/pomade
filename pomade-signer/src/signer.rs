@@ -6,9 +6,9 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::nostr::{parse_auth, NostrEvent};
+use crate::nostr::{NostrEvent, parse_auth};
 use crate::ratelimit::{
-    get_rate_limit_reset_time, is_rate_limited, record_attempt, RateLimitBucket, RateLimitConfig,
+    RateLimitBucket, RateLimitConfig, get_rate_limit_reset_time, is_rate_limited, record_attempt,
 };
 use crate::schema::{
     Auth, ChallengeRequest, ChallengeResponse, EcdhRequest, EcdhResponse, Group,
@@ -296,14 +296,14 @@ impl Signer {
 
     fn delete_session(&self, client: &str) {
         if let Some(session) = self.sessions.get(client) {
-            if let Some(email_hash) = &session.email_hash {
-                if let Some(mut index) = self.sessions_by_email_hash.get(email_hash) {
-                    index.clients.retain(|c| c != client);
-                    if index.clients.is_empty() {
-                        self.sessions_by_email_hash.delete(email_hash);
-                    } else {
-                        self.sessions_by_email_hash.set(email_hash, &index);
-                    }
+            if let Some(email_hash) = &session.email_hash
+                && let Some(mut index) = self.sessions_by_email_hash.get(email_hash)
+            {
+                index.clients.retain(|c| c != client);
+                if index.clients.is_empty() {
+                    self.sessions_by_email_hash.delete(email_hash);
+                } else {
+                    self.sessions_by_email_hash.set(email_hash, &index);
                 }
             }
             self.sessions.delete(client);
@@ -468,7 +468,11 @@ impl Signer {
             },
         );
 
-        log::debug!("[client {}]: recovery method initialized {}", &client[..8], &email_hash[..8]);
+        log::debug!(
+            "[client {}]: recovery method initialized {}",
+            &client[..8],
+            &email_hash[..8]
+        );
         RecoverySetupResponse {
             ok: true,
             message: "Recovery method successfully initialized.".into(),
@@ -484,40 +488,41 @@ impl Signer {
             };
         }
 
-        if let Some(index) = self.sessions_by_email_hash.get(&data.email_hash) {
-            if let Some(client) = index.clients.first() {
-                if let Some(session) = self.sessions.get(client) {
-                    if let Some(email) = &session.email {
-                        self.rate_limit_by_email_hash.set(
-                            &data.email_hash,
-                            &record_attempt(bucket.as_ref(), &EMAIL_RATE_LIMITS),
-                        );
-                        let otp = format!("{}{}", data.prefix, random_int(100000, 1000000));
-                        self.challenges.set(
-                            &data.email_hash,
-                            &SignerChallenge {
-                                otp: otp.clone(),
-                                created_at: now(),
-                            },
-                        );
-                        if let Some(mailer) = &self.options.mailer {
-                            let mut mail = challenge_email(&otp);
-                            mail.to = email.clone();
-                            let fut = mailer.send(&self.options.from_email, &self.options.from_name, mail);
-                            tokio::spawn(async move {
-                                if let Err(e) = fut.await {
-                                    log::error!("[challenge]: mail send failed: {}", e);
-                                }
-                            });
-                        } else {
-                            log::info!("[challenge] otp={} to={}", otp, email);
-                        }
-                        log::debug!("[challenge]: sent for {}", &data.email_hash);
+        if let Some(index) = self.sessions_by_email_hash.get(&data.email_hash)
+            && let Some(client) = index.clients.first()
+            && let Some(session) = self.sessions.get(client)
+            && let Some(email) = &session.email
+        {
+            self.rate_limit_by_email_hash.set(
+                &data.email_hash,
+                &record_attempt(bucket.as_ref(), &EMAIL_RATE_LIMITS),
+            );
+            let otp = format!("{}{}", data.prefix, random_int(100000, 1000000));
+            self.challenges.set(
+                &data.email_hash,
+                &SignerChallenge {
+                    otp: otp.clone(),
+                    created_at: now(),
+                },
+            );
+            if let Some(mailer) = &self.options.mailer {
+                let mut mail = challenge_email(&otp);
+                mail.to = email.clone();
+                let fut = mailer.send(&self.options.from_email, &self.options.from_name, mail);
+                tokio::spawn(async move {
+                    if let Err(e) = fut.await {
+                        log::error!("[challenge]: mail send failed: {}", e);
                     }
-                }
+                });
+            } else {
+                log::info!("[challenge] otp={} to={}", otp, email);
             }
+            log::debug!("[challenge]: sent for {}", &data.email_hash);
         } else {
-            log::debug!("[challenge]: no session found for {}", &data.email_hash[..8]);
+            log::debug!(
+                "[challenge]: no session found for {}",
+                &data.email_hash[..8]
+            );
         }
 
         ChallengeResponse {
@@ -845,15 +850,15 @@ impl Signer {
         data: SessionDeleteRequest,
     ) -> SessionDeleteResponse {
         let pubkey = &auth.pubkey;
-        if let Some(session) = self.sessions.get(&data.client.0) {
-            if session.group.group_pk.0[2..] == *pubkey {
-                self.delete_session(&data.client.0);
-                log::debug!("[session/delete]: deleted session {}", &data.client.0[..8]);
-                return SessionDeleteResponse {
-                    ok: true,
-                    message: "Successfully deleted selected session.".into(),
-                };
-            }
+        if let Some(session) = self.sessions.get(&data.client.0)
+            && session.group.group_pk.0[2..] == *pubkey
+        {
+            self.delete_session(&data.client.0);
+            log::debug!("[session/delete]: deleted session {}", &data.client.0[..8]);
+            return SessionDeleteResponse {
+                ok: true,
+                message: "Successfully deleted selected session.".into(),
+            };
         }
         log::debug!(
             "[session/delete]: failed to delete session {}",
@@ -920,12 +925,12 @@ fn hash_email(email: &str, url: &str) -> String {
 
     let params = Params::new(64 * 1024, 3, 2, Some(32)).expect("valid argon2 params");
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
-    
+
     let mut output = [0u8; 32];
     argon2
         .hash_password_into(email.as_bytes(), url.as_bytes(), &mut output)
         .expect("argon2 hash failed");
-    
+
     hex::encode(output)
 }
 
@@ -938,19 +943,19 @@ mod tests {
         let email = "test@example.com";
         let url = "http://localhost:3002";
         let hash = hash_email(email, url);
-        
+
         // Hash should be 64 hex characters (32 bytes)
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
-        
+
         // Same inputs should produce same hash
         let hash2 = hash_email(email, url);
         assert_eq!(hash, hash2);
-        
+
         // Different URL should produce different hash
         let hash3 = hash_email(email, "http://localhost:3003");
         assert_ne!(hash, hash3);
-        
+
         println!("Email: {}", email);
         println!("URL: {}", url);
         println!("Hash: {}", hash);

@@ -3,11 +3,11 @@
 use std::ops::Neg;
 
 use k256::{
+    EncodedPoint, ProjectivePoint, Scalar, U256,
     elliptic_curve::{
         ops::Reduce,
         sec1::{FromEncodedPoint, ToEncodedPoint},
     },
-    EncodedPoint, ProjectivePoint, Scalar, U256,
 };
 
 use crate::Error;
@@ -66,9 +66,9 @@ pub fn pow_n(base: u64, exp: u64) -> Scalar {
     let mut e = exp;
     while e > 0 {
         if e & 1 == 1 {
-            result = result * b;
+            result *= b;
         }
-        b = b * b;
+        b *= b;
         e >>= 1;
     }
     result
@@ -83,7 +83,7 @@ pub fn lift_x(bytes: &[u8]) -> Result<ProjectivePoint, Error> {
             let mut buf = [0u8; 33];
             buf[0] = 0x02;
             buf[1..].copy_from_slice(bytes);
-            EncodedPoint::from_bytes(&buf).map_err(|_| Error::InvalidPoint)?
+            EncodedPoint::from_bytes(buf).map_err(|_| Error::InvalidPoint)?
         }
         33 => EncodedPoint::from_bytes(bytes).map_err(|_| Error::InvalidPoint)?,
         _ => return Err(Error::InvalidPoint),

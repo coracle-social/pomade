@@ -1,11 +1,11 @@
 // Mirrors ref/frost/src/lib/commit.ts
 
+use crate::Error;
 use crate::ecc::group::{scalar_multi, serialize_element, serialize_scalar_u32};
 use crate::ecc::hash::{h1, h4, h5};
 use crate::ecc::util::lift_x;
 use crate::helpers::{generate_nonce, get_pubkey};
 use crate::types::{BindFactor, CommitmentPackage, PublicNonce, SecretShare};
-use crate::Error;
 
 /// Extract participant indices from a list of public nonces.
 /// Mirrors `get_nonce_ids` in the TS implementation.

@@ -2,12 +2,12 @@
 
 use k256::Scalar;
 
+use crate::Error;
 use crate::ecc::group::{scalar_base_multi, scalar_multi, serialize_element};
 use crate::ecc::hash::h3;
 use crate::ecc::util::{lift_x, mod_n, scalar_from_bytes, scalar_to_bytes};
 use crate::util::assert;
 use crate::util::helpers::{hash340, random_bytes_32};
-use crate::Error;
 use k256::U256;
 
 /// Generate a secret key by hashing optional auxiliary bytes through H3.

@@ -2,10 +2,10 @@
 
 use k256::Scalar;
 
+use crate::Error;
 use crate::shares::{combine_set, create_shares};
 use crate::types::{SecretShare, SecretSharePackage};
 use crate::vss::{create_share_coeffs, get_share_commits};
-use crate::Error;
 
 /// Generate refresh shares for proactive secret sharing.
 /// The polynomial has a zero constant term, so adding these shares to existing
