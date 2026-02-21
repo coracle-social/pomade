@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod refresh_tests {
+mod tests {
     use crate::group::create_dealer_set;
     use crate::refresh::*;
     use crate::shares::derive_shares_secret;

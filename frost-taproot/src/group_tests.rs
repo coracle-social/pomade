@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod group_tests {
+mod tests {
     use crate::group::*;
     use crate::shares::verify_share;
 

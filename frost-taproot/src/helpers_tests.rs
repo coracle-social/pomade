@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod helpers_tests {
+mod tests {
     use crate::helpers::*;
 
     fn s32(hex: &str) -> [u8; 32] {

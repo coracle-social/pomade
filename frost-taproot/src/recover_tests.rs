@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod recover_tests {
+mod tests {
     use crate::group::create_dealer_set;
     use crate::recover::*;
     use crate::types::SecretShare;
@@ -100,7 +100,7 @@ mod recover_tests {
             idx: 2,
             seckey: s32("0e74411caa9ef5ba058d0ccf4e54e1ee773e625fb7d6258097466cedab0de152"),
         };
-        let result = recover_share(&[a.clone()], 2);
+        let result = recover_share(std::slice::from_ref(&a), 2);
         assert_eq!(result.seckey, a.seckey);
     }
 }

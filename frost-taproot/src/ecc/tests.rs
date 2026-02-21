@@ -197,11 +197,6 @@ mod group_tests {
     use crate::ecc::group::*;
     use k256::Scalar;
 
-    fn p(hex: &str) -> [u8; 33] {
-        let b = hex::decode(hex).unwrap();
-        b.try_into().unwrap()
-    }
-
     // ── scalar_base_multi ────────────────────────────────────────────────────
 
     #[test]

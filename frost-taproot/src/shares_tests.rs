@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod shares_tests {
+mod tests {
     use crate::ecc::util::scalar_from_bytes;
     use crate::shares::*;
     use crate::types::SecretShare;
@@ -77,7 +77,7 @@ mod shares_tests {
             1,
             "0e74411caa9ef5ba058d0ccf4e54e1ee773e625fb7d6258097466cedab0de152",
         );
-        let result = combine_shares(&[a.clone()]);
+        let result = combine_shares(std::slice::from_ref(&a));
         assert_eq!(result, a.seckey);
     }
 

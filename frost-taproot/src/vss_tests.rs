@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod vss_tests {
+mod tests {
     use crate::ecc::group::{scalar_base_multi, serialize_element};
     use crate::ecc::util::scalar_from_bytes;
     use crate::vss::*;

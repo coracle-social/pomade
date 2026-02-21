@@ -810,7 +810,7 @@ mod ecdh_tests {
     fn combine_ecdh_pkgs_matches_master_secret() {
         let secrets = [s32(S0), s32(S1)];
         let pkg = generate_dealer_package(2, 3, &secrets).unwrap();
-        let (demo_sk, demo_pk) = demo_keypair();
+        let (_demo_sk, demo_pk) = demo_keypair();
         let members = [1u32, 3u32];
 
         let ecdh1 = create_ecdh_pkg(&members, &demo_pk, &pkg.shares[0]).unwrap();

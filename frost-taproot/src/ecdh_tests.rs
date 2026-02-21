@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod ecdh_tests {
+mod tests {
     use crate::ecdh::*;
     use crate::group::create_dealer_set;
     use crate::helpers::{generate_seckey, get_pubkey, tweak_pubkey};

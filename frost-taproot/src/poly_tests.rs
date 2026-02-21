@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod poly_tests {
+mod tests {
     use crate::ecc::util::scalar_from_bytes;
     use crate::poly::*;
     use k256::Scalar;
