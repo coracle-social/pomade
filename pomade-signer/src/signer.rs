@@ -91,18 +91,21 @@ pub struct ChallengePayload {
     pub otp: String,
 }
 
+const CHALLENGE_HTML: &str = include_str!("../challenge.html");
+
+fn challenge_html(otp: &str) -> String {
+    CHALLENGE_HTML.replace("{{otp}}", otp)
+}
+
 fn challenge_email(otp: &str) -> crate::mailer::Email {
     crate::mailer::Email {
         to: String::new(), // filled in by caller
-        subject: "Your Pomade Login Challenge".into(),
+        subject: "Your One-Time Password".into(),
         text: format!(
-            "Your one-time password is: {}\n\nThis code expires in 15 minutes.\n\nIf you did not request this, please ignore this email.",
+            "Someone attempted to log in using your email address. If this was you, please continue by copying the one-time password below:\n\n{}\n\nThis code will expire in 15 minutes.\n\nIf you did not request this code, please ignore this email.\n\n---\n\nThis is an automated message from a Nostr signer. Please do not reply to this email.",
             otp
         ),
-        html: format!(
-            "<p>Your one-time password is:</p><p style=\"font-size:2em;letter-spacing:.1em;\"><strong>{}</strong></p><p>This code expires in 15 minutes.</p><p><small>If you did not request this, please ignore this email.</small></p>",
-            otp
-        ),
+        html: challenge_html(otp),
     }
 }
 
@@ -1242,7 +1245,7 @@ mod tests {
         let otp = "12345678";
         let email = challenge_email(otp);
 
-        assert!(email.subject.contains("Login Challenge"));
+        assert!(email.subject.contains("One-Time Password"));
         assert!(email.text.contains(otp));
         assert!(email.html.contains(otp));
         assert!(email.text.contains("15 minutes"));

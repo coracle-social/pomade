@@ -1,21 +1,7 @@
-import { readFileSync } from "fs"
-import { join, dirname } from "path"
-import { fileURLToPath } from "url"
 import Mustache from "mustache"
+import { loadChallengeTemplateHtml } from "@pomade/templates"
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
-// Load the compiled HTML template once at module initialization
-const templatePath = join(__dirname, "..", "templates", "challenge.html")
-let htmlTemplate: string
-
-try {
-  htmlTemplate = readFileSync(templatePath, "utf-8")
-} catch (error) {
-  console.error(`Failed to load email template from ${templatePath}:`, error)
-  throw new Error("Email template not found. Run 'npm run build:templates' to compile MJML templates.")
-}
+const htmlTemplate = loadChallengeTemplateHtml()
 
 export interface EmailProvider {
   sendChallenge(email: string, otp: string): Promise<void>

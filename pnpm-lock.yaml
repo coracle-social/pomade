@@ -115,6 +115,9 @@ importers:
       '@pomade/core':
         specifier: workspace:*
         version: link:../core
+      '@pomade/templates':
+        specifier: workspace:*
+        version: link:../templates
       '@welshman/lib':
         specifier: ^0.8.0-pre.1
         version: 0.8.0-pre.1
@@ -146,6 +149,18 @@ importers:
       '@types/sqlite3':
         specifier: ^3.1.11
         version: 3.1.11
+      rimraf:
+        specifier: ~6.0.0
+        version: 6.0.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/templates:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.1.0
+        version: 24.10.13
       mjml:
         specifier: ^4.15.3
         version: 4.18.0(encoding@0.1.13)
@@ -923,6 +938,9 @@ packages:
   '@types/mustache@4.2.6':
     resolution: {integrity: sha512-t+8/QWTAhOFlrF1IVZqKnMRJi84EgkIK5Kh0p2JV4OLywUvCwJPFxbJAl7XAow7DVIHsF+xW9f1MVzg0L6Szjw==}
 
+  '@types/node@24.10.13':
+    resolution: {integrity: sha512-oH72nZRfDv9lADUBSo104Aq7gPHpQZc4BTx38r9xf9pg5LfP6EzSyH2n7qFmmxRQXh7YlUXODcYsg6PuTDSxGg==}
+
   '@types/node@25.0.3':
     resolution: {integrity: sha512-W609buLVRVmeW693xKfzHeIV6nJGGz98uCPfeXI1ELMLXVeKYZ9m15fAMSaUPBHYLGFsVRcMmSCksQOrZV9BYA==}
 
@@ -1581,6 +1599,7 @@ packages:
 
   glob@10.5.0:
     resolution: {integrity: sha512-DfXN8DfhJ7NH3Oe7cFmu3NCu1wKbkReJ8TorzSAFbSKrlNaQSKfIzqYqVY8zlbs2NLBbWpRiU52GX2PbaBVNkg==}
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
     hasBin: true
 
   glob@11.1.0:
@@ -3175,6 +3194,10 @@ snapshots:
 
   '@types/mustache@4.2.6': {}
 
+  '@types/node@24.10.13':
+    dependencies:
+      undici-types: 7.16.0
+
   '@types/node@25.0.3':
     dependencies:
       undici-types: 7.16.0
@@ -3185,7 +3208,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 25.0.3
+      '@types/node': 24.10.13
 
   '@typescript-eslint/eslint-plugin@8.50.0(@typescript-eslint/parser@8.50.0(eslint@9.39.2)(typescript@5.9.3))(eslint@9.39.2)(typescript@5.9.3)':
     dependencies:
