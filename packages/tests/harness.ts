@@ -73,6 +73,7 @@ async function spawnSigner(
         LISTEN_ADDR: `127.0.0.1:${port}`,
         DB_PATH: join(dataDir, "signer.sled"),
         TEST_MODE: "1",
+        RUST_LOG: "pomade_signer=debug,info",
       },
       stdio: ["ignore", "pipe", "pipe"],
     })
@@ -82,11 +83,13 @@ async function spawnSigner(
 
   proc.stdout?.on("data", (chunk: Buffer) => {
     for (const line of chunk.toString().split("\n")) {
+      if (line.trim()) process.stdout.write(`${tag} ${line}\n`)
       parseLine(line)
     }
   })
   proc.stderr?.on("data", (chunk: Buffer) => {
     for (const line of chunk.toString().split("\n")) {
+      if (line.trim()) process.stderr.write(`${tag} ${line}\n`)
       parseLine(line)
     }
   })

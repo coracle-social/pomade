@@ -12,7 +12,7 @@ hex = "0.4"
 base64 = "0.22"
 rand = "0.8"
 frost-taproot = { path = "../frost-taproot" }
-k256 = { version = "0.13", features = ["arithmetic", "hash2curve", "schnorr"] }
+nostr = { version = "0.44", features = ["std", "nip98"] }
 log = "0.4"
 env_logger = "0.11"
 axum = "0.7"

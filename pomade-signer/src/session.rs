@@ -3,18 +3,30 @@
 /// Bridges the hex-string schema types (GroupPackage, SharePackage, SignRequest)
 /// to frost-taproot's byte-array types, implementing the bifrost session logic.
 use frost_taproot::{
-    Error,
     context::get_group_signing_ctx,
     ecdh::create_ecdh_share,
     helpers::{get_pubkey, tweak_pubkey, tweak_seckey},
     sign::sign_msg,
     types::{PublicNonce, SecretNonce, SecretShare},
+    Error,
 };
 use sha2::{Digest, Sha256};
 
 use crate::schema::{
     Commit, EcdhRequest, EcdhResult, Group, Hex32, PsigEntry, Share, SignRequest, SignResult,
 };
+
+/// Mirrors `Buff.bytes(n)` / `numToBytes(n, undefined)` from @cmdcode/buff:
+/// encodes n as the minimum number of big-endian bytes needed (1, 2, or 4).
+fn num_to_bytes_be_varwidth(n: u32) -> Vec<u8> {
+    if n <= 0xFF {
+        vec![n as u8]
+    } else if n <= 0xFFFF {
+        (n as u16).to_be_bytes().to_vec()
+    } else {
+        n.to_be_bytes().to_vec()
+    }
+}
 
 fn decode32(s: &str) -> Result<[u8; 32], String> {
     let b = hex::decode(s).map_err(|e| e.to_string())?;
@@ -157,8 +169,9 @@ fn compute_session_id(group: &Group, request: &crate::schema::SignRequestInner) 
 
     let mut hasher = Sha256::new();
     hasher.update(group_id);
+    // Members: Buff.bytes(n) uses variable-width big-endian (1 byte for n <= 0xFF)
     for &m in &request.members.0 {
-        hasher.update(m.to_be_bytes());
+        hasher.update(num_to_bytes_be_varwidth(m));
     }
     for sigvec in &request.hashes.0 {
         for h in &sigvec.0 {
@@ -173,7 +186,8 @@ fn compute_session_id(group: &Group, request: &crate::schema::SignRequestInner) 
         hasher.update(b"\x00");
     }
     hasher.update(request.kind.as_bytes());
-    hasher.update(request.stamp.to_be_bytes());
+    // Stamp: Buff.num(stamp, 4) uses exactly 4 bytes big-endian
+    hasher.update((request.stamp as u32).to_be_bytes());
     hasher.finalize().into()
 }
 

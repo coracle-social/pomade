@@ -6,7 +6,7 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::nostr::{NostrEvent, parse_auth};
+use crate::nostr::{NostrAuth, parse_auth};
 use crate::ratelimit::{
     RateLimitBucket, RateLimitConfig, get_rate_limit_reset_time, is_rate_limited, record_attempt,
 };
@@ -314,7 +314,7 @@ impl Signer {
 
     // ---- Handlers ----
 
-    fn handle_register(&self, auth: &NostrEvent, data: RegisterRequest) -> RegisterResponse {
+    fn handle_register(&self, auth: &NostrAuth, data: RegisterRequest) -> RegisterResponse {
         let client = &auth.pubkey;
         let RegisterRequest {
             group,
@@ -329,7 +329,7 @@ impl Signer {
             };
         }
 
-        if crate::pow::get_pow(&hex_to_id(&auth.id)) < self.options.register_pow {
+        if crate::pow::get_pow(auth.event.id.as_bytes()) < self.options.register_pow {
             log::debug!("[client {}]: insufficient proof of work", &client[..8]);
             return RegisterResponse {
                 ok: false,
@@ -415,7 +415,7 @@ impl Signer {
 
     fn handle_recovery_setup(
         &self,
-        auth: &NostrEvent,
+        auth: &NostrAuth,
         data: RecoverySetupRequest,
     ) -> RecoverySetupResponse {
         let client = &auth.pubkey;
@@ -481,7 +481,7 @@ impl Signer {
         }
     }
 
-    fn handle_challenge(&self, _auth: &NostrEvent, data: ChallengeRequest) -> ChallengeResponse {
+    fn handle_challenge(&self, _auth: &NostrAuth, data: ChallengeRequest) -> ChallengeResponse {
         let bucket = self.rate_limit_by_email_hash.get(&data.email_hash);
         if is_rate_limited(bucket.as_ref(), &EMAIL_RATE_LIMITS) {
             return ChallengeResponse {
@@ -537,7 +537,7 @@ impl Signer {
 
     fn handle_recovery_start(
         &self,
-        auth: &NostrEvent,
+        auth: &NostrAuth,
         data: RecoveryStartRequest,
     ) -> RecoveryStartResponse {
         let client = &auth.pubkey;
@@ -579,7 +579,7 @@ impl Signer {
 
     fn handle_recovery_select(
         &self,
-        auth: &NostrEvent,
+        auth: &NostrAuth,
         data: RecoverySelectRequest,
     ) -> RecoverySelectResponse {
         let client = &auth.pubkey;
@@ -627,7 +627,7 @@ impl Signer {
         }
     }
 
-    fn handle_login_start(&self, auth: &NostrEvent, data: LoginStartRequest) -> LoginStartResponse {
+    fn handle_login_start(&self, auth: &NostrAuth, data: LoginStartRequest) -> LoginStartResponse {
         let client = &auth.pubkey;
         if self.check_key_reuse(client) {
             return LoginStartResponse {
@@ -667,7 +667,7 @@ impl Signer {
 
     fn handle_login_select(
         &self,
-        auth: &NostrEvent,
+        auth: &NostrAuth,
         data: LoginSelectRequest,
     ) -> LoginSelectResponse {
         let client = &auth.pubkey;
@@ -727,7 +727,7 @@ impl Signer {
         }
     }
 
-    fn handle_sign(&self, auth: &NostrEvent, data: SignRequest) -> SignResponse {
+    fn handle_sign(&self, auth: &NostrAuth, data: SignRequest) -> SignResponse {
         let client = &auth.pubkey;
         let Some(session) = self.sessions.get(client) else {
             log::debug!(
@@ -776,7 +776,7 @@ impl Signer {
         }
     }
 
-    fn handle_ecdh(&self, auth: &NostrEvent, data: EcdhRequest) -> EcdhResponse {
+    fn handle_ecdh(&self, auth: &NostrAuth, data: EcdhRequest) -> EcdhResponse {
         let client = &auth.pubkey;
         let Some(session) = self.sessions.get(client) else {
             log::debug!("[client {}]: ecdh failed - no session found", &client[..8]);
@@ -822,7 +822,7 @@ impl Signer {
         }
     }
 
-    fn handle_session_list(&self, auth: &NostrEvent) -> SessionListResponse {
+    fn handle_session_list(&self, auth: &NostrAuth) -> SessionListResponse {
         let pubkey = &auth.pubkey;
         let items: Vec<SessionItem> = self
             .sessions
@@ -850,7 +850,7 @@ impl Signer {
 
     fn handle_session_delete(
         &self,
-        auth: &NostrEvent,
+        auth: &NostrAuth,
         data: SessionDeleteRequest,
     ) -> SessionDeleteResponse {
         let pubkey = &auth.pubkey;
@@ -988,8 +988,8 @@ mod tests {
         }
     }
 
-    fn create_test_nostr_event(pubkey: &str) -> NostrEvent {
-        use crate::nostr::HTTP_AUTH;
+    fn create_test_nostr_auth(pubkey: &str) -> NostrAuth {
+        use nostr::util::JsonUtil;
         use std::time::{SystemTime, UNIX_EPOCH};
 
         let now = SystemTime::now()
@@ -997,17 +997,19 @@ mod tests {
             .unwrap()
             .as_secs();
 
-        NostrEvent {
-            id: "a".repeat(64),
+        // Build a minimal event JSON; signature is not verified in unit tests
+        let event_json = format!(
+            r#"{{"id":"{id}","pubkey":"{pubkey}","created_at":{now},"kind":27235,"tags":[["u","http://localhost:3000/test"],["method","POST"]],"content":"","sig":"{sig}"}}"#,
+            id = "a".repeat(64),
+            pubkey = pubkey,
+            now = now,
+            sig = "b".repeat(128),
+        );
+        let event = nostr::Event::from_json(event_json).expect("valid test event json");
+
+        NostrAuth {
             pubkey: pubkey.to_string(),
-            created_at: now,
-            kind: HTTP_AUTH,
-            tags: vec![
-                vec!["u".to_string(), "http://localhost:3000/test".to_string()],
-                vec!["method".to_string(), "POST".to_string()],
-            ],
-            content: "".to_string(),
-            sig: "b".repeat(128),
+            event,
         }
     }
 

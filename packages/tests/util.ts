@@ -9,6 +9,7 @@ export type SuiteContext = {
 }
 
 export async function setupSuite(specs: SignerKind[]): Promise<SuiteContext> {
+  context.debug = true
   context.registerPow = 0
   context.argonOptions = {...context.argonOptions, m: 1024}
 
