@@ -2,7 +2,7 @@
 FROM rust:alpine AS builder
 
 # Install build dependencies
-RUN apk add --no-cache musl-dev openssl-dev pkgconf
+RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconf
 
 WORKDIR /app
 
