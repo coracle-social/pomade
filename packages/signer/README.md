@@ -7,8 +7,7 @@ For protocol specification, see [PROTOCOL.md](../../PROTOCOL.md)
 ## Configuration
 
 Required environment variables:
-- `POMADE_SECRET`: Your nostr private key (hex or nsec format)
-- `POMADE_RELAYS`: Comma-separated list of relay URLs
+- `POMADE_SECRET`: A nostr private key used for encryption at rest
 - `MAIL_PROVIDER`: Email provider (`postmark`, `sendgrid`, `mailgun`, `sendlayer`, or `resend`)
 - `MAIL_FROM_EMAIL`: Sender email address
 
@@ -31,7 +30,7 @@ Email provider specific variables:
 ```bash
 cd packages/signer
 pnpm install
-POMADE_SECRET=your_nsec POMADE_RELAYS=wss://relay.example.com MAIL_PROVIDER=resend MAIL_FROM_EMAIL=mailer@example.com RESEND_API_KEY=your_key pnpm start
+POMADE_SECRET=your_nsec MAIL_PROVIDER=resend MAIL_FROM_EMAIL=mailer@example.com RESEND_API_KEY=your_key pnpm start
 ```
 
 ### With Docker (from repository)
