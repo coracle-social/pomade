@@ -112,7 +112,7 @@ async fn main() {
 
     let options = SignerOptions {
         url: args.url,
-        register_pow: if test_mode { 1 } else { 20 },
+        register_pow: if test_mode { 0 } else { 20 },
         argon_m: if test_mode { 1024 } else { 64 * 1024 },
         from_email: args.mail_from_email,
         from_name: args.mail_from_name,

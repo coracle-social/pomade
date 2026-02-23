@@ -2,6 +2,7 @@ import {prep, makePow, makeHttpAuth, makeHttpAuthHeader} from "@welshman/util"
 import {Nip01Signer} from "@welshman/signer"
 import type {ISigner} from "@welshman/signer"
 import type {Message} from "./message.js"
+import {debug} from "./util.js"
 
 export class RPC {
   static fetch = globalThis.fetch.bind(globalThis)
@@ -39,11 +40,13 @@ export class RPC {
       })
 
       if (!response.ok) {
+        debug(`RPC ${requestUrl} HTTP ${response.status}`)
         return {url: signerUrl}
       }
 
       return {url: signerUrl, res: (await response.json()) as T}
-    } catch {
+    } catch (e) {
+      debug(`RPC ${requestUrl} threw:`, e)
       return {url: signerUrl}
     }
   }

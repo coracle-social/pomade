@@ -12,7 +12,7 @@ context.debug = true
 
 // Apply test mode overrides before anything else
 if (process.env.TEST_MODE) {
-  context.registerPow = 1
+  context.registerPow = 0
   context.argonOptions = {...context.argonOptions, m: 1024}
 }
 
