@@ -180,8 +180,11 @@ fn compute_session_id(group: &Group, request: &crate::schema::SignRequestInner) 
             }
         }
     }
+    // Buff.bytes(content ?? '00'): hex-decode the string, or [0x00] if null
     if let Some(content) = &request.content {
-        hasher.update(content.as_bytes());
+        if let Ok(b) = hex::decode(content) {
+            hasher.update(&b);
+        }
     } else {
         hasher.update(b"\x00");
     }
@@ -199,7 +202,10 @@ fn compute_group_id(group: &Group) -> [u8; 32] {
 
     let mut prefix = Vec::new();
     for c in &sorted {
-        prefix.extend_from_slice(&c.idx.to_be_bytes());
+        // SerializeScalar(idx) = new Buff(idx, 32): zero-padded 32-byte big-endian
+        let mut idx_bytes = [0u8; 32];
+        idx_bytes[28..].copy_from_slice(&c.idx.to_be_bytes());
+        prefix.extend_from_slice(&idx_bytes);
         if let Ok(b) = hex::decode(&c.hidden_pn.0) {
             prefix.extend_from_slice(&b);
         }
