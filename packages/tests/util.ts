@@ -1,7 +1,7 @@
 import {range, randomId} from "@welshman/lib"
 import {getPubkey, makeSecret} from "@welshman/util"
 import {Nip01Signer} from "@welshman/signer"
-import {inMemoryStorage, argonOptions, context, Client, Signer, ChallengePayload, RPC} from "../src"
+import {inMemoryStorage, argonOptions, context, Client, Signer, ChallengePayload, RPC} from "@pomade/core"
 
 export const signerSecrets = Array.from(range(0, 8)).map(() => makeSecret())
 export const signerPubkeys = signerSecrets.map(secret => getPubkey(secret))

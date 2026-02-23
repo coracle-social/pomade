@@ -24,8 +24,6 @@
     "./argon-worker.js": "./dist/argon-worker.js"
   },
   "scripts": {
-    "test": "vitest -r __tests__ --bail=1 --run",
-    "test:watch": "vitest -r __tests__ --bail=1",
     "build": "rimraf ./dist && tsc -b --force && cp src/argon-worker.js dist/",
     "prepublishOnly": "pnpm run build",
     "lint": "eslint . --ext .ts,.tsx",

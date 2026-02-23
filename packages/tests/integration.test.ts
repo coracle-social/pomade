@@ -3,8 +3,8 @@ import {bytesToHex, hexToBytes} from "@noble/hashes/utils.js"
 import {describe, it, expect, beforeEach, afterEach} from "vitest"
 import {sortBy, uniq} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
-import {beforeHook, makeEmail, challengePayloads, afterHook, makeClientWithRecovery} from "./util"
-import {Client} from "../src"
+import {beforeHook, makeEmail, challengePayloads, afterHook, makeClientWithRecovery} from "./util.js"
+import {Client} from "@pomade/core"
 
 const doLet = <T>(x: T, f: (x: T) => void) => f(x)
 
