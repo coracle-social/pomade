@@ -1,5 +1,5 @@
 use base64::Engine;
-use nostr::nips::nip98::{verify_auth_header, HttpMethod};
+use nostr::nips::nip98::{HttpMethod, verify_auth_header};
 use nostr::types::time::Timestamp;
 use nostr::util::JsonUtil;
 use nostr::{Event, PublicKey, Url};

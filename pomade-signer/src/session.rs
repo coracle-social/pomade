@@ -3,12 +3,12 @@
 /// Bridges the hex-string schema types (GroupPackage, SharePackage, SignRequest)
 /// to frost-taproot's byte-array types, implementing the bifrost session logic.
 use frost_taproot::{
+    Error,
     context::get_group_signing_ctx,
     ecdh::create_ecdh_share,
     helpers::{get_pubkey, tweak_pubkey, tweak_seckey},
     sign::sign_msg,
     types::{PublicNonce, SecretNonce, SecretShare},
-    Error,
 };
 use sha2::{Digest, Sha256};
 
@@ -430,7 +430,7 @@ mod tests {
         let share_sigs: Vec<ShareSignature> = psig_results
             .iter()
             .map(|r| {
-                let psig_hex = &r.psigs[0].1 .0;
+                let psig_hex = &r.psigs[0].1.0;
                 ShareSignature {
                     idx: r.idx,
                     pubkey: decode33(&r.pubkey.0).unwrap(),

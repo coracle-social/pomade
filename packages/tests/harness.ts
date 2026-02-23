@@ -73,7 +73,7 @@ async function spawnSigner(
         LISTEN_ADDR: `127.0.0.1:${port}`,
         DB_PATH: join(dataDir, "signer.sled"),
         TEST_MODE: "1",
-        RUST_LOG: "pomade_signer=debug,info",
+        // RUST_LOG: "pomade_signer=debug,info",
       },
       stdio: ["ignore", "pipe", "pipe"],
     })
