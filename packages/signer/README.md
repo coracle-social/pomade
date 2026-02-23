@@ -9,14 +9,20 @@ For protocol specification, see [PROTOCOL.md](../../PROTOCOL.md)
 Required environment variables:
 - `POMADE_SECRET`: Your nostr private key (hex or nsec format)
 - `POMADE_RELAYS`: Comma-separated list of relay URLs
-- `MAIL_PROVIDER`: Email provider (postmark, sendgrid, mailgun, sendlayer, or resend)
+- `MAIL_PROVIDER`: Email provider (`postmark`, `sendgrid`, `mailgun`, `sendlayer`, or `resend`)
 - `MAIL_FROM_EMAIL`: Sender email address
 
 Optional environment variables:
 - `POMADE_DB_PATH`: Path to SQLite database (default: `./pomade-signer.db`)
 - `MAIL_FROM_NAME`: Sender name (default: "Pomade Signer")
 
-For detailed email provider configuration, see [MAILERS.md](../../MAILERS.md).
+Email provider specific variables:
+- `POSTMARK_API_TOKEN` - For Postmark
+- `SENDGRID_API_KEY` - For SendGrid
+- `MAILGUN_API_KEY` and `MAILGUN_DOMAIN` - For Mailgun
+- `MAILGUN_API_REGION` - `us` or `eu` (default: `us`)
+- `SENDLAYER_API_KEY` - For SendLayer
+- `RESEND_API_KEY` - For Resend
 
 ## Running
 
