@@ -102,9 +102,13 @@ async fn main() {
 
     let storage = Storage::open(&args.db).expect("failed to open sled database");
 
-    let mailer = args.mail_provider.as_deref().map(build_mailer);
-
     let test_mode = std::env::var("TEST_MODE").is_ok();
+
+    if !test_mode && args.mail_provider.is_none() {
+        panic!("MAIL_PROVIDER must be set when TEST_MODE is not enabled");
+    }
+
+    let mailer = args.mail_provider.as_deref().map(build_mailer);
 
     let options = SignerOptions {
         url: args.url,
@@ -113,6 +117,7 @@ async fn main() {
         from_email: args.mail_from_email,
         from_name: args.mail_from_name,
         mailer,
+        test_mode,
     };
 
     let signer = Arc::new(Signer::open(options, &storage).expect("failed to open signer"));

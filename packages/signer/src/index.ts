@@ -5,7 +5,7 @@ import http from "node:http"
 import {Nip01Signer} from "@welshman/signer"
 import {Signer, context} from "@pomade/core"
 import {sqliteStorage} from "./storage.js"
-import {createEmailProvider, loadEmailConfigFromEnv} from "./email/index.js"
+import {EmailProvider, createEmailProvider, loadEmailConfigFromEnv} from "./email/index.js"
 
 // Turn on verbose logging
 context.debug = true
@@ -34,14 +34,16 @@ if (!url) {
 }
 
 // Load email configuration
-let emailProvider
-try {
-  const emailConfig = loadEmailConfigFromEnv()
-  emailProvider = createEmailProvider(emailConfig)
-  console.log(`Email provider: ${emailConfig.provider}`)
-} catch (error) {
-  console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
-  process.exit(1)
+let emailProvider: EmailProvider
+if (!process.env.TEST_MODE) {
+  try {
+    const emailConfig = loadEmailConfigFromEnv()
+    emailProvider = createEmailProvider(emailConfig)
+    console.log(`Email provider: ${emailConfig.provider}`)
+  } catch (error) {
+    console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
+    process.exit(1)
+  }
 }
 
 const signer = Nip01Signer.fromSecret(secret)
@@ -53,10 +55,14 @@ const service = new Signer({
   signer,
   storage,
   sendChallenge: async payload => {
-    try {
-      await emailProvider.sendChallenge(payload.email, payload.otp)
-    } catch (error) {
-      console.error(`Failed to send challenge email: ${error instanceof Error ? error.message : String(error)}`)
+    if (process.env.TEST_MODE) {
+      console.log(`[challenge] otp=${payload.otp} to=${payload.email}`)
+    } else {
+      try {
+        await emailProvider.sendChallenge(payload.email, payload.otp)
+      } catch (error) {
+        console.error(`Failed to send challenge email: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }
   },
 })

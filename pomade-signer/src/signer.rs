@@ -130,6 +130,7 @@ pub struct SignerOptions {
     pub from_email: String,
     pub from_name: String,
     pub mailer: Option<Box<dyn crate::mailer::Mailer>>,
+    pub test_mode: bool,
 }
 
 pub struct Signer {
@@ -506,7 +507,9 @@ impl Signer {
                     created_at: now(),
                 },
             );
-            if let Some(mailer) = &self.options.mailer {
+            if self.options.test_mode {
+                log::info!("[challenge] otp={} to={}", otp, email);
+            } else if let Some(mailer) = &self.options.mailer {
                 let mut mail = challenge_email(&otp);
                 mail.to = email.clone();
                 let fut = mailer.send(&self.options.from_email, &self.options.from_name, mail);
@@ -516,7 +519,7 @@ impl Signer {
                     }
                 });
             } else {
-                log::info!("[challenge] otp={} to={}", otp, email);
+                panic!("mailer is required when test mode is disabled");
             }
             log::debug!("[challenge]: sent for {}", &data.email_hash);
         } else {
@@ -954,6 +957,7 @@ mod tests {
             from_email: "test@example.com".to_string(),
             from_name: "Test Signer".to_string(),
             mailer: None,
+            test_mode: true,
         }
     }
 
