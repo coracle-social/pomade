@@ -86,31 +86,55 @@ mod tests {
 
     #[test]
     fn tweak_seckey_by_one_is_identity() {
+        // tweak_seckey adds the tweak: (seckey + 1) mod N
+        use crate::ecc::util::{scalar_from_bytes, scalar_to_bytes};
+        use k256::Scalar;
         let seckey = s32("0e74411caa9ef5ba058d0ccf4e54e1ee773e625fb7d6258097466cedab0de152");
         let one = s32("0000000000000000000000000000000000000000000000000000000000000001");
-        assert_eq!(tweak_seckey(&seckey, &one), seckey);
+        let tweaked = tweak_seckey(&seckey, &one);
+        let expected = scalar_to_bytes(&(scalar_from_bytes(&seckey) + Scalar::ONE));
+        assert_eq!(tweaked, expected);
     }
 
     #[test]
     fn tweak_seckey_doubles_with_two() {
+        // tweak_seckey adds the tweak: (seckey + 2) mod N
         use crate::ecc::util::{scalar_from_bytes, scalar_to_bytes};
         let seckey = s32("0e74411caa9ef5ba058d0ccf4e54e1ee773e625fb7d6258097466cedab0de152");
         let two = s32("0000000000000000000000000000000000000000000000000000000000000002");
         let tweaked = tweak_seckey(&seckey, &two);
-        let expected = scalar_to_bytes(&(scalar_from_bytes(&seckey) + scalar_from_bytes(&seckey)));
+        let expected = scalar_to_bytes(&(scalar_from_bytes(&seckey) + scalar_from_bytes(&two)));
         assert_eq!(tweaked, expected);
     }
 
     // ── tweak_pubkey ─────────────────────────────────────────────────────────
 
     #[test]
-    fn tweak_pubkey_by_one_is_identity() {
+    fn tweak_pubkey_by_zero_is_identity() {
+        // tweak_pubkey adds tweak*G: pubkey + 0*G = pubkey
+        let pubkey =
+            hex::decode("021ae63bc9ddaffe52d44c3018e83115bfb22195bd8112fcad112310714e6fd5ec")
+                .unwrap();
+        let zero = s32("0000000000000000000000000000000000000000000000000000000000000000");
+        let tweaked = tweak_pubkey(&pubkey, &zero).unwrap();
+        assert_eq!(hex::encode(tweaked), hex::encode(&pubkey));
+    }
+
+    #[test]
+    fn tweak_pubkey_by_one_adds_generator() {
+        // tweak_pubkey adds tweak*G: pubkey + 1*G = pubkey + G
+        use crate::ecc::group::{element_add, scalar_base_multi};
+        use crate::ecc::util::{lift_x, serialize_point};
+        use k256::Scalar;
         let pubkey =
             hex::decode("021ae63bc9ddaffe52d44c3018e83115bfb22195bd8112fcad112310714e6fd5ec")
                 .unwrap();
         let one = s32("0000000000000000000000000000000000000000000000000000000000000001");
         let tweaked = tweak_pubkey(&pubkey, &one).unwrap();
-        assert_eq!(hex::encode(tweaked), hex::encode(&pubkey));
+        let pt = lift_x(&pubkey).unwrap();
+        let g = scalar_base_multi(&Scalar::ONE);
+        let expected = serialize_point(&element_add(Some(pt), Some(g)).unwrap());
+        assert_eq!(tweaked, expected);
     }
 
     #[test]

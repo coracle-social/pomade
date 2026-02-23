@@ -14,7 +14,7 @@ import {
 import {extract} from "@noble/hashes/hkdf.js"
 import {sha256} from "@noble/hashes/sha2.js"
 import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
-import {prep, makeSecret} from "@welshman/util"
+import {prep, makeSecret, verifyEvent} from "@welshman/util"
 import type {StampedEvent, SignedEvent} from "@welshman/util"
 import {Lib} from "@frostr/bifrost"
 import type {GroupPackage} from "@frostr/bifrost"

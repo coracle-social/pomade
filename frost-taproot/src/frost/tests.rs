@@ -696,16 +696,12 @@ mod signing_tests {
         let psig2 = create_partial_sig_package(&session, &pkg.shares[1], &secret_nonce2).unwrap();
 
         // Verify each partial sig
-        assert!(
-            verify_partial_sig_package(&session, &pkg.group, &psig1)
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            verify_partial_sig_package(&session, &pkg.group, &psig2)
-                .unwrap()
-                .is_none()
-        );
+        assert!(verify_partial_sig_package(&session, &pkg.group, &psig1)
+            .unwrap()
+            .is_none());
+        assert!(verify_partial_sig_package(&session, &pkg.group, &psig2)
+            .unwrap()
+            .is_none());
 
         // Combine and verify final signature
         let sigs = combine_signatures(&session, &pkg.group, &[psig1, psig2]).unwrap();
@@ -818,8 +814,14 @@ mod ecdh_tests {
 
         let frost_secret = combine_ecdh_pkgs(&[ecdh1, ecdh3], &demo_pk).unwrap();
 
-        // master_shared_secret = group_pk * demo_sk = tweak_pubkey(demo_pk, group_secret)
-        let master_secret = crate::helpers::tweak_pubkey(&demo_pk, &s32(S0)).unwrap();
+        // master_shared_secret = demo_sk * group_pk (scalar mult of the group pubkey)
+        let group_pk = pkg.group.group_pk;
+        let group_pt = crate::ecc::util::lift_x(&group_pk).unwrap();
+        let (demo_sk, _) = demo_keypair();
+        let master_secret = crate::ecc::group::serialize_element(&crate::ecc::group::scalar_multi(
+            &group_pt,
+            &crate::ecc::util::scalar_from_bytes(&demo_sk),
+        ));
         assert_eq!(frost_secret, master_secret);
     }
 

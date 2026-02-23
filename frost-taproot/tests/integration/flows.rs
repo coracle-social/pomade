@@ -169,20 +169,13 @@ fn dealer_full_flow() {
     let ecdh3 = create_ecdh_pkg(&ecdh_members, &ext_pubkey, &shares[2]).unwrap();
     let frost_shared = combine_ecdh_pkgs(&[ecdh1, ecdh3], &ext_pubkey).unwrap();
 
-    // The shared secret must equal ext_pubkey * group_secret = group_pk * ext_seckey.
-    // Verify by computing it the direct way: tweak_pubkey(ext_pubkey, group_secret).
-    let group_secret = derive_shares_secret(&[
-        SecretShare {
-            idx: shares[0].idx,
-            seckey: shares[0].seckey,
-        },
-        SecretShare {
-            idx: shares[2].idx,
-            seckey: shares[2].seckey,
-        },
-    ])
-    .unwrap();
-    let direct_shared = frost_taproot::helpers::tweak_pubkey(&ext_pubkey, &group_secret).unwrap();
+    // The shared secret must equal ext_seckey * group_pk (scalar mult).
+    // Verify by computing it the direct way.
+    let group_pt = frost_taproot::ecc::util::lift_x(&group.group_pk).unwrap();
+    let ext_scalar = frost_taproot::ecc::util::scalar_from_bytes(&ext_seckey);
+    let direct_shared = frost_taproot::ecc::group::serialize_element(
+        &frost_taproot::ecc::group::scalar_multi(&group_pt, &ext_scalar),
+    );
     assert_eq!(
         frost_shared, direct_shared,
         "FROST ECDH shared secret must match direct computation"
@@ -382,19 +375,13 @@ fn dkg_full_flow() {
     let ecdh3 = create_ecdh_pkg(&ecdh_members, &ext_pubkey, &shares[2]).unwrap();
     let frost_shared = combine_ecdh_pkgs(&[ecdh1, ecdh3], &ext_pubkey).unwrap();
 
-    // Recover the group secret to verify ECDH directly.
-    let group_secret = derive_shares_secret(&[
-        SecretShare {
-            idx: shares[0].idx,
-            seckey: shares[0].seckey,
-        },
-        SecretShare {
-            idx: shares[2].idx,
-            seckey: shares[2].seckey,
-        },
-    ])
-    .unwrap();
-    let direct_shared = frost_taproot::helpers::tweak_pubkey(&ext_pubkey, &group_secret).unwrap();
+    // The shared secret must equal ext_seckey * group_pk (scalar mult).
+    // Verify by computing it the direct way.
+    let group_pt = frost_taproot::ecc::util::lift_x(&group_pk).unwrap();
+    let ext_scalar = frost_taproot::ecc::util::scalar_from_bytes(&ext_seckey);
+    let direct_shared = frost_taproot::ecc::group::serialize_element(
+        &frost_taproot::ecc::group::scalar_multi(&group_pt, &ext_scalar),
+    );
     assert_eq!(
         frost_shared, direct_shared,
         "FROST ECDH shared secret must match direct computation"

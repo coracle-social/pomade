@@ -305,6 +305,151 @@ mod tests {
         SignRequestInner,
     };
 
+    /// End-to-end test: generate a 2-of-3 FROST group, sign a nostr event,
+    /// and verify the resulting event with the rust-nostr crate.
+    #[test]
+    fn test_frost_sign_nostr_event() {
+        use frost_taproot::{
+            commit::create_commit_pkg, frost::dealer::generate_dealer_package,
+            sign::combine_partial_sigs, types::ShareSignature,
+        };
+        use nostr::secp256k1::schnorr::Signature as SchnorrSig;
+        use nostr::{EventBuilder, Kind, PublicKey};
+
+        // ── 1. Generate a 2-of-3 FROST group ─────────────────────────────────
+
+        let secrets = [[0x11u8; 32], [0x22u8; 32]];
+        let pkg = generate_dealer_package(2, 3, &secrets).unwrap();
+        let group = &pkg.group;
+
+        // group_pk is 33-byte compressed; nostr PublicKey is x-only (32 bytes).
+        let group_pk_xonly = PublicKey::from_slice(&group.group_pk[1..]).unwrap();
+
+        // ── 2. Build an unsigned nostr event ──────────────────────────────────
+
+        let mut unsigned =
+            EventBuilder::new(Kind::TextNote, "hello from FROST").build(group_pk_xonly);
+        let event_id = unsigned.id();
+
+        // The sighash is the raw 32-byte event ID.
+        let sighash = *event_id.as_bytes();
+        let sighash_hex = hex::encode(sighash);
+
+        // ── 3. Build schema types for the two signing members (indices 1 & 2) ─
+
+        let members = vec![1u32, 2u32];
+
+        // Create commitment packages (nonces) for each signer.
+        let low_shares: Vec<_> = pkg.shares[..2]
+            .iter()
+            .map(|s| frost_taproot::types::SecretShare {
+                idx: s.idx,
+                seckey: s.seckey,
+            })
+            .collect();
+
+        let commit_pkgs: Vec<_> = low_shares
+            .iter()
+            .map(|s| create_commit_pkg(s, None, None))
+            .collect();
+
+        // Build the schema Group from the dealer package.
+        let schema_group = Group {
+            group_pk: Hex33(hex::encode(group.group_pk)),
+            threshold: group.threshold as u32,
+            commits: BoundedVec(
+                commit_pkgs
+                    .iter()
+                    .map(|c| Commit {
+                        idx: c.idx,
+                        pubkey: Hex33(hex::encode(c.hidden_pn)), // not used in signing path
+                        hidden_pn: Hex33(hex::encode(c.hidden_pn)),
+                        binder_pn: Hex33(hex::encode(c.binder_pn)),
+                    })
+                    .collect(),
+            ),
+        };
+
+        // Build the schema Share for each signer.
+        let schema_shares: Vec<Share> = low_shares
+            .iter()
+            .zip(&commit_pkgs)
+            .map(|(s, c)| Share {
+                idx: s.idx,
+                seckey: Hex32(hex::encode(s.seckey)),
+                hidden_sn: Hex32(hex::encode(c.hidden_sn)),
+                binder_sn: Hex32(hex::encode(c.binder_sn)),
+            })
+            .collect();
+
+        // Compute gid/sid so verify_session_pkg passes.
+        let gid_bytes = compute_group_id(&schema_group);
+        let gid = hex::encode(gid_bytes);
+
+        let request_inner_template = SignRequestInner {
+            gid: Hex32(gid.clone()),
+            sid: Hex32("00".repeat(32)), // placeholder; recomputed below
+            members: BoundedVec(members.clone()),
+            hashes: BoundedVec(vec![SighashVec(vec![Hex32(sighash_hex.clone())])]),
+            content: None,
+            kind: "message".to_string(),
+            stamp: 1234567890,
+        };
+        let sid_bytes = compute_session_id(&schema_group, &request_inner_template);
+        let sid = hex::encode(sid_bytes);
+
+        let request_inner = SignRequestInner {
+            sid: Hex32(sid),
+            ..request_inner_template
+        };
+
+        assert!(
+            verify_session_pkg(&schema_group, &request_inner),
+            "gid/sid should verify"
+        );
+
+        let sign_request = SignRequest {
+            request: request_inner,
+        };
+
+        // ── 4. Produce partial signatures from each signer ────────────────────
+
+        let psig_results: Vec<_> = schema_shares
+            .iter()
+            .map(|share| create_psig_pkg(&schema_group, &sign_request, share).unwrap())
+            .collect();
+
+        // ── 5. Aggregate partial signatures ───────────────────────────────────
+
+        // Rebuild the signing context to call combine_partial_sigs.
+        let session_id = compute_session_id(&schema_group, &sign_request.request);
+        let sighash_ctxs =
+            build_sighash_contexts(&schema_group, &sign_request.request, &session_id).unwrap();
+
+        let share_sigs: Vec<ShareSignature> = psig_results
+            .iter()
+            .map(|r| {
+                let psig_hex = &r.psigs[0].1 .0;
+                ShareSignature {
+                    idx: r.idx,
+                    pubkey: decode33(&r.pubkey.0).unwrap(),
+                    psig: decode32(psig_hex).unwrap(),
+                }
+            })
+            .collect();
+
+        let final_sig = combine_partial_sigs(&sighash_ctxs[0].ctx, &share_sigs).unwrap();
+
+        // ── 6. Assemble and verify the nostr event ────────────────────────────
+
+        let schnorr_sig = SchnorrSig::from_slice(&final_sig).unwrap();
+        let event = unsigned.add_signature(schnorr_sig).unwrap();
+
+        event
+            .verify()
+            .expect("FROST-signed nostr event must verify");
+    }
+
     fn create_test_commit(idx: u32, pubkey_prefix: &str) -> Commit {
         Commit {
             idx,

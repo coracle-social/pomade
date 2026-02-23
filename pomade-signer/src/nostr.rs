@@ -13,10 +13,7 @@ pub fn parse_auth(header: &str, base_url: &str, path: &str) -> Option<NostrAuth>
     let url_str = format!("{}{}", base_url, path);
     let url = Url::parse(&url_str).ok()?;
     let now = Timestamp::now();
-
-    let pubkey: PublicKey = verify_auth_header(header, &url, HttpMethod::POST, now, None)
-        .map_err(|e| log::debug!("[nostr auth] {url_str}: {e}"))
-        .ok()?;
+    let pubkey: PublicKey = verify_auth_header(header, &url, HttpMethod::POST, now, None).ok()?;
 
     // Re-extract the event so callers can read fields from it (e.g. id for PoW)
     let token = header.strip_prefix("Nostr ")?;

@@ -2,12 +2,12 @@
 
 use k256::Scalar;
 
-use crate::Error;
-use crate::ecc::group::{scalar_base_multi, scalar_multi, serialize_element};
+use crate::ecc::group::{element_add, scalar_base_multi, serialize_element};
 use crate::ecc::hash::h3;
 use crate::ecc::util::{lift_x, mod_n, scalar_from_bytes, scalar_to_bytes};
 use crate::util::assert;
 use crate::util::helpers::{hash340, random_bytes_32};
+use crate::Error;
 use k256::U256;
 
 /// Generate a secret key by hashing optional auxiliary bytes through H3.
@@ -41,20 +41,21 @@ pub fn get_pubkey(secret: &[u8; 32]) -> [u8; 33] {
     serialize_element(&point)
 }
 
-/// Tweak a secret key by multiplying by a tweak scalar.
+/// Tweak a secret key by adding a tweak scalar: (seckey + tweak) mod N.
 /// Mirrors `tweak_seckey` in the TS implementation.
 pub fn tweak_seckey(seckey: &[u8; 32], tweak: &[u8; 32]) -> [u8; 32] {
-    let coeff = scalar_from_bytes(tweak);
+    let tweak_scalar = scalar_from_bytes(tweak);
     let secret = scalar_from_bytes(seckey);
-    scalar_to_bytes(&(secret * coeff))
+    scalar_to_bytes(&(secret + tweak_scalar))
 }
 
-/// Tweak a public key by multiplying by a tweak scalar.
+/// Tweak a public key by adding tweak*G: pubkey_point + tweak*G.
 /// Mirrors `tweak_pubkey` in the TS implementation.
 pub fn tweak_pubkey(pubkey: &[u8], tweak: &[u8; 32]) -> Result<[u8; 33], Error> {
-    let coeff = scalar_from_bytes(tweak);
+    let tweak_scalar = scalar_from_bytes(tweak);
     let point = lift_x(pubkey)?;
-    let tweaked = scalar_multi(&point, &coeff);
+    let tweak_point = scalar_base_multi(&tweak_scalar);
+    let tweaked = element_add(Some(point), Some(tweak_point))?;
     Ok(serialize_element(&tweaked))
 }
 

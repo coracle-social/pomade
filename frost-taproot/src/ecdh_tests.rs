@@ -1,8 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use crate::ecc::group::{scalar_multi, serialize_element};
+    use crate::ecc::util::{lift_x, scalar_from_bytes};
     use crate::ecdh::*;
     use crate::group::create_dealer_set;
-    use crate::helpers::{generate_seckey, get_pubkey, tweak_pubkey};
+    use crate::helpers::{generate_seckey, get_pubkey};
 
     fn s32(hex: &str) -> [u8; 32] {
         hex::decode(hex).unwrap().try_into().unwrap()
@@ -62,8 +64,11 @@ mod tests {
 
         let frost_secret = derive_ecdh_secret(&[ecdh1, ecdh3]).unwrap();
 
-        // master_shared_secret = group_pk * demo_seckey = tweak_pubkey(demo_pubkey, s0)
-        let master_secret = tweak_pubkey(&demo_pubkey, &s32(S0)).unwrap();
+        // master_shared_secret = demo_seckey * group_pk (scalar mult of the group pubkey)
+        let group_pk = group.group_pk;
+        let group_pt = lift_x(&group_pk).unwrap();
+        let master_secret =
+            serialize_element(&scalar_multi(&group_pt, &scalar_from_bytes(&demo_seckey)));
 
         assert_eq!(
             hex::encode(frost_secret),
