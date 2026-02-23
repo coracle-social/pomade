@@ -21,12 +21,12 @@ export const nip44 = {
 
 // Payload hashing
 
-export const argonOptions = {t: 3, m: 64 * 1024, p: 2}
+export type ArgonOptions = {t: number; m: number; p: number}
 
 export type ArgonImpl = (
   value: Uint8Array,
   salt: Uint8Array,
-  options: {t: number; m: number; p: number},
+  options: ArgonOptions,
 ) => Promise<Uint8Array>
 
 const warnArgonImpl = once(() => {
@@ -62,7 +62,7 @@ export async function hashEmail(email: string, signerUrl: string) {
       await context.argonImpl(
         textEncoder.encode(email),
         textEncoder.encode(signerUrl),
-        argonOptions,
+        context.argonOptions,
       ),
     )
     emailHashCache.set(key, hash)
@@ -72,9 +72,10 @@ export async function hashEmail(email: string, signerUrl: string) {
 }
 
 export async function hashPassword(email: string, password: string, signerUrl: string) {
-  // Concatenate email and password before hashing to prevent cross-account correlation
   const input = textEncoder.encode(email + password)
-  return bytesToHex(await context.argonImpl(input, textEncoder.encode(signerUrl), argonOptions))
+  return bytesToHex(
+    await context.argonImpl(input, textEncoder.encode(signerUrl), context.argonOptions),
+  )
 }
 
 // Context
@@ -82,6 +83,7 @@ export async function hashPassword(email: string, password: string, signerUrl: s
 export type Context = {
   debug: boolean
   registerPow: number
+  argonOptions: ArgonOptions
   signerUrls: string[]
   argonImpl: ArgonImpl
   setSignerUrls: (urls: string[]) => void
@@ -91,6 +93,7 @@ export type Context = {
 export const context: Context = {
   debug: false,
   registerPow: 20,
+  argonOptions: {t: 3, m: 64 * 1024, p: 2},
   signerUrls: [],
   argonImpl: defaultArgonImpl,
   setSignerUrls(urls: string[]) {

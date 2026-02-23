@@ -48,10 +48,6 @@ struct Args {
     #[arg(long, env = "DB_PATH", default_value = "./signer-db")]
     db: String,
 
-    /// Minimum proof-of-work difficulty required for registration (NIP-13)
-    #[arg(long, env = "REGISTER_POW", default_value_t = 20)]
-    register_pow: u32,
-
     /// Email provider (postmark, sendgrid, mailgun, sendlayer, resend)
     #[arg(long, env = "MAIL_PROVIDER")]
     mail_provider: Option<String>,
@@ -108,9 +104,12 @@ async fn main() {
 
     let mailer = args.mail_provider.as_deref().map(build_mailer);
 
+    let test_mode = std::env::var("TEST_MODE").is_ok();
+
     let options = SignerOptions {
         url: args.url,
-        register_pow: args.register_pow,
+        register_pow: if test_mode { 1 } else { 20 },
+        argon_m: if test_mode { 1024 } else { 64 * 1024 },
         from_email: args.mail_from_email,
         from_name: args.mail_from_name,
         mailer,

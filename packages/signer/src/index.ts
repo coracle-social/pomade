@@ -10,6 +10,12 @@ import {createEmailProvider, loadEmailConfigFromEnv} from "./email/index.js"
 // Turn on verbose logging
 context.debug = true
 
+// Apply test mode overrides before anything else
+if (process.env.TEST_MODE) {
+  context.registerPow = 1
+  context.argonOptions = {...context.argonOptions, m: 1024}
+}
+
 // Load configuration from environment variables
 const secret = process.env.POMADE_SECRET
 const url = process.env.POMADE_URL

@@ -126,6 +126,7 @@ fn make_session_item(session: &SignerSession) -> SessionItem {
 pub struct SignerOptions {
     pub url: String,
     pub register_pow: u32,
+    pub argon_m: u32,
     pub from_email: String,
     pub from_name: String,
     pub mailer: Option<Box<dyn crate::mailer::Mailer>>,
@@ -455,7 +456,7 @@ impl Signer {
             };
         }
 
-        let email_hash = hash_email(&data.email, &self.options.url);
+        let email_hash = hash_email(&data.email, &self.options.url, self.options.argon_m);
 
         self.add_session(
             client,
@@ -918,12 +919,10 @@ fn regex_is_hex64(s: &str) -> bool {
     s.len() == 64 && s.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
 }
 
-/// Email hash using argon2id to match TypeScript implementation.
-/// Uses argon2id with params: t=3, m=64*1024, p=2, hashLength=32
-fn hash_email(email: &str, url: &str) -> String {
+fn hash_email(email: &str, url: &str, argon_m: u32) -> String {
     use argon2::{Argon2, Params, Version};
 
-    let params = Params::new(64 * 1024, 3, 2, Some(32)).expect("valid argon2 params");
+    let params = Params::new(argon_m, 3, 2, Some(32)).expect("valid argon2 params");
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
 
     let mut output = [0u8; 32];
@@ -950,7 +949,8 @@ mod tests {
     fn create_test_signer_options() -> SignerOptions {
         SignerOptions {
             url: "http://localhost:3000".to_string(),
-            register_pow: 0, // Disable PoW for tests
+            register_pow: 0,
+            argon_m: 1024,
             from_email: "test@example.com".to_string(),
             from_name: "Test Signer".to_string(),
             mailer: None,
@@ -1011,22 +1011,18 @@ mod tests {
     fn test_hash_email() {
         let email = "test@example.com";
         let url = "http://localhost:3002";
-        let hash = hash_email(email, url);
+        let hash = hash_email(email, url, 1024);
 
-        // Hash should be 64 hex characters (32 bytes)
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
 
-        // Same inputs should produce same hash
-        let hash2 = hash_email(email, url);
+        let hash2 = hash_email(email, url, 1024);
         assert_eq!(hash, hash2);
 
-        // Different URL should produce different hash
-        let hash3 = hash_email(email, "http://localhost:3003");
+        let hash3 = hash_email(email, "http://localhost:3003", 1024);
         assert_ne!(hash, hash3);
 
-        // Different email should produce different hash
-        let hash4 = hash_email("other@example.com", url);
+        let hash4 = hash_email("other@example.com", url, 1024);
         assert_ne!(hash, hash4);
     }
 
