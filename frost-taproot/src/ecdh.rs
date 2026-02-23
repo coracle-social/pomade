@@ -2,18 +2,18 @@
 
 use k256::Scalar;
 
-use crate::Error;
 use crate::ecc::group::{element_add, scalar_multi, serialize_element};
 use crate::ecc::util::{lift_x, scalar_from_bytes};
 use crate::poly::{calc_lagrange_coeff, index_to_scalar};
 use crate::types::{PublicShare, SecretShare};
+use crate::Error;
 
 /// Compute an ECDH share: a participant's contribution to a shared secret.
 /// Mirrors `create_ecdh_share` in the TS implementation.
 pub fn create_ecdh_share(
     members: &[u32],
     share: &SecretShare,
-    pubkey: &[u8; 33],
+    pubkey: &[u8],
 ) -> Result<PublicShare, Error> {
     let mbrs: Vec<Scalar> = members
         .iter()

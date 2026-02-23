@@ -280,7 +280,8 @@ pub fn create_psig_pkg(
 /// Create an ECDH package (mirrors `Lib.create_ecdh_pkg`).
 pub fn create_ecdh_pkg(request: &EcdhRequest, share: &Share) -> Result<EcdhResult, Error> {
     let seckey = decode32(&share.seckey.0).map_err(|_| Error::InvalidPoint)?;
-    let ecdh_pk = decode33(&request.ecdh_pk.0).map_err(|_| Error::InvalidPoint)?;
+    // ecdh_pk arrives as a 32-byte x-only pubkey from the client
+    let ecdh_pk = decode32(&request.ecdh_pk.0).map_err(|_| Error::InvalidPoint)?;
     let secret_share = SecretShare {
         idx: share.idx,
         seckey,
@@ -293,7 +294,7 @@ pub fn create_ecdh_pkg(request: &EcdhRequest, share: &Share) -> Result<EcdhResul
         idx: ecdh_share.idx,
         keyshare: crate::schema::Hex(encode33(&ecdh_share.pubkey)),
         members: crate::schema::BoundedVec(members),
-        ecdh_pk: crate::schema::Hex(hex::encode(ecdh_pk)),
+        ecdh_pk: crate::schema::Hex(request.ecdh_pk.0.clone()),
     })
 }
 

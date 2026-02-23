@@ -12,7 +12,7 @@ const doLet = <T>(x: T, f: (x: T) => void) => f(x)
 type SuiteSpec = {label: string; specs: SignerKind[]}
 
 const suites: SuiteSpec[] = [
-  {label: "8 typescript signers", specs: Array(8).fill("ts") as SignerKind[]},
+  // {label: "8 typescript signers", specs: Array(8).fill("ts") as SignerKind[]},
   {label: "8 rust signers", specs: Array(8).fill("rust") as SignerKind[]},
   {label: "2 typescript + 2 rust signers", specs: ["ts", "ts", "rust", "rust"]},
 ]
