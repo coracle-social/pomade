@@ -7,6 +7,8 @@ mod schema;
 mod session;
 mod signer;
 mod storage;
+#[cfg(feature = "nitro")]
+mod vsock;
 
 use std::sync::Arc;
 
@@ -43,6 +45,11 @@ struct Args {
     /// Address to listen on
     #[arg(long, env = "LISTEN_ADDR", default_value = "0.0.0.0:3000")]
     listen: String,
+
+    /// VSOCK port to listen on (Nitro Enclave mode; mutually exclusive with --listen)
+    #[cfg(feature = "nitro")]
+    #[arg(long, env = "VSOCK_PORT", conflicts_with = "listen")]
+    vsock_port: Option<u32>,
 
     /// Path to the sled database directory
     #[arg(long, env = "DB_PATH", default_value = "./signer-db")]
@@ -131,6 +138,17 @@ async fn main() {
         .route("/*path", post(handle))
         .with_state(signer)
         .layer(cors);
+
+    #[cfg(feature = "nitro")]
+    if let Some(port) = args.vsock_port {
+        let listener = vsock::VsockListener::bind(port).expect("failed to bind vsock");
+        log::info!("listening on vsock port {port}");
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await
+            .expect("server error");
+        return;
+    }
 
     let listener = tokio::net::TcpListener::bind(&args.listen)
         .await

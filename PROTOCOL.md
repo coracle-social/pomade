@@ -419,7 +419,7 @@ Email providers are completely trusted since they can login to a user's session 
 
 Signers and email service providers also have the ability to perform a denial-of-service attack by refusing to respond to messages or relay OTPs to the user.
 
-User key shares and passwords are held on servers accessible to the internet which are likely running the same code, which means if one signer is vulnerable to a given attack, all of them are.
+User key shares and passwords are held on servers accessible to the internet. Signers running the same code are vulnerable to the same attacks. For this reason, multiple implementations are provided to keep keys safe even in the event of a successful attack.
 
 This scheme is **not** recommended for users who are capable of holding their own keys, but for users who are completely new to nostr and the concept of keys. Clients that use this scheme should encourage their users to migrate to self-custody once they have established their value proposition, deleting signer sessions on migration.
 

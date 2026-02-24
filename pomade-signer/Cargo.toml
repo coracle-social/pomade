@@ -3,6 +3,9 @@ name = "pomade-signer"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+nitro = ["tokio-vsock"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -15,12 +18,13 @@ frost-taproot = { path = "../frost-taproot" }
 nostr = { version = "0.44", features = ["std", "nip98"] }
 log = "0.4"
 env_logger = "0.11"
-axum = "0.7"
+axum = "0.8"
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.5", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors"] }
 clap = { version = "4", features = ["derive", "env"] }
 reqwest = { version = "0.12", features = ["json"] }
 argon2 = "0.5"
+tokio-vsock = { version = "0.7", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
