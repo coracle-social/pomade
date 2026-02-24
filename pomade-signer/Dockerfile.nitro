@@ -1,0 +1,26 @@
+# Build stage — cross-compile a fully static musl binary with the nitro feature.
+# The resulting binary has no runtime dependencies and can run on scratch.
+FROM rust:alpine AS builder
+
+RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconf
+
+WORKDIR /app
+
+COPY frost-taproot ./frost-taproot
+COPY pomade-signer ./pomade-signer
+
+WORKDIR /app/pomade-signer
+RUN cargo build --release --features nitro
+
+# Runtime stage — scratch keeps the image as small as possible, which minimises
+# the PCR0/PCR1/PCR2 attack surface and makes the EIF measurements stable.
+FROM scratch
+
+COPY --from=builder /app/pomade-signer/target/release/pomade-signer /pomade-signer
+# CA bundle is needed for outbound TLS (KMS, mailers) via the parent proxy.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+ENV DB_PATH=/data
+ENV VSOCK_PORT=3000
+
+ENTRYPOINT ["/pomade-signer"]
