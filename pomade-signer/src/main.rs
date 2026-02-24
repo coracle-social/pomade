@@ -1,4 +1,6 @@
 #[cfg(feature = "nitro")]
+mod attestation;
+#[cfg(feature = "nitro")]
 mod encrypted_storage;
 mod mailer;
 mod message;
@@ -22,6 +24,8 @@ use axum::{
     routing::post,
 };
 use clap::Parser;
+#[cfg(feature = "nitro")]
+use serde::Deserialize;
 use serde_json::Value;
 use tokio::signal;
 use tower_http::cors::{Any, CorsLayer};
@@ -158,7 +162,12 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = Router::new()
+    #[cfg(feature = "nitro")]
+    let app = Router::new().route("/attest", post(handle_attest));
+    #[cfg(not(feature = "nitro"))]
+    let app = Router::new();
+
+    let app = app
         .route("/*path", post(handle))
         .with_state(signer)
         .layer(cors);
@@ -222,4 +231,76 @@ async fn handle(
     let result = signer.handle(&format!("/{path}"), auth, &body);
 
     (StatusCode::OK, Json(result))
+}
+
+/// Optional fields that a caller may embed in the attestation document.
+/// All values are base64-encoded bytes; the NSM will include them verbatim
+/// in the signed CBOR document so clients can bind a nonce or public key
+/// to the enclave's identity.
+#[cfg(feature = "nitro")]
+#[derive(Deserialize, Default)]
+struct AttestRequest {
+    user_data: Option<String>,
+    nonce: Option<String>,
+    public_key: Option<String>,
+}
+
+#[cfg(feature = "nitro")]
+async fn handle_attest(body: Option<Json<AttestRequest>>) -> impl IntoResponse {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+
+    let req = body.map(|Json(r)| r).unwrap_or_default();
+
+    let decode = |s: Option<String>| -> Result<Option<Vec<u8>>, String> {
+        s.map(|b64| {
+            STANDARD
+                .decode(&b64)
+                .map_err(|e| format!("base64 decode error: {e}"))
+        })
+        .transpose()
+    };
+
+    let user_data = match decode(req.user_data) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"ok": false, "message": e})),
+            );
+        }
+    };
+    let nonce = match decode(req.nonce) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"ok": false, "message": e})),
+            );
+        }
+    };
+    let public_key = match decode(req.public_key) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"ok": false, "message": e})),
+            );
+        }
+    };
+
+    match attestation::get_attestation_doc(user_data, nonce, public_key) {
+        Ok(doc) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"ok": true, "document": STANDARD.encode(&doc)})),
+        ),
+        Err(e) => {
+            log::error!("[attest]: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    serde_json::json!({"ok": false, "message": "Failed to generate attestation document."}),
+                ),
+            )
+        }
+    }
 }
