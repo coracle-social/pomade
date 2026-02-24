@@ -8,6 +8,7 @@ runlocal
 *.db
 *.db-wal
 *.db-shm
+*.pyc
 test-runner-profile
 target
 data

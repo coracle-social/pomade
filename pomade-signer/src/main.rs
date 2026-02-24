@@ -15,6 +15,8 @@ mod signer;
 mod storage;
 #[cfg(feature = "nitro")]
 mod vsock;
+#[cfg(feature = "nitro")]
+mod vsock_connector;
 
 use std::sync::Arc;
 
@@ -61,6 +63,11 @@ struct Args {
     #[arg(long, env = "VSOCK_PORT", conflicts_with = "listen")]
     vsock_port: Option<u32>,
 
+    /// VSOCK port of the parent's outbound HTTP CONNECT proxy (Nitro Enclave mode)
+    #[cfg(feature = "nitro")]
+    #[arg(long, env = "OUTBOUND_VSOCK_PORT", default_value = "3001")]
+    outbound_vsock_port: u32,
+
     /// AWS region for KMS calls (Nitro Enclave mode)
     #[cfg(feature = "nitro")]
     #[arg(long, env = "KMS_REGION", default_value = "us-east-1")]
@@ -102,15 +109,18 @@ struct Args {
     mail_from_name: String,
 }
 
-fn build_mailer(provider: &str) -> Box<dyn Mailer> {
+fn build_mailer(provider: &str, client: reqwest::Client) -> Box<dyn Mailer> {
     match provider {
         "postmark" => Box::new(PostmarkMailer {
+            client,
             api_token: require_env("POSTMARK_API_TOKEN"),
         }),
         "sendgrid" => Box::new(SendgridMailer {
+            client,
             api_key: require_env("SENDGRID_API_KEY"),
         }),
         "mailgun" => Box::new(MailgunMailer {
+            client,
             api_key: require_env("MAILGUN_API_KEY"),
             domain: require_env("MAILGUN_DOMAIN"),
             region: match std::env::var("MAILGUN_API_REGION")
@@ -122,9 +132,11 @@ fn build_mailer(provider: &str) -> Box<dyn Mailer> {
             },
         }),
         "sendlayer" => Box::new(SendlayerMailer {
+            client,
             api_key: require_env("SENDLAYER_API_KEY"),
         }),
         "resend" => Box::new(ResendMailer {
+            client,
             api_key: require_env("RESEND_API_KEY"),
         }),
         other => panic!("unknown MAIL_PROVIDER: {}", other),
@@ -147,15 +159,14 @@ async fn provision_secrets(
     kms_sealing_key_arn: &str,
     kms_sealing_key_ciphertext: &str,
     kms_secrets: &[String],
+    client: &reqwest::Client,
 ) -> [u8; 32] {
-    let client = reqwest::Client::new();
-
-    let credentials = kms::fetch_credentials(&client)
+    let credentials = kms::fetch_credentials(client)
         .await
         .expect("failed to fetch IMDS credentials");
 
     let sealing_bytes = kms::kms_decrypt(
-        &client,
+        client,
         kms_sealing_key_ciphertext,
         Some(kms_sealing_key_arn),
         kms_region,
@@ -173,7 +184,7 @@ async fn provision_secrets(
             .split_once('=')
             .unwrap_or_else(|| panic!("--kms-secret must be ENV_VAR_NAME=ciphertext, got: {pair}"));
 
-        let bytes = kms::kms_decrypt(&client, ciphertext, None, kms_region, &credentials)
+        let bytes = kms::kms_decrypt(client, ciphertext, None, kms_region, &credentials)
             .await
             .unwrap_or_else(|e| panic!("failed to decrypt KMS secret for {name}: {e}"));
 
@@ -203,15 +214,27 @@ async fn main() {
     }
 
     #[cfg(feature = "nitro")]
+    let http_client = {
+        let bridge_port = vsock_connector::spawn_bridge(args.outbound_vsock_port).await;
+        vsock_connector::vsock_client(bridge_port)
+    };
+    #[cfg(not(feature = "nitro"))]
+    let http_client = reqwest::Client::new();
+
+    #[cfg(feature = "nitro")]
     let sealing_key = provision_secrets(
         &args.kms_region,
         &args.kms_sealing_key_arn,
         &args.kms_sealing_key_ciphertext,
         &args.kms_secrets,
+        &http_client,
     )
     .await;
 
-    let mailer = args.mail_provider.as_deref().map(build_mailer);
+    let mailer = args
+        .mail_provider
+        .as_deref()
+        .map(|p| build_mailer(p, http_client.clone()));
 
     let options = SignerOptions {
         url: args.url,

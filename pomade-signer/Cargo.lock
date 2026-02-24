@@ -1905,6 +1905,8 @@ dependencies = [
  "tokio",
  "tokio-vsock",
  "tower-http",
+ "tower-layer",
+ "tower-service",
 ]
 
 [[package]]

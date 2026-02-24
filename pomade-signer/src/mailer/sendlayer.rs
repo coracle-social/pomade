@@ -3,16 +3,18 @@ use serde_json::json;
 use crate::mailer::{Email, MailFuture, Mailer};
 
 pub struct SendlayerMailer {
+    pub client: reqwest::Client,
     pub api_key: String,
 }
 
 impl Mailer for SendlayerMailer {
     fn send(&self, from_email: &str, from_name: &str, email: Email) -> MailFuture {
+        let client = self.client.clone();
         let key = self.api_key.clone();
         let from_email = from_email.to_string();
         let from_name = from_name.to_string();
         Box::pin(async move {
-            let res = reqwest::Client::new()
+            let res = client
                 .post("https://console.sendlayer.com/api/v1/email")
                 .bearer_auth(&key)
                 .json(&json!({

@@ -9,14 +9,12 @@ Two proxy directions are handled:
     Used so that the enclave's HTTP server (listening on VSOCK) is reachable
     from the internet via a normal TCP port on the parent instance.
 
-  OUTBOUND (--outbound-vsock-port / --outbound-tcp-host / --outbound-tcp-port)
+  OUTBOUND (--outbound-vsock-port)
     Enclave VSOCK client  →  parent VSOCK listener  →  TCP destination
-    Used so that the enclave can make outbound HTTPS calls (KMS, mailers)
-    through the parent instance, which has internet access.
-    The enclave connects to the parent on the outbound VSOCK port and sends a
-    4-byte big-endian destination port number as a preamble, followed by the
-    hostname as a length-prefixed UTF-8 string (1-byte length), followed by
-    the raw TCP stream. This lets a single outbound port serve any destination.
+    The enclave connects to the parent on the outbound VSOCK port and speaks
+    standard HTTP CONNECT. The proxy establishes the TCP connection and then
+    pipes bytes in both directions. This lets reqwest inside the enclave use
+    a normal HTTPS proxy without any custom protocol.
 
 Usage:
     python3 main.py [options]
@@ -37,7 +35,6 @@ import argparse
 import asyncio
 import logging
 import signal
-import struct
 import sys
 
 log = logging.getLogger("nitro-proxy")
@@ -115,20 +112,38 @@ async def run_inbound_proxy(tcp_port: int, vsock_port: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# OUTBOUND: VSOCK enclave client → TCP destination
+# OUTBOUND: VSOCK enclave client → TCP destination via HTTP CONNECT
 #
-# Preamble sent by the enclave over the VSOCK connection:
-#   [1 byte]  hostname length N
-#   [N bytes] hostname (UTF-8)
-#   [2 bytes] destination port (big-endian uint16)
+# The enclave speaks standard HTTP CONNECT:
+#   CONNECT host:port HTTP/1.1\r\nHost: host:port\r\n\r\n
+# The proxy responds:
+#   HTTP/1.1 200 Connection established\r\n\r\n
+# Then both sides pipe raw bytes (TLS is handled end-to-end by the enclave).
 # ---------------------------------------------------------------------------
 
-async def _read_preamble(reader: asyncio.StreamReader):
-    host_len_buf = await reader.readexactly(1)
-    host_len = host_len_buf[0]
-    host = (await reader.readexactly(host_len)).decode("utf-8")
-    port_buf = await reader.readexactly(2)
-    port = struct.unpack("!H", port_buf)[0]
+async def _parse_connect_request(reader: asyncio.StreamReader):
+    """Read and parse an HTTP CONNECT request line, return (host, port)."""
+    request_line = await reader.readline()
+    request_line = request_line.decode("latin-1").strip()
+    # Consume remaining headers until blank line
+    while True:
+        line = await reader.readline()
+        if line in (b"\r\n", b"\n", b""):
+            break
+
+    # CONNECT host:port HTTP/1.1
+    parts = request_line.split()
+    if len(parts) < 2 or parts[0].upper() != "CONNECT":
+        raise ValueError(f"expected CONNECT request, got: {request_line!r}")
+
+    host_port = parts[1]
+    if ":" in host_port:
+        host, port_str = host_port.rsplit(":", 1)
+        port = int(port_str)
+    else:
+        host = host_port
+        port = 443
+
     return host, port
 
 
@@ -137,20 +152,28 @@ async def _handle_outbound(
     vsock_writer: asyncio.StreamWriter,
 ) -> None:
     try:
-        host, port = await _read_preamble(vsock_reader)
-    except (asyncio.IncompleteReadError, UnicodeDecodeError) as e:
-        log.error("outbound: bad preamble: %s", e)
+        host, port = await _parse_connect_request(vsock_reader)
+    except Exception as e:
+        log.error("outbound: bad CONNECT request: %s", e)
+        vsock_writer.write(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+        await vsock_writer.drain()
         vsock_writer.close()
         return
 
-    log.info("outbound connection to %s:%d", host, port)
+    log.info("outbound CONNECT to %s:%d", host, port)
     try:
         tcp_reader, tcp_writer = await asyncio.open_connection(host, port)
-        await bridge(vsock_reader, vsock_writer, tcp_reader, tcp_writer)
     except OSError as e:
         log.error("outbound: could not connect to %s:%d: %s", host, port, e)
-    finally:
+        vsock_writer.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+        await vsock_writer.drain()
         vsock_writer.close()
+        return
+
+    vsock_writer.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
+    await vsock_writer.drain()
+
+    await bridge(vsock_reader, vsock_writer, tcp_reader, tcp_writer)
     log.debug("outbound connection to %s:%d closed", host, port)
 
 
@@ -161,7 +184,7 @@ async def run_outbound_proxy(vsock_port: int) -> None:
         port=vsock_port,
         sock=_vsock_server_socket(vsock_port),
     )
-    log.info("outbound proxy: enclave VSOCK port %d → internet TCP", vsock_port)
+    log.info("outbound proxy: enclave VSOCK port %d → internet TCP via HTTP CONNECT", vsock_port)
     async with server:
         await server.serve_forever()
 
@@ -207,7 +230,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--inbound-vsock-port", type=int, default=3000,
                    help="VSOCK port the enclave's HTTP server listens on")
     p.add_argument("--outbound-vsock-port", type=int, default=3001,
-                   help="VSOCK port the enclave connects to for outbound TCP")
+                   help="VSOCK port the enclave connects to for outbound HTTP CONNECT proxy")
     p.add_argument("--log-level", default="INFO",
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     return p.parse_args()
