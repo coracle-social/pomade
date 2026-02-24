@@ -21,6 +21,8 @@ import type {GroupPackage} from "@frostr/bifrost"
 import {context, hashEmail, hashPassword} from "./util.js"
 import {RPC} from "./rpc.js"
 import {PomadeSigner} from "./pomade-signer.js"
+import {validateAttestation} from "./attestation.js"
+import type {AttestationResult} from "./attestation.js"
 import {
   Message,
   ChallengeResponse,
@@ -388,6 +390,39 @@ export class Client {
     )
 
     return {ok: messages.every(m => m.res?.ok), messages}
+  }
+
+  /**
+   * Fetch and validate the attestation document from a signer peer.
+   *
+   * Verifies the COSE_Sign1 signature and the full certificate chain up to the
+   * AWS Nitro root CA. On success, returns the parsed document so the caller
+   * can inspect PCR values against a known-good build.
+   *
+   * A random nonce is generated internally and embedded in the attestation
+   * document, preventing replay attacks.
+   *
+   * @param url - The signer peer URL to attest.
+   */
+  static async validateAttestation(url: string): Promise<AttestationResult> {
+    const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
+    const res = await fetch(`${url}/attest`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({nonce}),
+    })
+
+    if (!res.ok) {
+      return {ok: false, error: `HTTP ${res.status} from ${url}/attest`}
+    }
+
+    const json = (await res.json()) as {ok: boolean; document?: string; message?: string}
+
+    if (!json.ok || !json.document) {
+      return {ok: false, error: json.message ?? "No document in response"}
+    }
+
+    return validateAttestation(json.document)
   }
 
   async deleteSession(client: string, peers: string[]) {
