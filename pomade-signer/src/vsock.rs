@@ -2,13 +2,16 @@ use std::io;
 
 use axum::serve::Listener;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_vsock::{VsockAddr, VsockListener as TokioVsockListener, VsockStream, VMADDR_CID_ANY};
+use tokio_vsock::{VMADDR_CID_ANY, VsockAddr, VsockListener as TokioVsockListener, VsockStream};
 
 pub struct VsockListener(TokioVsockListener);
 
 impl VsockListener {
     pub fn bind(port: u32) -> io::Result<Self> {
-        Ok(Self(TokioVsockListener::bind(VsockAddr::new(VMADDR_CID_ANY, port))?))
+        Ok(Self(TokioVsockListener::bind(VsockAddr::new(
+            VMADDR_CID_ANY,
+            port,
+        ))?))
     }
 }
 

@@ -19,7 +19,7 @@ use crate::schema::{
     SignRequest, SignResponse,
 };
 use crate::session::{create_ecdh_pkg, create_psig_pkg, is_group_member};
-use crate::storage::{Collection, Storage};
+use crate::storage::{Collection, Storage, StorageBackend};
 
 const CLIENT_RATE_LIMITS: RateLimitConfig = RateLimitConfig {
     max_attempts: 100,
@@ -148,17 +148,18 @@ pub struct Signer {
 }
 
 impl Signer {
-    pub fn open(options: SignerOptions, storage: &Storage) -> sled::Result<Self> {
-        Ok(Self {
-            logins: storage.collection("logins")?,
-            sessions: storage.collection("sessions")?,
-            recoveries: storage.collection("recoveries")?,
-            challenges: storage.collection("challenges")?,
-            sessions_by_email_hash: storage.collection("sessionsByEmailHash")?,
-            rate_limit_by_email_hash: storage.collection("rateLimitByEmailHash")?,
-            rate_limit_by_client: storage.collection("rateLimitByClient")?,
+    pub fn open(options: SignerOptions, backend: impl StorageBackend) -> Self {
+        let storage = Storage::new(backend);
+        Self {
+            logins: storage.collection("logins"),
+            sessions: storage.collection("sessions"),
+            recoveries: storage.collection("recoveries"),
+            challenges: storage.collection("challenges"),
+            sessions_by_email_hash: storage.collection("sessionsByEmailHash"),
+            rate_limit_by_email_hash: storage.collection("rateLimitByEmailHash"),
+            rate_limit_by_client: storage.collection("rateLimitByClient"),
             options,
-        })
+        }
     }
 
     /// Clean up expired logins, recoveries, challenges, and rate limit buckets.
@@ -943,13 +944,13 @@ fn hash_email(email: &str, url: &str, argon_m: u32) -> String {
 mod tests {
     use super::*;
     use crate::schema::{BoundedVec, Commit, Group, Hex32, Hex33, Share};
-    use crate::storage::Storage;
+    use crate::storage::SledBackend;
     use tempfile::TempDir;
 
-    fn create_test_storage() -> (Storage, TempDir) {
+    fn create_test_backend() -> (SledBackend, TempDir) {
         let temp_dir = TempDir::new().unwrap();
-        let storage = Storage::open(&temp_dir.path().join("test.db")).unwrap();
-        (storage, temp_dir)
+        let backend = SledBackend::open(temp_dir.path().join("test.db")).unwrap();
+        (backend, temp_dir)
     }
 
     fn create_test_signer_options() -> SignerOptions {
@@ -1091,17 +1092,16 @@ mod tests {
 
     #[test]
     fn test_signer_open() {
-        let (storage, _temp) = create_test_storage();
+        let (storage, _temp) = create_test_backend();
         let options = create_test_signer_options();
-        let signer = Signer::open(options, &storage);
-        assert!(signer.is_ok());
+        let _signer = Signer::open(options, storage);
     }
 
     #[test]
     fn test_check_key_reuse() {
-        let (storage, _temp) = create_test_storage();
+        let (storage, _temp) = create_test_backend();
         let options = create_test_signer_options();
-        let signer = Signer::open(options, &storage).unwrap();
+        let signer = Signer::open(options, storage);
 
         let client = "test_client_key";
         assert!(!signer.check_key_reuse(client));
@@ -1126,9 +1126,9 @@ mod tests {
 
     #[test]
     fn test_add_and_get_session() {
-        let (storage, _temp) = create_test_storage();
+        let (storage, _temp) = create_test_backend();
         let options = create_test_signer_options();
-        let signer = Signer::open(options, &storage).unwrap();
+        let signer = Signer::open(options, storage);
 
         let client = "test_client";
         let session = SignerSession {
@@ -1154,9 +1154,9 @@ mod tests {
 
     #[test]
     fn test_delete_session() {
-        let (storage, _temp) = create_test_storage();
+        let (storage, _temp) = create_test_backend();
         let options = create_test_signer_options();
-        let signer = Signer::open(options, &storage).unwrap();
+        let signer = Signer::open(options, storage);
 
         let client = "test_client";
         let session = SignerSession {
@@ -1180,9 +1180,9 @@ mod tests {
 
     #[test]
     fn test_rate_limiting() {
-        let (storage, _temp) = create_test_storage();
+        let (storage, _temp) = create_test_backend();
         let options = create_test_signer_options();
-        let signer = Signer::open(options, &storage).unwrap();
+        let signer = Signer::open(options, storage);
 
         let client = "rate_limited_client";
 
@@ -1197,9 +1197,9 @@ mod tests {
 
     #[test]
     fn test_cleanup() {
-        let (storage, _temp) = create_test_storage();
+        let (storage, _temp) = create_test_backend();
         let options = create_test_signer_options();
-        let signer = Signer::open(options, &storage).unwrap();
+        let signer = Signer::open(options, storage);
 
         // Add an old session (more than 1 year ago)
         let old_client = "old_client";

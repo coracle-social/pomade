@@ -1,3 +1,5 @@
+#[cfg(feature = "nitro")]
+mod encrypted_storage;
 mod mailer;
 mod message;
 mod nostr;
@@ -24,6 +26,8 @@ use serde_json::Value;
 use tokio::signal;
 use tower_http::cors::{Any, CorsLayer};
 
+#[cfg(feature = "nitro")]
+use encrypted_storage::EncryptedBackend;
 use mailer::{
     Mailer,
     mailgun::{MailgunMailer, MailgunRegion},
@@ -33,7 +37,7 @@ use mailer::{
     sendlayer::SendlayerMailer,
 };
 use signer::{Signer, SignerOptions};
-use storage::Storage;
+use storage::SledBackend;
 
 #[derive(Parser)]
 #[command(about = "Pomade FROST signer server")]
@@ -101,13 +105,27 @@ fn require_env(key: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| panic!("{} must be set", key))
 }
 
+/// Derive the sealing key used to encrypt the sled database.
+///
+/// Placeholder for Phase 4: currently reads a hex-encoded 32-byte key from the
+/// SEALING_KEY env var. This will be replaced with Nitro KMS/PCR-based
+/// derivation once Phase 4 is implemented.
+#[cfg(feature = "nitro")]
+fn sealing_key() -> [u8; 32] {
+    let hex_str = require_env("SEALING_KEY");
+    let bytes = hex::decode(&hex_str).expect("SEALING_KEY must be 64 hex chars");
+    bytes
+        .try_into()
+        .expect("SEALING_KEY must be exactly 32 bytes")
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
 
     let args = Args::parse();
 
-    let storage = Storage::open(&args.db).expect("failed to open sled database");
+    let sled = SledBackend::open(&args.db).expect("failed to open sled database");
 
     let test_mode = std::env::var("TEST_MODE").is_ok();
 
@@ -127,7 +145,13 @@ async fn main() {
         test_mode,
     };
 
-    let signer = Arc::new(Signer::open(options, &storage).expect("failed to open signer"));
+    #[cfg(feature = "nitro")]
+    let signer = Arc::new(Signer::open(
+        options,
+        EncryptedBackend::new(sled, &sealing_key()),
+    ));
+    #[cfg(not(feature = "nitro"))]
+    let signer = Arc::new(Signer::open(options, sled));
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
