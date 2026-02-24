@@ -2,6 +2,8 @@
 mod attestation;
 #[cfg(feature = "nitro")]
 mod encrypted_storage;
+#[cfg(feature = "nitro")]
+mod kms;
 mod mailer;
 mod message;
 mod nostr;
@@ -59,6 +61,30 @@ struct Args {
     #[arg(long, env = "VSOCK_PORT", conflicts_with = "listen")]
     vsock_port: Option<u32>,
 
+    /// AWS region for KMS calls (Nitro Enclave mode)
+    #[cfg(feature = "nitro")]
+    #[arg(long, env = "KMS_REGION", default_value = "us-east-1")]
+    kms_region: String,
+
+    /// KMS key ARN or alias for the sealing key ciphertext
+    #[cfg(feature = "nitro")]
+    #[arg(long, env = "KMS_SEALING_KEY_ARN")]
+    kms_sealing_key_arn: String,
+
+    /// Base64-encoded KMS ciphertext for the sealing key (produced by `aws kms encrypt`)
+    #[cfg(feature = "nitro")]
+    #[arg(long, env = "KMS_SEALING_KEY_CIPHERTEXT")]
+    kms_sealing_key_ciphertext: String,
+
+    /// KMS-encrypted env vars to provision at startup, as ENV_VAR_NAME=ciphertext_b64 pairs.
+    /// May be repeated for multiple secrets, e.g.:
+    ///   --kms-secret RESEND_API_KEY=<ciphertext> --kms-secret MAILGUN_API_KEY=<ciphertext>
+    /// Each ciphertext is decrypted via KMS attestation and injected into the process
+    /// environment, so existing MAIL_PROVIDER env var lookups work without modification.
+    #[cfg(feature = "nitro")]
+    #[arg(long = "kms-secret", env = "KMS_SECRETS", value_delimiter = ',')]
+    kms_secrets: Vec<String>,
+
     /// Path to the sled database directory
     #[arg(long, env = "DB_PATH", default_value = "./signer-db")]
     db: String,
@@ -109,18 +135,57 @@ fn require_env(key: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| panic!("{} must be set", key))
 }
 
-/// Derive the sealing key used to encrypt the sled database.
+/// Provision secrets from KMS at startup using Nitro attestation.
 ///
-/// Placeholder for Phase 4: currently reads a hex-encoded 32-byte key from the
-/// SEALING_KEY env var. This will be replaced with Nitro KMS/PCR-based
-/// derivation once Phase 4 is implemented.
+/// Decrypts the sealing key and injects any additional KMS-encrypted env vars
+/// into the process environment so that existing `require_env` calls work
+/// without modification. `kms_secrets` is a list of `ENV_VAR_NAME=ciphertext_b64`
+/// pairs.
 #[cfg(feature = "nitro")]
-fn sealing_key() -> [u8; 32] {
-    let hex_str = require_env("SEALING_KEY");
-    let bytes = hex::decode(&hex_str).expect("SEALING_KEY must be 64 hex chars");
-    bytes
+async fn provision_secrets(
+    kms_region: &str,
+    kms_sealing_key_arn: &str,
+    kms_sealing_key_ciphertext: &str,
+    kms_secrets: &[String],
+) -> [u8; 32] {
+    let client = reqwest::Client::new();
+
+    let credentials = kms::fetch_credentials(&client)
+        .await
+        .expect("failed to fetch IMDS credentials");
+
+    let sealing_bytes = kms::kms_decrypt(
+        &client,
+        kms_sealing_key_ciphertext,
+        Some(kms_sealing_key_arn),
+        kms_region,
+        &credentials,
+    )
+    .await
+    .expect("failed to decrypt sealing key from KMS");
+
+    let sealing_key: [u8; 32] = sealing_bytes
         .try_into()
-        .expect("SEALING_KEY must be exactly 32 bytes")
+        .expect("KMS sealing key plaintext must be exactly 32 bytes");
+
+    for pair in kms_secrets {
+        let (name, ciphertext) = pair
+            .split_once('=')
+            .unwrap_or_else(|| panic!("--kms-secret must be ENV_VAR_NAME=ciphertext, got: {pair}"));
+
+        let bytes = kms::kms_decrypt(&client, ciphertext, None, kms_region, &credentials)
+            .await
+            .unwrap_or_else(|e| panic!("failed to decrypt KMS secret for {name}: {e}"));
+
+        let value = String::from_utf8(bytes)
+            .unwrap_or_else(|_| panic!("KMS secret for {name} is not valid UTF-8"));
+
+        // Safety: single-threaded at this point in startup, before the tokio
+        // runtime spawns any request-handling tasks.
+        unsafe { std::env::set_var(name, value) };
+    }
+
+    sealing_key
 }
 
 #[tokio::main]
@@ -137,6 +202,15 @@ async fn main() {
         panic!("MAIL_PROVIDER must be set when TEST_MODE is not enabled");
     }
 
+    #[cfg(feature = "nitro")]
+    let sealing_key = provision_secrets(
+        &args.kms_region,
+        &args.kms_sealing_key_arn,
+        &args.kms_sealing_key_ciphertext,
+        &args.kms_secrets,
+    )
+    .await;
+
     let mailer = args.mail_provider.as_deref().map(build_mailer);
 
     let options = SignerOptions {
@@ -152,7 +226,7 @@ async fn main() {
     #[cfg(feature = "nitro")]
     let signer = Arc::new(Signer::open(
         options,
-        EncryptedBackend::new(sled, &sealing_key()),
+        EncryptedBackend::new(sled, &sealing_key),
     ));
     #[cfg(not(feature = "nitro"))]
     let signer = Arc::new(Signer::open(options, sled));
