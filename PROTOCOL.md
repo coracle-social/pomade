@@ -153,6 +153,8 @@ const nostrConversationKey = bytesToHex(
 )
 ```
 
+Note: signers MUST validate that `ecdh_pk` is a valid secp256k1 public key and MUST reject known-bad values such as the generator point `G`. If `ecdh_pk` is the generator point, the returned keyshare is effectively the signer's secret share itself, leading to key compromise.
+
 ### Setting a Recovery Method
 
 Users MAY set a recovery method by sending a request to the signers for a given session.
@@ -424,3 +426,5 @@ User key shares and passwords are held on servers accessible to the internet. Si
 This scheme is **not** recommended for users who are capable of holding their own keys, but for users who are completely new to nostr and the concept of keys. Clients that use this scheme should encourage their users to migrate to self-custody once they have established their value proposition, deleting signer sessions on migration.
 
 Other clients may choose to use this scheme for signing but disable key recovery, opting for an encrypted backup instead.
+
+Sessions SHOULD automatically expire after a certain period of inactivity (e.g., 30 days), limiting the window of exposure from a stolen client key. Signers SHOULD enforce rate limits on signing and ECDH requests to bound the damage an attacker can do with a compromised session and to prevent abuse. Signers SHOULD enforce rate limits on challenge requests per email to avoid denial-of-service attacks on a user's inbox.
