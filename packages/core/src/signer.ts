@@ -15,7 +15,7 @@ import {
   int,
   ago,
   MINUTE,
-  YEAR,
+  MONTH,
 } from "@welshman/lib"
 import {verifyEvent, getTagValue, getPow, HTTP_AUTH} from "@welshman/util"
 import type {SignedEvent} from "@welshman/util"
@@ -54,6 +54,8 @@ import {
   getRateLimitResetTime,
   cleanupRateLimits,
 } from "./ratelimit.js"
+
+const GENERATOR_X = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 
 const CLIENT_RATE_LIMITS: RateLimitConfig = {
   maxAttempts: 100,
@@ -182,7 +184,7 @@ export class Signer {
     // Immediately clean up old sessions
     call(async () => {
       for (const [client, session] of await this.sessions.entries()) {
-        if (session.last_activity < ago(YEAR)) await this.sessions.delete(client)
+        if (session.last_activity < ago(MONTH)) await this.sessions.delete(client)
       }
     })
   }
@@ -647,6 +649,11 @@ export class Signer {
       if (!session) {
         debug(`[client ${client.slice(0, 8)}]: ecdh failed - no session found`)
         return {ok: false, message: "No session found for client"}
+      }
+
+      if (ecdh_pk === GENERATOR_X) {
+        debug(`[client ${client.slice(0, 8)}]: ecdh failed - rejected generator point`)
+        return {ok: false, message: "Invalid ECDH public key"}
       }
 
       const allowed = await this._checkAndRecordRateLimit(client)

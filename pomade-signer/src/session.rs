@@ -277,10 +277,15 @@ pub fn create_psig_pkg(
     })
 }
 
+const GENERATOR_X: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+
 /// Create an ECDH package (mirrors `Lib.create_ecdh_pkg`).
 pub fn create_ecdh_pkg(request: &EcdhRequest, share: &Share) -> Result<EcdhResult, Error> {
+    if request.ecdh_pk.0 == GENERATOR_X {
+        return Err(Error::InvalidPoint);
+    }
+
     let seckey = decode32(&share.seckey.0).map_err(|_| Error::InvalidPoint)?;
-    // ecdh_pk arrives as a 32-byte x-only pubkey from the client
     let ecdh_pk = decode32(&request.ecdh_pk.0).map_err(|_| Error::InvalidPoint)?;
     let secret_share = SecretShare {
         idx: share.idx,
@@ -714,6 +719,20 @@ mod tests {
         let share = create_test_share(0);
 
         // Invalid ecdh_pk should fail
+        let result = create_ecdh_pkg(&request, &share);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_ecdh_pkg_rejects_generator_point() {
+        let request = EcdhRequest {
+            idx: 0,
+            members: BoundedVec(vec![0, 1]),
+            ecdh_pk: Hex32(GENERATOR_X.to_string()),
+        };
+
+        let share = create_test_share(0);
+
         let result = create_ecdh_pkg(&request, &share);
         assert!(result.is_err());
     }

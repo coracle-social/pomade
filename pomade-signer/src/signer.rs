@@ -31,7 +31,7 @@ const EMAIL_RATE_LIMITS: RateLimitConfig = RateLimitConfig {
     window_seconds: 120,
 };
 
-const YEAR_SECS: u64 = 365 * 24 * 3600;
+const MONTH_SECS: u64 = 30 * 24 * 3600;
 const MINUTE_SECS: u64 = 60;
 
 fn now() -> u64 {
@@ -165,7 +165,7 @@ impl Signer {
     /// Clean up expired logins, recoveries, challenges, and rate limit buckets.
     pub fn cleanup(&self) {
         let cutoff_15m = now().saturating_sub(15 * MINUTE_SECS);
-        let cutoff_year = now().saturating_sub(YEAR_SECS);
+        let cutoff_month = now().saturating_sub(MONTH_SECS);
 
         for (k, r) in self.recoveries.entries() {
             if r.created_at < cutoff_15m {
@@ -193,7 +193,7 @@ impl Signer {
             }
         }
         for (k, s) in self.sessions.entries() {
-            if s.last_activity < cutoff_year {
+            if s.last_activity < cutoff_month {
                 self.sessions.delete(&k);
             }
         }
@@ -1201,15 +1201,15 @@ mod tests {
         let options = create_test_signer_options();
         let signer = Signer::open(options, storage);
 
-        // Add an old session (more than 1 year ago)
+        // Add an old session (more than 30 days ago)
         let old_client = "old_client";
         let old_session = SignerSession {
             client: old_client.to_string(),
             share: create_test_share(0),
             group: create_test_group(1, 2),
             recovery: true,
-            created_at: now().saturating_sub(YEAR_SECS + 1),
-            last_activity: now().saturating_sub(YEAR_SECS + 1),
+            created_at: now().saturating_sub(MONTH_SECS + 1),
+            last_activity: now().saturating_sub(MONTH_SECS + 1),
             email: None,
             email_hash: None,
             password_hash: None,
