@@ -430,7 +430,9 @@ export class Client {
     const userRpc = new RPC(new PomadeSigner(this))
 
     const messages = await Promise.all(
-      peers.map(url => userRpc.post<SessionDeactivateResponse>(url, "/session/deactivate", {client})),
+      peers.map(url =>
+        userRpc.post<SessionDeactivateResponse>(url, "/session/deactivate", {client}),
+      ),
     )
 
     return {ok: messages.every(m => m.res?.ok), messages}
