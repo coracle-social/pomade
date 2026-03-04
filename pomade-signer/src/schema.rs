@@ -183,6 +183,7 @@ pub struct SessionItem {
     pub pubkey: Hex32,
     pub client: Hex32,
     pub created_at: u64,
+    pub deactivated_at: Option<u64>,
     pub last_activity: u64,
     pub threshold: u32,
     pub total: u32,
@@ -348,6 +349,17 @@ pub struct SessionListResponse {
     pub ok: bool,
     pub message: String,
     pub items: Vec<SessionItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionDeactivateRequest {
+    pub client: Hex32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionDeactivateResponse {
+    pub ok: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -535,6 +547,7 @@ mod tests {
             pubkey: Hex32("a".repeat(64)),
             client: Hex32("b".repeat(64)),
             created_at: 1234567890,
+            deactivated_at: None,
             last_activity: 1234567891,
             threshold: 2,
             total: 3,
@@ -545,6 +558,7 @@ mod tests {
         let json = serde_json::to_string(&item).unwrap();
         let deserialized: SessionItem = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.created_at, 1234567890);
+        assert_eq!(deserialized.deactivated_at, None);
         assert_eq!(deserialized.email, Some("test@example.com".to_string()));
     }
 

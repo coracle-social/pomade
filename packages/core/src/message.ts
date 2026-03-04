@@ -36,5 +36,8 @@ export type RecoverySelectResponse = z.infer<typeof Schema.recoverySelectRespons
 export type SessionListRequest = z.infer<typeof Schema.sessionListRequest>
 export type SessionListResponse = z.infer<typeof Schema.sessionListResponse>
 
+export type SessionDeactivateRequest = z.infer<typeof Schema.sessionDeactivateRequest>
+export type SessionDeactivateResponse = z.infer<typeof Schema.sessionDeactivateResponse>
+
 export type SessionDeleteRequest = z.infer<typeof Schema.sessionDeleteRequest>
 export type SessionDeleteResponse = z.infer<typeof Schema.sessionDeleteResponse>

@@ -39,6 +39,8 @@ import {
   RecoverySelectRequest,
   RecoverySelectResponse,
   SessionListResponse,
+  SessionDeactivateRequest,
+  SessionDeactivateResponse,
   SessionDeleteRequest,
   SessionDeleteResponse,
   SignRequest,
@@ -80,6 +82,7 @@ function makeSessionItem(session: SignerSession): SessionItem {
     pubkey: session.group.group_pk.slice(2),
     client: session.client,
     created_at: session.created_at,
+    deactivated_at: session.deactivated_at,
     last_activity: session.last_activity,
     threshold: session.group.threshold,
     total: session.group.commits.length,
@@ -94,6 +97,7 @@ export type SignerSession = {
   group: GroupPackage
   recovery: boolean
   created_at: number
+  deactivated_at?: number
   last_activity: number
   email?: string
   email_hash?: string
@@ -309,6 +313,14 @@ export class Signer {
       await this.sessionsByEmailHash.set(session.email_hash, {
         clients: append(client, index.clients),
       })
+    }
+  }
+
+  async _deactivateSession(client: string) {
+    const session = await this.sessions.get(client)
+
+    if (session) {
+      await this.sessions.set(client, {...session, deactivated_at: now()})
     }
   }
 
@@ -617,6 +629,11 @@ export class Signer {
         return {ok: false, message: "No session found for client"}
       }
 
+      if (session.deactivated_at) {
+        debug(`[client ${client.slice(0, 8)}]: signing failed - session is deactivated`)
+        return {ok: false, message: "Session is deactivated"}
+      }
+
       const allowed = await this._checkAndRecordRateLimit(client)
       if (!allowed) {
         return {ok: false, message: "Rate limit exceeded. Please try again later."}
@@ -651,6 +668,11 @@ export class Signer {
         return {ok: false, message: "No session found for client"}
       }
 
+      if (session.deactivated_at) {
+        debug(`[client ${client.slice(0, 8)}]: ecdh failed - session is deactivated`)
+        return {ok: false, message: "Session is deactivated"}
+      }
+
       if (ecdh_pk === GENERATOR_X) {
         debug(`[client ${client.slice(0, 8)}]: ecdh failed - rejected generator point`)
         return {ok: false, message: "Invalid ECDH public key"}
@@ -681,7 +703,7 @@ export class Signer {
     {pubkey}: SignedEvent,
     _data: Record<string, never>,
   ): Promise<SessionListResponse> {
-    const items: SessionListResponse["items"] = []
+    const items: SessionItem[] = []
     for (const [_, session] of await this.sessions.entries()) {
       if (session.group.group_pk.slice(2) === pubkey) {
         items.push(makeSessionItem(session))
@@ -691,6 +713,26 @@ export class Signer {
     debug(`[session/list]: successfully retrieved ${items.length} sessions`)
 
     return {items, ok: true, message: "Successfully retrieved session list."}
+  }
+
+  async _handleSessionDeactivate(
+    {pubkey}: SignedEvent,
+    data: SessionDeactivateRequest,
+  ): Promise<SessionDeactivateResponse> {
+    return this.options.storage.tx(async () => {
+      const session = await this.sessions.get(data.client)
+
+      if (session?.group.group_pk.slice(2) === pubkey) {
+        await this._deactivateSession(data.client)
+
+        debug(`[session/deactivate]: deactivated session ${data.client.slice(0, 8)}`)
+
+        return {ok: true, message: "Successfully deactivated selected session."}
+      } else {
+        debug(`[session/deactivate]: failed to deactivate session ${data.client.slice(0, 8)}`)
+        return {ok: false, message: "Failed to deactivate selected session."}
+      }
+    })
   }
 
   async _handleSessionDelete(
@@ -708,7 +750,7 @@ export class Signer {
         return {ok: true, message: "Successfully deleted selected session."}
       } else {
         debug(`[session/delete]: failed to delete session ${data.client.slice(0, 8)}`)
-        return {ok: false, message: "Failed to logout selected client."}
+        return {ok: false, message: "Failed to delete selected session."}
       }
     })
   }
@@ -777,6 +819,13 @@ export class Signer {
         )
       case "/register":
         return this._handle(auth, body, Schema.registerRequest, this._handleRegister.bind(this))
+      case "/session/deactivate":
+        return this._handle(
+          auth,
+          body,
+          Schema.sessionDeactivateRequest,
+          this._handleSessionDeactivate.bind(this),
+        )
       case "/session/delete":
         return this._handle(
           auth,

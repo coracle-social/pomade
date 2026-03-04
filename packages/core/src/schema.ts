@@ -47,6 +47,7 @@ const sessionItem = z.object({
   pubkey: hex32,
   client: hex32,
   created_at: z.int().positive(),
+  deactivated_at: z.int().optional(),
   last_activity: z.int().positive(),
   threshold: z.int().positive(),
   total: z.number(),
@@ -179,7 +180,14 @@ export const Schema = {
   sessionListResponse: z.object({
     ok: z.boolean(),
     message: z.string(),
-    items: z.array(sessionItem),
+    items: z.array(sessionItem).optional(),
+  }),
+  sessionDeactivateRequest: z.object({
+    client: hex32,
+  }),
+  sessionDeactivateResponse: z.object({
+    ok: z.boolean(),
+    message: z.string(),
   }),
   sessionDeleteRequest: z.object({
     client: hex32,

@@ -32,6 +32,7 @@ import {
   RecoverySelectResponse,
   RecoverySetupResponse,
   RegisterResponse,
+  SessionDeactivateResponse,
   SessionDeleteResponse,
   SessionListResponse,
   SignResponse,
@@ -423,6 +424,16 @@ export class Client {
     }
 
     return validateAttestation(json.document)
+  }
+
+  async deactivateSession(client: string, peers: string[]) {
+    const userRpc = new RPC(new PomadeSigner(this))
+
+    const messages = await Promise.all(
+      peers.map(url => userRpc.post<SessionDeactivateResponse>(url, "/session/deactivate", {client})),
+    )
+
+    return {ok: messages.every(m => m.res?.ok), messages}
   }
 
   async deleteSession(client: string, peers: string[]) {

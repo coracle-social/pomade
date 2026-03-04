@@ -15,6 +15,7 @@ use crate::schema::{
     LoginSelectRequest, LoginSelectResponse, LoginStartRequest, LoginStartResponse,
     RecoverySelectRequest, RecoverySelectResponse, RecoverySetupRequest, RecoverySetupResponse,
     RecoveryStartRequest, RecoveryStartResponse, RegisterRequest, RegisterResponse,
+    SessionDeactivateRequest, SessionDeactivateResponse,
     SessionDeleteRequest, SessionDeleteResponse, SessionItem, SessionListResponse, Share,
     SignRequest, SignResponse,
 };
@@ -57,6 +58,7 @@ pub struct SignerSession {
     pub group: Group,
     pub recovery: bool,
     pub created_at: u64,
+    pub deactivated_at: Option<u64>,
     pub last_activity: u64,
     pub email: Option<String>,
     pub email_hash: Option<String>,
@@ -116,6 +118,7 @@ fn make_session_item(session: &SignerSession) -> SessionItem {
         pubkey: crate::schema::Hex32(pubkey),
         client: crate::schema::Hex32(session.client.clone()),
         created_at: session.created_at,
+        deactivated_at: session.deactivated_at,
         last_activity: session.last_activity,
         threshold: session.group.threshold,
         total: session.group.commits.0.len() as u32,
@@ -300,6 +303,18 @@ impl Signer {
         }
     }
 
+    fn deactivate_session(&self, client: &str) {
+        if let Some(session) = self.sessions.get(client) {
+            self.sessions.set(
+                client,
+                &SignerSession {
+                    deactivated_at: Some(now()),
+                    ..session
+                },
+            );
+        }
+    }
+
     fn delete_session(&self, client: &str) {
         if let Some(session) = self.sessions.get(client) {
             if let Some(email_hash) = &session.email_hash
@@ -403,6 +418,7 @@ impl Signer {
                 group,
                 recovery,
                 created_at: now(),
+                deactivated_at: None,
                 last_activity: now(),
                 email: None,
                 email_hash: None,
@@ -719,6 +735,7 @@ impl Signer {
                 password_hash: session.password_hash.clone(),
                 recovery: true,
                 created_at: now(),
+                deactivated_at: None,
                 last_activity: now(),
             },
         );
@@ -744,6 +761,15 @@ impl Signer {
                 result: None,
             };
         };
+
+        if session.deactivated_at.is_some() {
+            log::debug!("[client {}]: signing failed - session is deactivated", &client[..8]);
+            return SignResponse {
+                ok: false,
+                message: "Session is deactivated".into(),
+                result: None,
+            };
+        }
 
         if !self.check_and_record_rate_limit(client) {
             return SignResponse {
@@ -790,6 +816,15 @@ impl Signer {
                 result: None,
             };
         };
+
+        if session.deactivated_at.is_some() {
+            log::debug!("[client {}]: ecdh failed - session is deactivated", &client[..8]);
+            return EcdhResponse {
+                ok: false,
+                message: "Session is deactivated".into(),
+                result: None,
+            };
+        }
 
         if !self.check_and_record_rate_limit(client) {
             return EcdhResponse {
@@ -852,6 +887,32 @@ impl Signer {
         }
     }
 
+    fn handle_session_deactivate(
+        &self,
+        auth: &NostrAuth,
+        data: SessionDeactivateRequest,
+    ) -> SessionDeactivateResponse {
+        let pubkey = &auth.pubkey;
+        if let Some(session) = self.sessions.get(&data.client.0)
+            && session.group.group_pk.0[2..] == *pubkey
+        {
+            self.deactivate_session(&data.client.0);
+            log::debug!("[session/deactivate]: deactivated session {}", &data.client.0[..8]);
+            return SessionDeactivateResponse {
+                ok: true,
+                message: "Successfully deactivated selected session.".into(),
+            };
+        }
+        log::debug!(
+            "[session/deactivate]: failed to deactivate session {}",
+            &data.client.0[..8]
+        );
+        SessionDeactivateResponse {
+            ok: false,
+            message: "Failed to deactivate selected client.".into(),
+        }
+    }
+
     fn handle_session_delete(
         &self,
         auth: &NostrAuth,
@@ -907,6 +968,7 @@ impl Signer {
             "/recovery/setup" => route!(body, |a, d| self.handle_recovery_setup(a, d)),
             "/recovery/start" => route!(body, |a, d| self.handle_recovery_start(a, d)),
             "/register" => route!(body, |a, d| self.handle_register(a, d)),
+            "/session/deactivate" => route!(body, |a, d| self.handle_session_deactivate(a, d)),
             "/session/delete" => route!(body, |a, d| self.handle_session_delete(a, d)),
             "/session/list" => serde_json::to_value(self.handle_session_list(&auth)).unwrap(),
             "/sign" => route!(body, |a, d| self.handle_sign(a, d)),
@@ -1113,6 +1175,7 @@ mod tests {
             group: create_test_group(1, 2),
             recovery: true,
             created_at: now(),
+            deactivated_at: None,
             last_activity: now(),
             email: None,
             email_hash: None,
@@ -1137,6 +1200,7 @@ mod tests {
             group: create_test_group(1, 2),
             recovery: true,
             created_at: now(),
+            deactivated_at: None,
             last_activity: now(),
             email: Some("test@example.com".to_string()),
             email_hash: Some("hash123".to_string()),
@@ -1165,6 +1229,7 @@ mod tests {
             group: create_test_group(1, 2),
             recovery: true,
             created_at: now(),
+            deactivated_at: None,
             last_activity: now(),
             email: Some("test@example.com".to_string()),
             email_hash: Some("hash123".to_string()),
@@ -1209,6 +1274,7 @@ mod tests {
             group: create_test_group(1, 2),
             recovery: true,
             created_at: now().saturating_sub(MONTH_SECS + 1),
+            deactivated_at: None,
             last_activity: now().saturating_sub(MONTH_SECS + 1),
             email: None,
             email_hash: None,
@@ -1224,6 +1290,7 @@ mod tests {
             group: create_test_group(1, 2),
             recovery: true,
             created_at: now(),
+            deactivated_at: None,
             last_activity: now(),
             email: None,
             email_hash: None,
@@ -1261,6 +1328,7 @@ mod tests {
             group: create_test_group(2, 3),
             recovery: true,
             created_at: 1234567890,
+            deactivated_at: None,
             last_activity: 1234567891,
             email: Some("user@example.com".to_string()),
             email_hash: None,

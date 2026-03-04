@@ -234,6 +234,24 @@ type AuthPayload =
   }
 ```
 
+#### Session Data
+
+Session data shows up a number of times in this protocol using the following definition:
+
+```typescript
+type SessionData = {
+  pubkey: string          // 32 byte hex encoded user pubkey
+  client: string          // 32 byte hex encoded client pubkey (doubles as session id)
+  created_at: number      // seconds-resolution timestamp when the session was created
+  last_activity: number   // seconds-resolution timestamp when the session was last used
+  threshold: number       // signing threshold for the group
+  total: number           // how many total signers are in the group
+  idx: number             // the signer's index in the signing group
+  email?: string          // recovery email
+  deactivated_at?: number // seconds-resolution timestamp when the session was deactivated
+}
+```
+
 ### Login
 
 To recover remote access to the user's secret by email alone, a client can send a request to all known signers using a fresh `client key` to initiate the login flow. This request is authenticated using the user's email and password/otp in the payload, in addition to NIP 98 HTTP AUTH. Subsequent requests MUST use the same `client key` in order to be considered valid.
@@ -251,16 +269,7 @@ Signers should respond with a list of sessions that the client can log into:
 {
   ok: boolean              // whether the flow was successful
   message: string          // human-readable error/success message
-  items?: {
-    pubkey: string         // 32 byte hex encoded user pubkey
-    client: string         // 32 byte hex encoded client pubkey (doubles as session id)
-    created_at: number     // seconds-resolution timestamp when the session was created
-    last_activity: number  // seconds-resolution timestamp when the session was last used
-    threshold: number      // signing threshold for the group
-    total: number          // how many total signers are in the group
-    idx: number            // the signer's index in the signing group
-    email?: string         // recovery email
-  }[]
+  items?: SessionData[]
 }
 ```
 
@@ -311,16 +320,7 @@ Signers should respond with a list of sessions that the client can recover from:
 {
   ok: boolean              // whether the flow was successful
   message: string          // human-readable error/success message
-  items?: {
-    pubkey: string         // 32 byte hex encoded user pubkey
-    client: string         // 32 byte hex encoded client pubkey (doubles as session id)
-    created_at: number     // seconds-resolution timestamp when the session was created
-    last_activity: number  // seconds-resolution timestamp when the session was last used
-    threshold: number      // signing threshold for the group
-    total: number          // how many total signers are in the group
-    idx: number            // the signer's index in the signing group
-    email?: string         // recovery email
-  }[]
+  items?: SessionData[]
 }
 ```
 
@@ -376,20 +376,39 @@ Each signer must then respond with a list of sessions for the given user:
 {
   ok: boolean              // whether the flow was successful
   message: string          // human-readable error/success message
-  items: {
-    pubkey: string         // 32 byte hex encoded user pubkey
-    client: string         // 32 byte hex encoded client pubkey (doubles as session id)
-    created_at: number     // seconds-resolution timestamp when the session was created
-    last_activity: number  // seconds-resolution timestamp when the session was last used
-    threshold: number      // signing threshold for the group
-    total: number          // how many total signers are in the group
-    idx: number            // the signer's index in the signing group
-    email?: string         // recovery email
-  }[]
+  items?: SessionData[]
 }
 ```
 
-These results may then be aggregated across all signers and displayed to the user. If a user wishes to log out of a session, they may send a session deletion request to the signers in question. This message is authenticated using NIP 98 HTTP AUTH signed by **the user's own key**.
+These results may then be aggregated across all signers and displayed to the user.
+
+### Session deactivation
+
+If a user wishes to log out of a session without destroying the association between their email and secret share, they may send a session deactivation request to the signers in question. This will still allow email-based login and recovery, but revokes the validity of the `client` key. Clients SHOULD call this endpoint when logging a user out.
+
+This message is authenticated using NIP 98 HTTP AUTH signed by **the user's own key**.
+
+```typescript
+POST /session/deactivate
+{
+  client: string // 32 byte hex encoded client pubkey
+}
+```
+
+Signers should then respond by confirming the deactivation:
+
+```typescript
+{
+  ok: boolean // whether the deactivation was successful
+  message: string // human-readable error/success message
+}
+```
+
+### Session deletion
+
+If a user wishes to log out of a session *and* destroy the association between their email and secret share, they may send a session deletion request to the signers in question. This invalidates the `client` key, as well as the ability to use the session's share for login or recovery flows.
+
+This message is authenticated using NIP 98 HTTP AUTH signed by **the user's own key**.
 
 ```typescript
 POST /session/delete
