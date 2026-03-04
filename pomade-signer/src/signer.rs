@@ -15,9 +15,8 @@ use crate::schema::{
     LoginSelectRequest, LoginSelectResponse, LoginStartRequest, LoginStartResponse,
     RecoverySelectRequest, RecoverySelectResponse, RecoverySetupRequest, RecoverySetupResponse,
     RecoveryStartRequest, RecoveryStartResponse, RegisterRequest, RegisterResponse,
-    SessionDeactivateRequest, SessionDeactivateResponse,
-    SessionDeleteRequest, SessionDeleteResponse, SessionItem, SessionListResponse, Share,
-    SignRequest, SignResponse,
+    SessionDeactivateRequest, SessionDeactivateResponse, SessionDeleteRequest,
+    SessionDeleteResponse, SessionItem, SessionListResponse, Share, SignRequest, SignResponse,
 };
 use crate::session::{create_ecdh_pkg, create_psig_pkg, is_group_member};
 use crate::storage::{Collection, Storage, StorageBackend};
@@ -763,7 +762,10 @@ impl Signer {
         };
 
         if session.deactivated_at.is_some() {
-            log::debug!("[client {}]: signing failed - session is deactivated", &client[..8]);
+            log::debug!(
+                "[client {}]: signing failed - session is deactivated",
+                &client[..8]
+            );
             return SignResponse {
                 ok: false,
                 message: "Session is deactivated".into(),
@@ -818,7 +820,10 @@ impl Signer {
         };
 
         if session.deactivated_at.is_some() {
-            log::debug!("[client {}]: ecdh failed - session is deactivated", &client[..8]);
+            log::debug!(
+                "[client {}]: ecdh failed - session is deactivated",
+                &client[..8]
+            );
             return EcdhResponse {
                 ok: false,
                 message: "Session is deactivated".into(),
@@ -897,7 +902,10 @@ impl Signer {
             && session.group.group_pk.0[2..] == *pubkey
         {
             self.deactivate_session(&data.client.0);
-            log::debug!("[session/deactivate]: deactivated session {}", &data.client.0[..8]);
+            log::debug!(
+                "[session/deactivate]: deactivated session {}",
+                &data.client.0[..8]
+            );
             return SessionDeactivateResponse {
                 ok: true,
                 message: "Successfully deactivated selected session.".into(),

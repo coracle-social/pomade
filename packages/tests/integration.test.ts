@@ -81,7 +81,72 @@ for (const {label, specs} of suites) {
       })
     })
 
-    describe("list and delete sessions", () => {
+    describe("list and deactivate/delete sessions", () => {
+      it("successfully deactivates current session", async () => {
+        const secret = makeSecret()
+        const client1Register = await Client.register(1, 2, secret)
+        const client1 = new Client(client1Register.clientOptions)
+        const client2Register = await Client.register(1, 2, secret)
+        const client2 = new Client(client2Register.clientOptions)
+        const client3Register = await Client.register(1, 2, secret)
+        const client3 = new Client(client3Register.clientOptions)
+
+        const [pk1, pk2, pk3] = await Promise.all([
+          client1.rpc.signer.getPubkey(),
+          client2.rpc.signer.getPubkey(),
+          client3.rpc.signer.getPubkey(),
+        ])
+
+        await client1.deactivateSession(pk1, client1.peers)
+
+        doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
+        doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
+        doLet(await client3.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
+
+        const {messages} = await client2.listSessions()
+        const allItems = messages.flatMap(m => m.res?.items ?? [])
+        const clientPks = new Set(allItems.map(item => item.client))
+
+        expect(clientPks).toContain(pk1)
+        expect(clientPks).toContain(pk2)
+        expect(clientPks).toContain(pk3)
+        expect(allItems.filter(item => item.client === pk1).every(item => item.deactivated_at)).toBe(true)
+        expect(allItems.filter(item => item.client !== pk1).every(item => !item.deactivated_at)).toBe(true)
+      })
+
+      it("successfully deactivates other sessions", async () => {
+        const secret = makeSecret()
+        const client1Register = await Client.register(1, 2, secret)
+        const client1 = new Client(client1Register.clientOptions)
+        const client2Register = await Client.register(1, 2, secret)
+        const client2 = new Client(client2Register.clientOptions)
+        const client3Register = await Client.register(1, 2, secret)
+        const client3 = new Client(client3Register.clientOptions)
+
+        const [pk1, pk2, pk3] = await Promise.all([
+          client1.rpc.signer.getPubkey(),
+          client2.rpc.signer.getPubkey(),
+          client3.rpc.signer.getPubkey(),
+        ])
+
+        await client1.deactivateSession(pk2, client2.peers)
+        await client1.deactivateSession(pk3, client3.peers)
+
+        doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
+        doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
+        doLet(await client3.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
+
+        const {messages} = await client1.listSessions()
+        const allItems = messages.flatMap(m => m.res?.items ?? [])
+        const clientPks = new Set(allItems.map(item => item.client))
+
+        expect(clientPks).toContain(pk1)
+        expect(clientPks).toContain(pk2)
+        expect(clientPks).toContain(pk3)
+        expect(allItems.filter(item => item.client === pk1).every(item => !item.deactivated_at)).toBe(true)
+        expect(allItems.filter(item => item.client !== pk1).every(item => item.deactivated_at)).toBe(true)
+      })
+
       it("successfully deletes current session", async () => {
         const secret = makeSecret()
         const client1Register = await Client.register(1, 2, secret)
@@ -91,11 +156,25 @@ for (const {label, specs} of suites) {
         const client3Register = await Client.register(1, 2, secret)
         const client3 = new Client(client3Register.clientOptions)
 
-        await client1.deleteSession(await client1.rpc.signer.getPubkey(), client1.peers)
+        const [pk1, pk2, pk3] = await Promise.all([
+          client1.rpc.signer.getPubkey(),
+          client2.rpc.signer.getPubkey(),
+          client3.rpc.signer.getPubkey(),
+        ])
+
+        await client1.deleteSession(pk1, client1.peers)
 
         doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
         doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
         doLet(await client3.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
+
+        const {messages} = await client2.listSessions()
+        const allItems = messages.flatMap(m => m.res?.items ?? [])
+        const clientPks = new Set(allItems.map(item => item.client))
+
+        expect(clientPks).not.toContain(pk1)
+        expect(clientPks).toContain(pk2)
+        expect(clientPks).toContain(pk3)
       })
 
       it("successfully deletes other sessions", async () => {
@@ -107,12 +186,26 @@ for (const {label, specs} of suites) {
         const client3Register = await Client.register(1, 2, secret)
         const client3 = new Client(client3Register.clientOptions)
 
-        await client1.deleteSession(await client2.rpc.signer.getPubkey(), client2.peers)
-        await client1.deleteSession(await client3.rpc.signer.getPubkey(), client3.peers)
+        const [pk1, pk2, pk3] = await Promise.all([
+          client1.rpc.signer.getPubkey(),
+          client2.rpc.signer.getPubkey(),
+          client3.rpc.signer.getPubkey(),
+        ])
+
+        await client1.deleteSession(pk2, client2.peers)
+        await client1.deleteSession(pk3, client3.peers)
 
         doLet(await client1.sign(makeEvent(1)), res => expect(res.ok).toBe(true))
         doLet(await client2.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
         doLet(await client3.sign(makeEvent(1)), res => expect(res.ok).toBe(false))
+
+        const {messages} = await client1.listSessions()
+        const allItems = messages.flatMap(m => m.res?.items ?? [])
+        const clientPks = new Set(allItems.map(item => item.client))
+
+        expect(clientPks).toContain(pk1)
+        expect(clientPks).not.toContain(pk2)
+        expect(clientPks).not.toContain(pk3)
       })
     })
 

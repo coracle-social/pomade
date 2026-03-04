@@ -429,10 +429,13 @@ export class Client {
   async deactivateSession(client: string, peers: string[]) {
     const userRpc = new RPC(new PomadeSigner(this))
 
+    // Sign auth before sending since we might be deactivating our own session
+    const requests = await Promise.all(
+      peers.map(url => userRpc.prep(url, "/session/deactivate", {client})),
+    )
+
     const messages = await Promise.all(
-      peers.map(url =>
-        userRpc.post<SessionDeactivateResponse>(url, "/session/deactivate", {client}),
-      ),
+      requests.map(request => userRpc.send<SessionDeactivateResponse>(request)),
     )
 
     return {ok: messages.every(m => m.res?.ok), messages}
@@ -441,8 +444,13 @@ export class Client {
   async deleteSession(client: string, peers: string[]) {
     const userRpc = new RPC(new PomadeSigner(this))
 
+    // Sign auth before sending since we might be deleting our own session
+    const requests = await Promise.all(
+      peers.map(url => userRpc.prep(url, "/session/delete", {client})),
+    )
+
     const messages = await Promise.all(
-      peers.map(url => userRpc.post<SessionDeleteResponse>(url, "/session/delete", {client})),
+      requests.map(request => userRpc.send<SessionDeleteResponse>(request)),
     )
 
     return {ok: messages.every(m => m.res?.ok), messages}
