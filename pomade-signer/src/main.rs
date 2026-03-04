@@ -265,7 +265,7 @@ async fn main() {
     let app = Router::new();
 
     let app = app
-        .route("/*path", post(handle))
+        .route("/{*path}", post(handle))
         .with_state(signer)
         .layer(cors);
 
