@@ -22,7 +22,7 @@ jobs:
           - name: signer-ts
             dockerfile: packages/signer/Dockerfile
           - name: signer-rust
-            dockerfile: pomade-signer/Dockerfile
+            dockerfile: pomade-signer-rust/Dockerfile
 
     steps:
       - name: Checkout repository

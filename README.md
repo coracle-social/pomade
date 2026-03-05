@@ -16,9 +16,9 @@ For protocol specification and implementation details, see [PROTOCOL.md](PROTOCO
 
 This monorepo contains several packages:
 
-- **[frost-taproot](frost-taproot)** - Rust implementation of BIP-340 FROST signatures including trusted key dealer and DKG flows, compatible with the @cmdruid/frost typescript implementation
+- **[frost-taproot](frost-taproot-rust)** - Rust implementation of BIP-340 FROST signatures including trusted key dealer and DKG flows, compatible with the @cmdruid/frost typescript implementation
 - **[@pomade/core](packages/core)** - Core typescript library with client and signer classes
-- **[pomade-signer](pomade-signer)** - Rust signer implementation (recommended)
+- **[pomade-signer](pomade-signer-rust)** - Rust signer implementation (recommended)
 - **[@pomade/signer](packages/signer)** - Typescript signer implementation
 
 ## Getting Started
@@ -67,13 +67,13 @@ See [packages/signer/README.md](packages/signer/README.md) for configuration and
 
 Rust implementation of BIP-340 FROST signatures including trusted key dealer and DKG flows, compatible with the @cmdruid/frost typescript implementation.
 
-See [frost-taproot/README.md](frost-taproot/README.md) for configuration and deployment.
+See [frost-taproot/README.md](frost-taproot-rust/README.md) for configuration and deployment.
 
 ### pomade-signer
 
 Rust HTTP signer server with sled storage, email-based recovery, proof-of-work registration, and rate limiting.
 
-See [pomade-signer/README.md](pomade-signer/README.md) for configuration and deployment.
+See [pomade-signer/README.md](pomade-signer-rust/README.md) for configuration and deployment.
 
 ## License
 

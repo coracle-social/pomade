@@ -7,13 +7,13 @@ RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconf
 WORKDIR /app
 
 # Copy frost-taproot first (dependency of pomade-signer)
-COPY frost-taproot ./frost-taproot
+COPY frost-taproot-rust ./frost-taproot-rust
 
-# Copy pomade-signer
-COPY pomade-signer ./pomade-signer
+# Copy pomade-signer-rust
+COPY pomade-signer-rust ./pomade-signer-rust
 
 # Build in release mode
-WORKDIR /app/pomade-signer
+WORKDIR /app/pomade-signer-rust
 RUN cargo build --release
 
 # Runtime stage
@@ -25,7 +25,7 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 
 # Copy the built binary from builder
-COPY --from=builder /app/pomade-signer/target/release/pomade-signer /usr/local/bin/pomade-signer
+COPY --from=builder /app/pomade-signer-rust/target/release/pomade-signer /usr/local/bin/pomade-signer
 
 # Create data directory
 RUN mkdir -p /data

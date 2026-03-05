@@ -17,7 +17,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-frost-taproot = { path = "../frost-taproot" }
+frost-taproot = { path = "../frost-taproot-rust" }
 ```
 
 ## Modules

@@ -31,7 +31,7 @@ Email provider specific variables:
 ### From source
 
 ```bash
-cd pomade-signer
+cd pomade-signer-rust
 SIGNER_URL=https://signer.example.com \
   POMADE_SECRET=replace_with_long_random_secret \
   MAIL_PROVIDER=resend \
@@ -45,7 +45,7 @@ SIGNER_URL=https://signer.example.com \
 
 ```bash
 mkdir -p data
-docker build -f pomade-signer/Dockerfile -t pomade-signer-rust .
+docker build -f pomade-signer-rust/Dockerfile -t pomade-signer-rust .
 docker run -v $(pwd)/data:/data \
   -e SIGNER_URL=https://signer.example.com \
   -e POMADE_SECRET=replace_with_long_random_secret \

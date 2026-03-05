@@ -7,7 +7,7 @@ import type {ChallengePayload} from "@pomade/core"
 
 const REPO_ROOT = new URL("../../", import.meta.url).pathname
 const TS_SIGNER_BIN = join(REPO_ROOT, "packages/signer/dist/index.js")
-const RUST_SIGNER_BIN = join(REPO_ROOT, "pomade-signer/target/release/pomade-signer")
+const RUST_SIGNER_BIN = join(REPO_ROOT, "pomade-signer-rust/target/release/pomade-signer")
 
 export type SignerKind = "ts" | "rust"
 

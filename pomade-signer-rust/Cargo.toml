@@ -12,7 +12,7 @@ sha2 = "0.10"
 hex = "0.4"
 base64 = "0.22"
 rand = "0.8"
-frost-taproot = { path = "../frost-taproot" }
+frost-taproot = { path = "../frost-taproot-rust" }
 nostr = { version = "0.44", features = ["std", "nip98"] }
 log = "0.4"
 env_logger = "0.11"
