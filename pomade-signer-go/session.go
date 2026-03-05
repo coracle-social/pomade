@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"math/big"
 
 	"github.com/frost-taproot/frost-taproot-go/context"
 	"github.com/frost-taproot/frost-taproot-go/ecdh"
@@ -251,17 +252,28 @@ func createPsigPkg(group Group, request SignRequest, share Share) (*SignResult, 
 	}, true
 }
 
-const generatorX = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+// secp256k1 field prime P and generator x-coordinate.
+var secp256k1P, _ = new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16)
+var secp256k1Gx, _ = new(big.Int).SetString("79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798", 16)
 
 func createEcdhPkg(request EcdhRequest, share Share) (*EcdhResult, bool) {
-	if request.EcdhPk == generatorX {
-		return nil, false
-	}
-	seckey, ok := decodeHex32(share.Seckey)
+	ecdhPk, ok := decodeHex32(request.EcdhPk)
 	if !ok {
 		return nil, false
 	}
-	ecdhPk, ok := decodeHex32(request.EcdhPk)
+	// Reject x-coordinates that are not in the canonical range [1, P-1].
+	// Values >= P would be silently reduced mod P by LiftX, potentially
+	// mapping attacker-controlled bytes onto valid curve points.
+	x := new(big.Int).SetBytes(ecdhPk[:])
+	if x.Sign() == 0 || x.Cmp(secp256k1P) >= 0 {
+		return nil, false
+	}
+	// Reject the generator point G; its x-coordinate lifted with even Y gives G,
+	// and multiplying by the secret share reveals the share itself.
+	if x.Cmp(secp256k1Gx) == 0 {
+		return nil, false
+	}
+	seckey, ok := decodeHex32(share.Seckey)
 	if !ok {
 		return nil, false
 	}

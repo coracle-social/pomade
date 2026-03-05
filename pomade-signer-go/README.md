@@ -16,7 +16,7 @@ Optional environment variables:
 - `LISTEN_ADDR` - Listen address (default: `0.0.0.0:3000`)
 - `DB_PATH` - BoltDB file path (default: `./signer.db`)
 - `REGISTER_POW` - PoW threshold for registration (default: `20`, or `0` in `TEST_MODE`)
-- `TEST_MODE` - Set to any value to disable mail-provider requirement and reduce argon memory settings
+- `TEST_MODE` - Set to any value to disable mail-provider requirement, reduce argon memory settings, and set `REGISTER_POW` to `0`
 - `MAIL_PROVIDER` - `postmark`, `sendgrid`, `mailgun`, `sendlayer`, or `resend`
 - `MAIL_FROM_EMAIL` - Sender email (default: `noreply@example.com`)
 - `MAIL_FROM_NAME` - Sender name (default: `Pomade Signer`)

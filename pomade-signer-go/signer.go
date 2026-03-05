@@ -237,12 +237,14 @@ func hashEmail(email string, url string, argonM uint32) string {
 	return hex.EncodeToString(out)
 }
 
+var hex64Re = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 func isHex64(s string) bool {
-	return regexp.MustCompile("^[0-9a-f]{64}$").MatchString(s)
+	return hex64Re.MatchString(s)
 }
 
 func (s *Signer) getAuthenticatedSessions(auth AuthPayload) []SignerSession {
-	if auth.EmailHash == "" {
+	if !isHex64(auth.EmailHash) {
 		return nil
 	}
 	b := s.rateLimitByEmailHash.Get(auth.EmailHash)
@@ -361,16 +363,22 @@ func challengeEmail(otp string) mailer.Email {
 	}
 }
 
+var prefixRe = regexp.MustCompile(`^\d{2}$`)
+
 func (s *Signer) handleChallenge(data ChallengeRequest) ChallengeResponse {
+	if !prefixRe.MatchString(data.Prefix) || !isHex64(data.EmailHash) {
+		return ChallengeResponse{OK: true, Message: "Please check your email inbox for a one-time password."}
+	}
 	b := s.rateLimitByEmailHash.Get(data.EmailHash)
 	if isRateLimited(b, emailRateLimits) {
 		return ChallengeResponse{OK: true, Message: "Please check your email inbox for a one-time password."}
 	}
+	// Always record an attempt to prevent email hash enumeration via rate limit side-channel.
+	s.rateLimitByEmailHash.Set(data.EmailHash, recordAttempt(b, emailRateLimits))
 	idx := s.sessionsByEmailHash.Get(data.EmailHash)
 	if idx != nil && len(idx.Clients) > 0 {
 		sess := s.sessions.Get(idx.Clients[0])
 		if sess != nil && sess.Email != nil {
-			s.rateLimitByEmailHash.Set(data.EmailHash, recordAttempt(b, emailRateLimits))
 			otp := fmt.Sprintf("%s%d", data.Prefix, randomInt(100000, 1000000))
 			s.challenges.Set(data.EmailHash, SignerChallenge{CreatedAt: nowSec(), OTP: otp})
 			if s.options.TestMode {

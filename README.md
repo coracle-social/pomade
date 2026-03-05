@@ -80,7 +80,7 @@ See [the readme](pomade-signer-rust/README.md) for configuration and deployment.
 
 Go implementation of BIP-340 FROST signatures including trusted key dealer and DKG flows, compatible with the @cmdruid/frost typescript implementation.
 
-See [the readme](frost-taproot-rust/README.md) for configuration and deployment.
+See [the readme](frost-taproot-go/README.md) for configuration and deployment.
 
 ## License
 
