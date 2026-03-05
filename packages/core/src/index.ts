@@ -1,4 +1,3 @@
-export * from "./attestation.js"
 export * from "./client.js"
 export * from "./message.js"
 export * from "./pomade-signer.js"
