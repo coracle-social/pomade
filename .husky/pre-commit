@@ -1,3 +1,5 @@
+trap 'echo "Aborted"; exit 130' INT
+
 # Typescript checks
 pnpm run build
 pnpm run lint
@@ -9,6 +11,19 @@ cargo clippy --manifest-path pomade-signer-rust/Cargo.toml -- -D warnings
 cargo clippy --manifest-path frost-taproot-rust/Cargo.toml --all-targets
 cargo test --manifest-path pomade-signer-rust/Cargo.toml
 cargo test --manifest-path frost-taproot-rust/Cargo.toml
+
+# Go checks
+if [ -d "frost-taproot-go" ]; then
+  cd frost-taproot-go
+  if [ -n "$(gofmt -l .)" ]; then
+    echo "Go files need formatting:"
+    gofmt -l .
+    exit 1
+  fi
+  go vet ./...
+  go test ./...
+  cd ..
+fi
 
 # Typescript and rust integration test
 pnpm run test
