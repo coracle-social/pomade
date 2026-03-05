@@ -71,12 +71,9 @@ func GetGroupKeyContext(pubkey []byte, tweaks [][32]byte) (types.GroupKeyContext
 		return types.GroupKeyContext{}, err
 	}
 
-	pt, _ := ecc.LiftX(groupPt.Point[:])
-	groupPk := ecc.SerializePoint(pt)
-
 	return types.GroupKeyContext{
 		GroupPt: groupPt,
-		GroupPk: groupPk,
+		GroupPk: groupPt.Point,
 		IntPt:   &intPkBytes,
 		IntPk:   &intPkBytes,
 		Tweak:   nil,

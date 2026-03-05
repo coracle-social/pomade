@@ -4,6 +4,7 @@ package frost
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"slices"
 
 	"github.com/frost-taproot/frost-taproot-go/context"
 	"github.com/frost-taproot/frost-taproot-go/helpers"
@@ -20,13 +21,7 @@ func CreateSignSession(grp *GroupPackage, members []uint32, messages []SignMessa
 
 	sortedMembers := make([]uint32, len(members))
 	copy(sortedMembers, members)
-	for i := 0; i < len(sortedMembers); i++ {
-		for j := i + 1; j < len(sortedMembers); j++ {
-			if sortedMembers[j] < sortedMembers[i] {
-				sortedMembers[i], sortedMembers[j] = sortedMembers[j], sortedMembers[i]
-			}
-		}
-	}
+	slices.Sort(sortedMembers)
 
 	sid := computeSessionId(grp, sortedMembers, messages)
 
@@ -62,31 +57,16 @@ func computeSessionId(grp *GroupPackage, members []uint32, messages []SignMessag
 	return out
 }
 
-func buildPublicNonces(nonces []MemberNonce) []types.PublicNonce {
-	pnonces := make([]types.PublicNonce, len(nonces))
-	for i, n := range nonces {
-		pnonces[i] = types.PublicNonce{
-			ID:       n.Idx,
-			BinderPn: n.BinderPn,
-			HiddenPn: n.HiddenPn,
-		}
-	}
-	return pnonces
-}
-
 // CreatePartialSigPackage produces a partial signature package.
 func CreatePartialSigPackage(session *SignSession, share *SharePackage, secretNonce *SecretNoncePair) (PartialSigPackage, error) {
-	lowShare := types.SecretShare{
-		ID:     share.Idx,
-		Seckey: share.Seckey,
-	}
+	lowShare := toSecretShare(share)
 	lowSnonce := types.SecretNonce{
 		ID:       share.Idx,
 		BinderSn: secretNonce.BinderSn,
 		HiddenSn: secretNonce.HiddenSn,
 	}
 
-	pnonces := buildPublicNonces(session.Nonces)
+	pnonces := toPublicNonces(session.Nonces)
 	psigs := make([]PartialSig, len(session.Messages))
 
 	for i, msg := range session.Messages {
@@ -124,34 +104,41 @@ func VerifyPartialSigPackage(session *SignSession, grp *GroupPackage, pkg *Parti
 	if pkg.Sid != session.Sid {
 		return "session id mismatch", nil
 	}
-
-	memberPubkeys := make([][33]byte, len(grp.Members))
-	for i, m := range grp.Members {
-		memberPubkeys[i] = m.Pubkey
+	if len(pkg.Psigs) != len(session.Messages) {
+		return "partial sig count does not match message count", nil
 	}
 
-	found := false
-	for _, pk := range memberPubkeys {
-		if pk == pkg.Pubkey {
-			found = true
+	member := GetMemberByIdx(grp, pkg.Idx)
+	if member == nil {
+		return "member index not found in group", nil
+	}
+	if member.Pubkey != pkg.Pubkey {
+		return "pubkey does not match member index", nil
+	}
+
+	memberInSession := false
+	for _, idx := range session.Members {
+		if idx == pkg.Idx {
+			memberInSession = true
 			break
 		}
 	}
-	if !found {
-		return "pubkey not found in group", nil
+	if !memberInSession {
+		return "member is not in signing session", nil
 	}
 
-	pnonces := buildPublicNonces(session.Nonces)
-	var pnonce *types.PublicNonce
-	for i := range pnonces {
-		if pnonces[i].ID == pkg.Idx {
-			pnonce = &pnonces[i]
+	pnonces := toPublicNonces(session.Nonces)
+	var pnonce *MemberNonce
+	for i := range session.Nonces {
+		if session.Nonces[i].Idx == pkg.Idx {
+			pnonce = &session.Nonces[i]
 			break
 		}
 	}
 	if pnonce == nil {
 		return "no nonce for member", nil
 	}
+	lowPnonce := types.PublicNonce{ID: pnonce.Idx, BinderPn: pnonce.BinderPn, HiddenPn: pnonce.HiddenPn}
 
 	for i, msg := range session.Messages {
 		psigEntry := pkg.Psigs[i]
@@ -164,7 +151,7 @@ func VerifyPartialSigPackage(session *SignSession, grp *GroupPackage, pkg *Parti
 			return "", err
 		}
 
-		ok, err := sign.VerifyPartialSig(&ctx, pnonce, pkg.Pubkey, psigEntry.Psig)
+		ok, err := sign.VerifyPartialSig(&ctx, &lowPnonce, pkg.Pubkey, psigEntry.Psig)
 		if err != nil {
 			return "", err
 		}
@@ -182,7 +169,7 @@ func CombineSignatures(session *SignSession, grp *GroupPackage, pkgs []PartialSi
 		return nil, &util.AssertionError{Message: "not enough partial sigs"}
 	}
 
-	pnonces := buildPublicNonces(session.Nonces)
+	pnonces := toPublicNonces(session.Nonces)
 	signatures := make([]Signature, len(session.Messages))
 
 	for i, msg := range session.Messages {

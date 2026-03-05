@@ -3,6 +3,7 @@ package recover
 
 import (
 	"math/big"
+	"slices"
 
 	"github.com/frost-taproot/frost-taproot-go/ecc"
 	"github.com/frost-taproot/frost-taproot-go/poly"
@@ -19,13 +20,7 @@ func GenRecoveryShares(members []uint32, share *types.SecretShare, target uint32
 
 	sortedMembers := make([]uint32, len(members))
 	copy(sortedMembers, members)
-	for i := 0; i < len(sortedMembers); i++ {
-		for j := i + 1; j < len(sortedMembers); j++ {
-			if sortedMembers[j] < sortedMembers[i] {
-				sortedMembers[i], sortedMembers[j] = sortedMembers[j], sortedMembers[i]
-			}
-		}
-	}
+	slices.Sort(sortedMembers)
 
 	shareIdx := poly.IndexToScalar(share.ID)
 	targetIdx := poly.IndexToScalar(target)

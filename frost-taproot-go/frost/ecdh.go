@@ -2,16 +2,15 @@
 package frost
 
 import (
+	"fmt"
+
 	"github.com/frost-taproot/frost-taproot-go/ecdh"
 	"github.com/frost-taproot/frost-taproot-go/types"
 )
 
 // CreateEcdhPkg creates an ECDH package for a single target public key.
 func CreateEcdhPkg(members []uint32, ecdhPk [33]byte, share *SharePackage) (EcdhPackage, error) {
-	lowShare := types.SecretShare{
-		ID:     share.Idx,
-		Seckey: share.Seckey,
-	}
+	lowShare := toSecretShare(share)
 	ecdhShare, err := ecdh.CreateEcdhShare(members, &lowShare, ecdhPk[:])
 	if err != nil {
 		return EcdhPackage{}, err
@@ -25,10 +24,7 @@ func CreateEcdhPkg(members []uint32, ecdhPk [33]byte, share *SharePackage) (Ecdh
 
 // CreateBatchedEcdhPkg creates an ECDH package for multiple target keys.
 func CreateBatchedEcdhPkg(members []uint32, ecdhPks [][33]byte, share *SharePackage) (EcdhPackage, error) {
-	lowShare := types.SecretShare{
-		ID:     share.Idx,
-		Seckey: share.Seckey,
-	}
+	lowShare := toSecretShare(share)
 	entries := make([]EcdhEntry, len(ecdhPks))
 	for i, pk := range ecdhPks {
 		ecdhShare, err := ecdh.CreateEcdhShare(members, &lowShare, pk[:])
@@ -56,7 +52,7 @@ func CombineEcdhPkgs(pkgs []EcdhPackage, ecdhPk [33]byte) ([33]byte, error) {
 			}
 		}
 		if entry == nil {
-			return [33]byte{}, &ErrNotFound{}
+			return [33]byte{}, fmt.Errorf("ecdh keyshare not found for member %d", pkg.Idx)
 		}
 		keyshares[i] = types.PublicShare{
 			ID:     pkg.Idx,
@@ -65,8 +61,3 @@ func CombineEcdhPkgs(pkgs []EcdhPackage, ecdhPk [33]byte) ([33]byte, error) {
 	}
 	return ecdh.DeriveEcdhSecret(keyshares)
 }
-
-// ErrNotFound indicates a key was not found.
-type ErrNotFound struct{}
-
-func (e *ErrNotFound) Error() string { return "not found" }

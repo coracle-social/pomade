@@ -4,6 +4,7 @@ package frost
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"slices"
 
 	"github.com/frost-taproot/frost-taproot-go/group"
 	"github.com/frost-taproot/frost-taproot-go/helpers"
@@ -46,13 +47,15 @@ func GenerateDealerPackage(threshold int, shareCount uint32, secrets [][32]byte)
 func GetGroupId(group *GroupPackage) [32]byte {
 	sorted := make([]MemberPackage, len(group.Members))
 	copy(sorted, group.Members)
-	for i := 0; i < len(sorted); i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[j].Idx < sorted[i].Idx {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
+	slices.SortFunc(sorted, func(a, b MemberPackage) int {
+		if a.Idx < b.Idx {
+			return -1
 		}
-	}
+		if a.Idx > b.Idx {
+			return 1
+		}
+		return 0
+	})
 
 	h := sha256.New()
 	h.Write(group.GroupPk[:])

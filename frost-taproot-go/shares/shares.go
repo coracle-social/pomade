@@ -85,6 +85,9 @@ func VerifyShare(commits [][33]byte, share *types.SecretShare, threshold int) (b
 	if threshold == 0 {
 		return false, &util.AssertionError{Message: "no commits"}
 	}
+	if threshold > len(commits) {
+		return false, &util.AssertionError{Message: "threshold exceeds commit count"}
+	}
 
 	var sip *ecc.Point
 	for j := 0; j < threshold; j++ {

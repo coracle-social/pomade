@@ -165,38 +165,18 @@ func VerifyFinalSig(ctx *types.GroupKeyContext, message []byte, signature [64]by
 	pkBytes := ctx.GroupPk[1:]
 
 	// Parse R from signature (first 32 bytes)
-	rX := new(big.Int).SetBytes(signature[:32])
-	rY := new(big.Int).ModSqrt(
-		new(big.Int).Add(
-			new(big.Int).Exp(rX, big.NewInt(3), ecc.P),
-			big.NewInt(7),
-		),
-		ecc.P,
-	)
-	if rY == nil {
+	rPoint, err := ecc.LiftX(signature[:32])
+	if err != nil {
 		return false, nil
-	}
-	if rY.Bit(0) == 1 {
-		rY = new(big.Int).Sub(ecc.P, rY)
 	}
 
 	// Parse s from signature (last 32 bytes)
 	s := new(big.Int).SetBytes(signature[32:])
 
 	// Parse public key
-	pkX := new(big.Int).SetBytes(pkBytes)
-	pkY := new(big.Int).ModSqrt(
-		new(big.Int).Add(
-			new(big.Int).Exp(pkX, big.NewInt(3), ecc.P),
-			big.NewInt(7),
-		),
-		ecc.P,
-	)
-	if pkY == nil {
+	pkPoint, err := ecc.LiftX(pkBytes)
+	if err != nil {
 		return false, nil
-	}
-	if pkY.Bit(0) == 1 {
-		pkY = new(big.Int).Sub(ecc.P, pkY)
 	}
 
 	// Compute challenge
@@ -211,8 +191,7 @@ func VerifyFinalSig(ctx *types.GroupKeyContext, message []byte, signature [64]by
 
 	// Verify: s*G = R + challenge*P
 	sG := ecc.ScalarBaseMulti(s)
-	cP := ecc.ScalarMulti(&ecc.Point{X: pkX, Y: pkY}, challenge)
-	rPoint := &ecc.Point{X: rX, Y: rY}
+	cP := ecc.ScalarMulti(pkPoint, challenge)
 	rhs, err := ecc.ElementAdd(rPoint, cP)
 	if err != nil {
 		return false, err

@@ -94,12 +94,7 @@ func CalcLagrangeCoeff(l []*big.Int, p, x *big.Int) (*big.Int, error) {
 
 // IndexToScalar converts uint32 to scalar.
 func IndexToScalar(idx uint32) *big.Int {
-	var b [32]byte
-	b[28] = byte(idx >> 24)
-	b[29] = byte(idx >> 16)
-	b[30] = byte(idx >> 8)
-	b[31] = byte(idx)
-	return ecc.ScalarFromBytes(b)
+	return ecc.ScalarFromBytes(ecc.SerializeScalarU32(idx))
 }
 
 // IsUniqueSet checks if all elements are unique.

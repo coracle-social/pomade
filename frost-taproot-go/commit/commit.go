@@ -2,6 +2,8 @@
 package commit
 
 import (
+	"slices"
+
 	"github.com/frost-taproot/frost-taproot-go/ecc"
 	"github.com/frost-taproot/frost-taproot-go/helpers"
 	"github.com/frost-taproot/frost-taproot-go/types"
@@ -22,13 +24,15 @@ func GetCommitsPrefix(pnonces []types.PublicNonce) []byte {
 	// Sort by ID (create copy to avoid modifying original)
 	sorted := make([]types.PublicNonce, len(pnonces))
 	copy(sorted, pnonces)
-	for i := 0; i < len(sorted); i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[j].ID < sorted[i].ID {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
+	slices.SortFunc(sorted, func(a, b types.PublicNonce) int {
+		if a.ID < b.ID {
+			return -1
 		}
-	}
+		if a.ID > b.ID {
+			return 1
+		}
+		return 0
+	})
 
 	out := make([]byte, 0, len(sorted)*(32+33+33))
 	for _, pn := range sorted {
@@ -83,6 +87,10 @@ func GetGroupBinders(pnonces []types.PublicNonce, prefix []byte) []types.BindFac
 // GetGroupPubnonce computes the group public nonce.
 func GetGroupPubnonce(pnonces []types.PublicNonce, binders []types.BindFactor) ([33]byte, error) {
 	var groupCommit *ecc.Point
+	binderByID := make(map[uint32][32]byte, len(binders))
+	for _, binder := range binders {
+		binderByID[binder.ID] = binder.Factor
+	}
 
 	for _, pn := range pnonces {
 		hiddenElem, err := ecc.LiftX(pn.HiddenPn[:])
@@ -93,9 +101,9 @@ func GetGroupPubnonce(pnonces []types.PublicNonce, binders []types.BindFactor) (
 		if err != nil {
 			return [33]byte{}, err
 		}
-		bindFactorBytes, err := GetBindFactor(binders, pn.ID)
-		if err != nil {
-			return [33]byte{}, err
+		bindFactorBytes, ok := binderByID[pn.ID]
+		if !ok {
+			return [33]byte{}, &util.RecordNotFoundError{Idx: pn.ID}
 		}
 		bindFactor := ecc.ScalarFromBytes(bindFactorBytes)
 		factoredElem := ecc.ScalarMulti(bindingElem, bindFactor)

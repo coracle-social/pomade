@@ -3,6 +3,7 @@ package frost
 
 import (
 	"math/big"
+	"slices"
 
 	"github.com/frost-taproot/frost-taproot-go/ecc"
 	"github.com/frost-taproot/frost-taproot-go/poly"
@@ -105,13 +106,15 @@ func DkgFinalize(myIdx uint32, myCoeffs [][32]byte, received []DkgSharePackage, 
 	// Sort commits by idx
 	sortedCommits := make([]DkgCommitPackage, len(allCommits))
 	copy(sortedCommits, allCommits)
-	for i := 0; i < len(sortedCommits); i++ {
-		for j := i + 1; j < len(sortedCommits); j++ {
-			if sortedCommits[j].Idx < sortedCommits[i].Idx {
-				sortedCommits[i], sortedCommits[j] = sortedCommits[j], sortedCommits[i]
-			}
+	slices.SortFunc(sortedCommits, func(a, b DkgCommitPackage) int {
+		if a.Idx < b.Idx {
+			return -1
 		}
-	}
+		if a.Idx > b.Idx {
+			return 1
+		}
+		return 0
+	})
 
 	// Derive group public key
 	firstCommits := make([][33]byte, len(sortedCommits))
