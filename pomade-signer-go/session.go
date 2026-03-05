@@ -177,8 +177,14 @@ func buildSighashContexts(group Group, request SignRequestInner, sessionID [32]b
 	if !ok {
 		return nil, false
 	}
+	if len(request.Hashes) == 0 {
+		return nil, false
+	}
 	out := make([]sighashCtx, 0, len(request.Hashes))
 	for _, sigvec := range request.Hashes {
+		if len(sigvec) == 0 {
+			return nil, false
+		}
 		sighash, ok := decodeHex32(sigvec[0])
 		if !ok {
 			return nil, false

@@ -292,6 +292,10 @@ func (s *Signer) handleRegister(auth NostrAuth, data RegisterRequest) RegisterRe
 	if s.checkKeyReuse(client) {
 		return RegisterResponse{OK: false, Message: "Do not re-use session keys."}
 	}
+	// The client key must be distinct from the user's pubkey (PROTOCOL.md).
+	if len(data.Group.GroupPk) >= 66 && client == data.Group.GroupPk[2:] {
+		return RegisterResponse{OK: false, Message: "Client key must be distinct from the user key."}
+	}
 	idBytes := auth.Event.ID
 	if getPow(idBytes) < s.options.RegisterPow {
 		return RegisterResponse{OK: false, Message: "Registration requires proof of work (NIP-13)."}
@@ -509,6 +513,9 @@ func (s *Signer) handleSign(auth NostrAuth, data SignRequest) SignResponse {
 	if !verifySessionPkg(session.Group, data.Request) {
 		return SignResponse{OK: false, Message: "Failed to sign event"}
 	}
+	if !containsIdx(data.Request.Members, session.Share.Idx) {
+		return SignResponse{OK: false, Message: "Signer index not present in members list"}
+	}
 	result, ok := createPsigPkg(session.Group, data, session.Share)
 	if !ok {
 		return SignResponse{OK: false, Message: "Failed to sign event"}
@@ -516,6 +523,15 @@ func (s *Signer) handleSign(auth NostrAuth, data SignRequest) SignResponse {
 	session.LastActivity = nowSec()
 	s.sessions.Set(client, *session)
 	return SignResponse{OK: true, Message: "Successfully signed event", Result: result}
+}
+
+func containsIdx(members []uint32, idx uint32) bool {
+	for _, m := range members {
+		if m == idx {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Signer) handleEcdh(auth NostrAuth, data EcdhRequest) EcdhResponse {
@@ -529,6 +545,9 @@ func (s *Signer) handleEcdh(auth NostrAuth, data EcdhRequest) EcdhResponse {
 	}
 	if !s.checkAndRecordRateLimit(client) {
 		return EcdhResponse{OK: false, Message: "Rate limit exceeded. Please try again later."}
+	}
+	if !containsIdx(data.Members, session.Share.Idx) {
+		return EcdhResponse{OK: false, Message: "Signer index not present in members list"}
 	}
 	result, ok := createEcdhPkg(data, session.Share)
 	if !ok {
