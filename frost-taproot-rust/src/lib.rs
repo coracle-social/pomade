@@ -19,6 +19,10 @@ pub mod sign;
 pub mod vss;
 
 #[cfg(test)]
+mod commit_tests;
+#[cfg(test)]
+mod context_tests;
+#[cfg(test)]
 mod ecdh_tests;
 #[cfg(test)]
 mod group_tests;
@@ -32,6 +36,8 @@ mod recover_tests;
 mod refresh_tests;
 #[cfg(test)]
 mod shares_tests;
+#[cfg(test)]
+mod sign_tests;
 #[cfg(test)]
 mod vss_tests;
 

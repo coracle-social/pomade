@@ -136,7 +136,10 @@ fn gen_recovery_shares_reconstructs_lost_share() {
     let agg = |idx: u32| -> SecretShare {
         let a = scalar_from_bytes(&pkg2.shares.iter().find(|s| s.idx == idx).unwrap().seckey);
         let b = scalar_from_bytes(&pkg3.shares.iter().find(|s| s.idx == idx).unwrap().seckey);
-        SecretShare { idx, seckey: scalar_to_bytes(&(a + b)) }
+        SecretShare {
+            idx,
+            seckey: scalar_to_bytes(&(a + b)),
+        }
     };
 
     let repaired = recover_share(&[agg(2), agg(3)], 1);
@@ -169,9 +172,33 @@ fn refresh_share_preserves_secret() {
     let secrets = [s32(S0), s32(S1)];
     let group = create_dealer_set(2, 3, &secrets).unwrap();
 
-    let rp1 = gen_refresh_shares(1, 2, 3, &[s32("1111111111111111111111111111111111111111111111111111111111111111")]).unwrap();
-    let rp2 = gen_refresh_shares(2, 2, 3, &[s32("2222222222222222222222222222222222222222222222222222222222222222")]).unwrap();
-    let rp3 = gen_refresh_shares(3, 2, 3, &[s32("3333333333333333333333333333333333333333333333333333333333333333")]).unwrap();
+    let rp1 = gen_refresh_shares(
+        1,
+        2,
+        3,
+        &[s32(
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        )],
+    )
+    .unwrap();
+    let rp2 = gen_refresh_shares(
+        2,
+        2,
+        3,
+        &[s32(
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        )],
+    )
+    .unwrap();
+    let rp3 = gen_refresh_shares(
+        3,
+        2,
+        3,
+        &[s32(
+            "3333333333333333333333333333333333333333333333333333333333333333",
+        )],
+    )
+    .unwrap();
 
     let collect = |idx: u32| -> Vec<SecretShare> {
         [&rp1, &rp2, &rp3]
@@ -191,27 +218,50 @@ fn refresh_share_preserves_secret() {
 fn refresh_share_changes_share_values() {
     let secrets = [s32(S0), s32(S1)];
     let group = create_dealer_set(2, 3, &secrets).unwrap();
-    let rp1 = gen_refresh_shares(1, 2, 3, &[s32("1111111111111111111111111111111111111111111111111111111111111111")]).unwrap();
+    let rp1 = gen_refresh_shares(
+        1,
+        2,
+        3,
+        &[s32(
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        )],
+    )
+    .unwrap();
 
     let agg1: Vec<SecretShare> = rp1.shares.iter().filter(|s| s.idx == 1).cloned().collect();
     let new1 = refresh_share(&agg1, &group.shares[0]).unwrap();
 
-    assert_ne!(new1.seckey, group.shares[0].seckey, "refreshed share should differ");
+    assert_ne!(
+        new1.seckey, group.shares[0].seckey,
+        "refreshed share should differ"
+    );
     assert_eq!(new1.idx, group.shares[0].idx);
 }
 
 #[test]
 fn refresh_share_polynomial_has_zero_constant_term() {
-    use frost_taproot::poly::interpolate_root;
     use frost_taproot::ecc::util::scalar_from_bytes;
     use frost_taproot::poly::index_to_scalar;
+    use frost_taproot::poly::interpolate_root;
 
-    let pkg = gen_refresh_shares(1, 2, 3, &[s32("1111111111111111111111111111111111111111111111111111111111111111")]).unwrap();
+    let pkg = gen_refresh_shares(
+        1,
+        2,
+        3,
+        &[s32(
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        )],
+    )
+    .unwrap();
     let points: Vec<_> = pkg
         .shares
         .iter()
         .map(|s| (index_to_scalar(s.idx), scalar_from_bytes(&s.seckey)))
         .collect();
     let root = interpolate_root(&points).unwrap();
-    assert_eq!(root, k256::Scalar::ZERO, "refresh polynomial must have f(0) = 0");
+    assert_eq!(
+        root,
+        k256::Scalar::ZERO,
+        "refresh polynomial must have f(0) = 0"
+    );
 }
