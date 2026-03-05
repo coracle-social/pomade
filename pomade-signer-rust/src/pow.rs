@@ -35,7 +35,7 @@ mod tests {
         let mut id = [0u8; 32];
         id[0] = 0;
         id[1] = 0x80; // 10000000 - 1 leading zero bit
-        assert_eq!(get_pow(&id), 8 + 0); // First byte is 0 (8 zeros), second byte starts with 1
+        assert_eq!(get_pow(&id), 8); // First byte is 0 (8 zeros), second byte starts with 1
 
         id[1] = 0x40; // 01000000 - 2 leading zero bits
         assert_eq!(get_pow(&id), 8 + 1);
@@ -50,7 +50,7 @@ mod tests {
         id[0] = 0;
         id[1] = 0;
         id[2] = 0x80;
-        assert_eq!(get_pow(&id), 16 + 0); // 2 zero bytes + 0 from next
+        assert_eq!(get_pow(&id), 16); // 2 zero bytes + 0 from next
     }
 
     #[test]

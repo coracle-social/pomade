@@ -1148,7 +1148,7 @@ mod tests {
     #[test]
     fn test_random_int() {
         let r1 = random_int(100, 200);
-        assert!(r1 >= 100 && r1 < 200);
+        assert!((100..200).contains(&r1));
 
         let r2 = random_int(0, 1_000_000);
         assert!(r2 < 1_000_000);

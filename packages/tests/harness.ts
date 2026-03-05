@@ -1,5 +1,5 @@
 import {spawn, ChildProcess} from "node:child_process"
-import {mkdtempSync, rmSync} from "node:fs"
+import {mkdtempSync, rmSync, existsSync} from "node:fs"
 import {tmpdir} from "node:os"
 import {join} from "node:path"
 import {makeSecret} from "@welshman/util"
@@ -8,8 +8,9 @@ import type {ChallengePayload} from "@pomade/core"
 const REPO_ROOT = new URL("../../", import.meta.url).pathname
 const TS_SIGNER_BIN = join(REPO_ROOT, "packages/signer/dist/index.js")
 const RUST_SIGNER_BIN = join(REPO_ROOT, "pomade-signer-rust/target/release/pomade-signer")
+const GO_SIGNER_BIN = join(REPO_ROOT, "pomade-signer-go/bin/pomade-signer")
 
-export type SignerKind = "ts" | "rust"
+export type SignerKind = "ts" | "rust" | "go"
 
 export type SignerInstance = {
   url: string
@@ -42,6 +43,10 @@ async function spawnSigner(
   port: number,
   challengePayloads: ChallengePayload[],
 ): Promise<SignerInstance> {
+  if (kind === "go" && !existsSync(GO_SIGNER_BIN)) {
+    throw new Error(`go signer binary not found at ${GO_SIGNER_BIN}`)
+  }
+
   const secret = makeSecret()
   const url = `http://127.0.0.1:${port}`
   const dataDir = mkdtempSync(join(tmpdir(), `pomade-signer-${kind}-${port}-`))
@@ -52,7 +57,6 @@ async function spawnSigner(
   }
 
   let proc: ChildProcess
-
   if (kind === "ts") {
     proc = spawn("node", [TS_SIGNER_BIN], {
       env: {
@@ -65,15 +69,28 @@ async function spawnSigner(
       },
       stdio: ["ignore", "pipe", "pipe"],
     })
-  } else {
+  } else if (kind === "rust") {
     proc = spawn(RUST_SIGNER_BIN, [], {
       env: {
         ...process.env,
+        POMADE_SECRET: secret,
         SIGNER_URL: url,
         LISTEN_ADDR: `127.0.0.1:${port}`,
         DB_PATH: join(dataDir, "signer.sled"),
         TEST_MODE: "1",
         RUST_LOG: "pomade_signer=debug",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+  } else {
+    proc = spawn(GO_SIGNER_BIN, [], {
+      env: {
+        ...process.env,
+        SIGNER_URL: url,
+        LISTEN_ADDR: `127.0.0.1:${port}`,
+        DB_PATH: join(dataDir, "signer.db"),
+        POMADE_SECRET: secret,
+        TEST_MODE: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     })

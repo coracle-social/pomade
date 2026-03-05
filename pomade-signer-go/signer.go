@@ -373,6 +373,9 @@ func (s *Signer) handleChallenge(data ChallengeRequest) ChallengeResponse {
 			s.rateLimitByEmailHash.Set(data.EmailHash, recordAttempt(b, emailRateLimits))
 			otp := fmt.Sprintf("%s%d", data.Prefix, randomInt(100000, 1000000))
 			s.challenges.Set(data.EmailHash, SignerChallenge{CreatedAt: nowSec(), OTP: otp})
+			if s.options.TestMode {
+				fmt.Printf("[challenge] otp=%s to=%s\n", otp, *sess.Email)
+			}
 			if !s.options.TestMode && s.options.Mailer != nil {
 				mail := challengeEmail(otp)
 				mail.To = *sess.Email
