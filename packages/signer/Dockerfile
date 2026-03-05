@@ -26,6 +26,6 @@ WORKDIR /app/packages/signer
 RUN mkdir -p /data
 
 # Set environment variable for database path
-ENV POMADE_DB_PATH=/data/pomade-signer.db
+ENV POMADE_DATABASE=/data/pomade-signer.db
 
 CMD ["node", "dist/index.js"]

@@ -5,6 +5,7 @@ data
 *.tsbuildinfo
 .env*
 runlocal
+rundocker
 *.db
 *.db-wal
 *.db-shm

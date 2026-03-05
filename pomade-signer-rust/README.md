@@ -7,16 +7,16 @@ For protocol specification, see [PROTOCOL.md](../PROTOCOL.md)
 ## Configuration
 
 Required environment variables:
-- `SIGNER_URL` - Publicly reachable URL of this server (e.g., `https://signer.example.com`)
+- `POMADE_URL` - The public URL for the signer
 - `POMADE_SECRET` - Secret used to derive the key that encrypts all database values at rest
 
 Optional environment variables:
-- `LISTEN_ADDR` - Address to listen on (default: `0.0.0.0:3000`)
-- `DB_PATH` - Path to sled database directory (default: `./signer-db`)
-- `REGISTER_POW` - Minimum proof-of-work difficulty for registration (default: `20`)
+- `POMADE_PORT` - Port for both bind address and signer URL base (default: `3000`)
+- `POMADE_DATABASE` - Path to sled database directory (default: `./signer-db`)
 - `MAIL_PROVIDER` - Email provider: `postmark`, `sendgrid`, `mailgun`, `sendlayer`, or `resend`
 - `MAIL_FROM_EMAIL` - Sender email address (default: `noreply@example.com`)
 - `MAIL_FROM_NAME` - Sender display name (default: `Pomade Signer`)
+- `TEST_MODE` - Set to any value to disable mail-provider requirement, reduce argon memory settings, and set `REGISTER_POW` to `0`
 
 Email provider specific variables:
 - `POSTMARK_API_TOKEN` - For Postmark
@@ -32,7 +32,8 @@ Email provider specific variables:
 
 ```bash
 cd pomade-signer-rust
-SIGNER_URL=https://signer.example.com \
+POMADE_URL=http://127.0.0.1:3000 \
+  POMADE_PORT=3000 \
   POMADE_SECRET=replace_with_long_random_secret \
   MAIL_PROVIDER=resend \
   MAIL_FROM_EMAIL=mailer@example.com \
@@ -47,7 +48,8 @@ SIGNER_URL=https://signer.example.com \
 mkdir -p data
 docker build -f pomade-signer-rust/Dockerfile -t pomade-signer-rust .
 docker run -v $(pwd)/data:/data \
-  -e SIGNER_URL=https://signer.example.com \
+  -e POMADE_URL=http://127.0.0.1:3000 \
+  -e POMADE_PORT=3000 \
   -e POMADE_SECRET=replace_with_long_random_secret \
   -e MAIL_PROVIDER=resend \
   -e MAIL_FROM_EMAIL=mailer@example.com \
@@ -62,7 +64,8 @@ docker run -v $(pwd)/data:/data \
 ```bash
 mkdir -p data
 docker run -v $(pwd)/data:/data \
-  -e SIGNER_URL=https://signer.example.com \
+  -e POMADE_URL=http://127.0.0.1:3000 \
+  -e POMADE_PORT=3000 \
   -e POMADE_SECRET=replace_with_long_random_secret \
   -e MAIL_PROVIDER=resend \
   -e MAIL_FROM_EMAIL=mailer@example.com \
@@ -71,22 +74,6 @@ docker run -v $(pwd)/data:/data \
   -p 3000:3000 \
   ghcr.io/coracle-social/pomade-signer-rust:latest
 ```
-
-## API Endpoints
-
-All endpoints except `/attest` accept POST requests with JSON bodies and require NIP-42 HTTP authentication.
-
-- `POST /register` - Register a new session with group and share
-- `POST /sign` - Create a partial signature
-- `POST /ecdh` - Perform ECDH key exchange
-- `POST /recovery/setup` - Set up recovery method (email/password)
-- `POST /challenge` - Request OTP challenge for recovery/login
-- `POST /recovery/start` - Start recovery flow
-- `POST /recovery/select` - Select session to recover
-- `POST /login/start` - Start login flow
-- `POST /login/select` - Select session to login
-- `POST /session/list` - List sessions by group public key
-- `POST /session/delete` - Delete a session
 
 ## License
 

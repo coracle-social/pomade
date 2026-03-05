@@ -31,9 +31,8 @@ COPY --from=builder /app/pomade-signer-rust/target/release/pomade-signer /usr/lo
 RUN mkdir -p /data
 
 # Set default environment variables
-ENV DB_PATH=/data
-ENV LISTEN_ADDR=0.0.0.0:3000
-ENV REGISTER_POW=20
+ENV POMADE_DATABASE=/data
+ENV POMADE_URL=http://localhost:3000
 ENV MAIL_FROM_EMAIL=noreply@example.com
 ENV MAIL_FROM_NAME="Pomade Signer"
 

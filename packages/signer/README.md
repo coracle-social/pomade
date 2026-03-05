@@ -12,7 +12,7 @@ Required environment variables:
 - `MAIL_FROM_EMAIL`: Sender email address
 
 Optional environment variables:
-- `POMADE_DB_PATH`: Path to SQLite database (default: `./pomade-signer.db`)
+- `POMADE_DATABASE`: Path to SQLite database (default: `./pomade-signer.db`)
 - `MAIL_FROM_NAME`: Sender name (default: "Pomade Signer")
 
 Email provider specific variables:

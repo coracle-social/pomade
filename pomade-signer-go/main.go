@@ -2,11 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
-	"strings"
 
 	"github.com/coracle-social/pomade/pomade-signer-go/mailer"
 )
@@ -43,13 +42,14 @@ func buildMailer(provider string, client *http.Client) mailer.Mailer {
 }
 
 func main() {
-	url := requireEnv("SIGNER_URL")
-	secret := requireEnv("POMADE_SECRET")
-	listen := os.Getenv("LISTEN_ADDR")
-	if listen == "" {
-		listen = "0.0.0.0:3000"
+	url := requireEnv("POMADE_URL")
+	port := os.Getenv("POMADE_PORT")
+	if port == "" {
+		port = "3000"
 	}
-	dbPath := os.Getenv("DB_PATH")
+	secret := requireEnv("POMADE_SECRET")
+	listen := fmt.Sprintf("0.0.0.0:%s", port)
+	dbPath := os.Getenv("POMADE_DATABASE")
 	if dbPath == "" {
 		dbPath = "./signer.db"
 	}
@@ -58,11 +58,6 @@ func main() {
 	registerPow := uint32(20)
 	if testMode {
 		registerPow = 0
-	}
-	if v := os.Getenv("REGISTER_POW"); v != "" {
-		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
-			registerPow = uint32(parsed)
-		}
 	}
 
 	argonM := uint32(64 * 1024)
@@ -121,19 +116,7 @@ func main() {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "message": "Failed to validate request data."})
 			return
 		}
-		scheme := "http"
-		if r.TLS != nil {
-			scheme = "https"
-		}
-		if forwarded := r.Header.Get("X-Forwarded-Proto"); forwarded != "" {
-			scheme = strings.TrimSpace(strings.Split(forwarded, ",")[0])
-		}
-		host := r.Host
-		if forwardedHost := r.Header.Get("X-Forwarded-Host"); forwardedHost != "" {
-			host = strings.TrimSpace(strings.Split(forwardedHost, ",")[0])
-		}
-		expectedURL := scheme + "://" + host + r.URL.Path
-		res := signer.Handle(r.URL.Path, r.Method, r.Header.Get("Authorization"), expectedURL, body)
+		res := signer.Handle(r.URL.Path, r.Method, r.Header.Get("Authorization"), url+r.URL.Path, body)
 		_ = json.NewEncoder(w).Encode(res)
 	})
 

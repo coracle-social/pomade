@@ -23,9 +23,8 @@ WORKDIR /app
 
 COPY --from=builder /usr/local/bin/pomade-signer-go /usr/local/bin/pomade-signer-go
 
-ENV DB_PATH=/data/signer.db
-ENV LISTEN_ADDR=0.0.0.0:3000
-ENV REGISTER_POW=20
+ENV POMADE_DATABASE=/data/signer.db
+ENV POMADE_URL=http://localhost:3000
 ENV MAIL_FROM_EMAIL=noreply@example.com
 ENV MAIL_FROM_NAME="Pomade Signer"
 

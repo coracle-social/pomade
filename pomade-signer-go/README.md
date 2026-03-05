@@ -8,18 +8,17 @@ This implementation follows `pomade-signer-rust` and uses `frost-taproot-go` for
 
 Required environment variables:
 
-- `SIGNER_URL` - Publicly reachable URL for this signer
+- `POMADE_URL` - The public URL for the signer
 - `POMADE_SECRET` - Secret used to encrypt persisted values at rest
 
 Optional environment variables:
 
-- `LISTEN_ADDR` - Listen address (default: `0.0.0.0:3000`)
-- `DB_PATH` - BoltDB file path (default: `./signer.db`)
-- `REGISTER_POW` - PoW threshold for registration (default: `20`, or `0` in `TEST_MODE`)
-- `TEST_MODE` - Set to any value to disable mail-provider requirement, reduce argon memory settings, and set `REGISTER_POW` to `0`
+- `POMADE_PORT` - Port for both bind address and signer URL base (default: `3000`)
+- `POMADE_DATABASE` - BoltDB file path (default: `./signer.db`)
 - `MAIL_PROVIDER` - `postmark`, `sendgrid`, `mailgun`, `sendlayer`, or `resend`
 - `MAIL_FROM_EMAIL` - Sender email (default: `noreply@example.com`)
 - `MAIL_FROM_NAME` - Sender name (default: `Pomade Signer`)
+- `TEST_MODE` - Set to any value to disable mail-provider requirement, reduce argon memory settings, and set `REGISTER_POW` to `0`
 
 Provider specific variables:
 
@@ -33,7 +32,8 @@ Provider specific variables:
 
 ```bash
 cd pomade-signer-go
-SIGNER_URL=https://signer.example.com \
+POMADE_URL=http://127.0.0.1:3000 \
+POMADE_PORT=3000 \
 POMADE_SECRET=replace_with_long_random_secret \
 MAIL_PROVIDER=resend \
 MAIL_FROM_EMAIL=mailer@example.com \
@@ -48,7 +48,8 @@ go run .
 mkdir -p data
 docker build -f pomade-signer-go/Dockerfile -t pomade-signer-go .
 docker run -v $(pwd)/data:/data \
-  -e SIGNER_URL=https://signer.example.com \
+  -e POMADE_URL=http://127.0.0.1:3000 \
+  -e POMADE_PORT=3000 \
   -e POMADE_SECRET=replace_with_long_random_secret \
   -e MAIL_PROVIDER=resend \
   -e MAIL_FROM_EMAIL=mailer@example.com \
@@ -63,7 +64,8 @@ docker run -v $(pwd)/data:/data \
 ```bash
 mkdir -p data
 docker run -v $(pwd)/data:/data \
-  -e SIGNER_URL=https://signer.example.com \
+  -e POMADE_URL=http://127.0.0.1:3000 \
+  -e POMADE_PORT=3000 \
   -e POMADE_SECRET=replace_with_long_random_secret \
   -e MAIL_PROVIDER=resend \
   -e MAIL_FROM_EMAIL=mailer@example.com \
@@ -72,3 +74,7 @@ docker run -v $(pwd)/data:/data \
   -p 3000:3000 \
   ghcr.io/coracle-social/pomade-signer-go:latest
 ```
+
+## License
+
+MIT

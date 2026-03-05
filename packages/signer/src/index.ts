@@ -20,7 +20,7 @@ if (process.env.TEST_MODE) {
 const secret = process.env.POMADE_SECRET
 const url = process.env.POMADE_URL
 const port = parseInt(process.env.POMADE_PORT || "3000", 10)
-const dbPath = process.env.POMADE_DB_PATH || "./pomade-signer.db"
+const dbPath = process.env.POMADE_DATABASE || "./pomade-signer.db"
 
 // Validate required configuration
 if (!secret) {

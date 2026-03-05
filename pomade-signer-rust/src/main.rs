@@ -36,16 +36,16 @@ use storage::SledBackend;
 #[derive(Parser)]
 #[command(about = "Pomade FROST signer server")]
 struct Args {
-    /// Publicly reachable URL of this server (e.g. https://signer.example.com)
-    #[arg(long, env = "SIGNER_URL")]
+    /// Host for bind and signer URL base
+    #[arg(long, env = "POMADE_URL")]
     url: String,
 
-    /// Address to listen on
-    #[arg(long, env = "LISTEN_ADDR", default_value = "0.0.0.0:3000")]
-    listen: String,
+    /// Port for bind and signer URL base
+    #[arg(long, env = "POMADE_PORT", default_value = "3000")]
+    port: u16,
 
     /// Path to the sled database directory
-    #[arg(long, env = "DB_PATH", default_value = "./signer-db")]
+    #[arg(long, env = "POMADE_DATABASE", default_value = "./signer-db")]
     db: String,
 
     /// Email provider (postmark, sendgrid, mailgun, sendlayer, resend)
@@ -104,6 +104,7 @@ async fn main() {
     env_logger::init();
 
     let args = Args::parse();
+    let listen = format!("0.0.0.0:{}", args.port);
     let storage_secret = require_env("POMADE_SECRET");
 
     let sled = SledBackend::open_encrypted(&args.db, &storage_secret)
@@ -144,11 +145,11 @@ async fn main() {
         .with_state(signer)
         .layer(cors);
 
-    let listener = tokio::net::TcpListener::bind(&args.listen)
+    let listener = tokio::net::TcpListener::bind(&listen)
         .await
         .expect("failed to bind");
 
-    log::info!("listening on {}", args.listen);
+    log::info!("listening on {}", listen);
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
