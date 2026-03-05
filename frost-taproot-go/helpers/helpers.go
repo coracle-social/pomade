@@ -40,21 +40,25 @@ func GetPubkey(secret [32]byte) [33]byte {
 	return ecc.SerializePoint(point)
 }
 
-// TweakSeckey tweaks a secret key: (seckey * tweak) mod N.
+// TweakSeckey tweaks a secret key: (seckey + tweak) mod N.
 func TweakSeckey(seckey, tweak [32]byte) [32]byte {
 	tweakScalar := ecc.ScalarFromBytes(tweak)
 	secret := ecc.ScalarFromBytes(seckey)
-	return ecc.ScalarToBytes(ecc.ScalarMul(secret, tweakScalar))
+	return ecc.ScalarToBytes(ecc.ScalarAdd(secret, tweakScalar))
 }
 
-// TweakPubkey tweaks a public key: pubkey_point * tweak.
+// TweakPubkey tweaks a public key: pubkey_point + tweak*G.
 func TweakPubkey(pubkey []byte, tweak [32]byte) ([33]byte, error) {
 	tweakScalar := ecc.ScalarFromBytes(tweak)
 	point, err := ecc.LiftX(pubkey)
 	if err != nil {
 		return [33]byte{}, err
 	}
-	tweaked := ecc.ScalarMulti(point, tweakScalar)
+	tweakPoint := ecc.ScalarBaseMulti(tweakScalar)
+	tweaked, err := ecc.ElementAdd(point, tweakPoint)
+	if err != nil {
+		return [33]byte{}, err
+	}
 	return ecc.SerializePoint(tweaked), nil
 }
 

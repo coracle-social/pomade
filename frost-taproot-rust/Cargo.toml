@@ -21,3 +21,7 @@ path = "tests/integration/interop.rs"
 [[test]]
 name = "flows"
 path = "tests/integration/flows.rs"
+
+[[test]]
+name = "primitives"
+path = "tests/integration/primitives.rs"

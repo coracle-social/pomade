@@ -22,6 +22,10 @@ pub fn gen_recovery_shares(
         members.len() >= threshold,
         "not enough members to meet threshold",
     )?;
+    assert::ok(
+        members.len() == threshold,
+        "member count must equal threshold",
+    )?;
 
     let mut sorted_members = members.to_vec();
     sorted_members.sort();
