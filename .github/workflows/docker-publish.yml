@@ -21,6 +21,8 @@ jobs:
         service:
           - name: signer-ts
             dockerfile: packages/signer/Dockerfile
+          - name: signer-go
+            dockerfile: pomade-signer-go/Dockerfile
           - name: signer-rust
             dockerfile: pomade-signer-rust/Dockerfile
 

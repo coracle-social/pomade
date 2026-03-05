@@ -57,3 +57,18 @@ docker run -v $(pwd)/data:/data \
   -p 3000:3000 \
   pomade-signer-go
 ```
+
+### From ghcr
+
+```bash
+mkdir -p data
+docker run -v $(pwd)/data:/data \
+  -e SIGNER_URL=https://signer.example.com \
+  -e POMADE_SECRET=replace_with_long_random_secret \
+  -e MAIL_PROVIDER=resend \
+  -e MAIL_FROM_EMAIL=mailer@example.com \
+  -e MAIL_FROM_NAME="Nostr Signer" \
+  -e RESEND_API_KEY=your_key \
+  -p 3000:3000 \
+  ghcr.io/coracle-social/pomade-signer-go:latest
+```
