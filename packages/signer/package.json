@@ -1,6 +1,6 @@
 {
   "name": "@pomade/signer",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "author": "hodlbod",
   "license": "MIT",
   "description": "Standalone signer service for pomade",
