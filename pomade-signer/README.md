@@ -8,6 +8,7 @@ For protocol specification, see [PROTOCOL.md](../PROTOCOL.md)
 
 Required environment variables:
 - `SIGNER_URL` - Publicly reachable URL of this server (e.g., `https://signer.example.com`)
+- `POMADE_SECRET` - Secret used to derive the key that encrypts all database values at rest
 
 Optional environment variables:
 - `LISTEN_ADDR` - Address to listen on (default: `0.0.0.0:3000`)
@@ -32,6 +33,7 @@ Email provider specific variables:
 ```bash
 cd pomade-signer
 SIGNER_URL=https://signer.example.com \
+  POMADE_SECRET=replace_with_long_random_secret \
   MAIL_PROVIDER=resend \
   MAIL_FROM_EMAIL=mailer@example.com \
   MAIL_FROM_NAME="Nostr Signer" \
@@ -46,6 +48,7 @@ mkdir -p data
 docker build -f pomade-signer/Dockerfile -t pomade-signer-rust .
 docker run -v $(pwd)/data:/data \
   -e SIGNER_URL=https://signer.example.com \
+  -e POMADE_SECRET=replace_with_long_random_secret \
   -e MAIL_PROVIDER=resend \
   -e MAIL_FROM_EMAIL=mailer@example.com \
   -e MAIL_FROM_NAME="Nostr Signer" \
@@ -60,6 +63,7 @@ docker run -v $(pwd)/data:/data \
 mkdir -p data
 docker run -v $(pwd)/data:/data \
   -e SIGNER_URL=https://signer.example.com \
+  -e POMADE_SECRET=replace_with_long_random_secret \
   -e MAIL_PROVIDER=resend \
   -e MAIL_FROM_EMAIL=mailer@example.com \
   -e MAIL_FROM_NAME="Nostr Signer" \

@@ -1,6 +1,6 @@
+# Typescript checks
 pnpm run build
 pnpm run lint
-pnpm run test
 
 # Rust checks
 cargo fmt --manifest-path pomade-signer/Cargo.toml --check
@@ -9,3 +9,6 @@ cargo clippy --manifest-path pomade-signer/Cargo.toml -- -D warnings
 cargo clippy --manifest-path frost-taproot/Cargo.toml --all-targets
 cargo test --manifest-path pomade-signer/Cargo.toml
 cargo test --manifest-path frost-taproot/Cargo.toml
+
+# Typescript and rust integration test
+pnpm run test

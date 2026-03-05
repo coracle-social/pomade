@@ -1,7 +1,10 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use chacha20poly1305::{XChaCha20Poly1305, XNonce, aead::Aead, aead::KeyInit};
+use rand::RngCore;
 use serde::{Serialize, de::DeserializeOwned};
+use sha2::{Digest, Sha256};
 
 // ---- Backend trait ----
 
@@ -76,14 +79,28 @@ impl Storage {
 
 // ---- Sled backend ----
 
+const NONCE_LEN: usize = 24;
+
 pub struct SledBackend {
     db: sled::Db,
+    cipher: Option<XChaCha20Poly1305>,
 }
 
 impl SledBackend {
+    #[cfg(test)]
     pub fn open(path: impl AsRef<std::path::Path>) -> sled::Result<Self> {
         Ok(Self {
             db: sled::open(path)?,
+            cipher: None,
+        })
+    }
+
+    /// Open with encryption. `secret` is hashed with SHA-256 to produce the key.
+    pub fn open_encrypted(path: impl AsRef<std::path::Path>, secret: &str) -> sled::Result<Self> {
+        let key: [u8; 32] = Sha256::digest(secret.as_bytes()).into();
+        Ok(Self {
+            db: sled::open(path)?,
+            cipher: Some(XChaCha20Poly1305::new_from_slice(&key).expect("invalid key length")),
         })
     }
 
@@ -92,19 +109,43 @@ impl SledBackend {
             .open_tree(collection)
             .expect("sled tree open failed")
     }
+
+    fn encode(&self, plaintext: &[u8]) -> Vec<u8> {
+        let Some(cipher) = &self.cipher else {
+            return plaintext.to_vec();
+        };
+        let mut nonce_bytes = [0u8; NONCE_LEN];
+        rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+        let nonce = XNonce::from(nonce_bytes);
+        let ciphertext = cipher
+            .encrypt(&nonce, plaintext)
+            .expect("encryption failed");
+        let mut out = Vec::with_capacity(NONCE_LEN + ciphertext.len());
+        out.extend_from_slice(&nonce_bytes);
+        out.extend_from_slice(&ciphertext);
+        out
+    }
+
+    fn decode(&self, value: &[u8]) -> Option<Vec<u8>> {
+        let Some(cipher) = &self.cipher else {
+            return Some(value.to_vec());
+        };
+        if value.len() <= NONCE_LEN {
+            return None;
+        }
+        let nonce = XNonce::from(<[u8; NONCE_LEN]>::try_from(&value[..NONCE_LEN]).ok()?);
+        cipher.decrypt(&nonce, &value[NONCE_LEN..]).ok()
+    }
 }
 
 impl StorageBackend for SledBackend {
     fn get(&self, collection: &str, key: &str) -> Option<Vec<u8>> {
-        self.tree(collection)
-            .get(key)
-            .ok()
-            .flatten()
-            .map(|v| v.to_vec())
+        let raw = self.tree(collection).get(key).ok().flatten()?;
+        self.decode(&raw)
     }
 
     fn set(&self, collection: &str, key: &str, value: &[u8]) {
-        let _ = self.tree(collection).insert(key, value);
+        let _ = self.tree(collection).insert(key, self.encode(value));
     }
 
     fn delete(&self, collection: &str, key: &str) -> bool {
@@ -117,7 +158,8 @@ impl StorageBackend for SledBackend {
             .filter_map(|r| r.ok())
             .filter_map(|(k, v)| {
                 let key = String::from_utf8(k.to_vec()).ok()?;
-                Some((key, v.to_vec()))
+                let value = self.decode(&v)?;
+                Some((key, value))
             })
             .collect()
     }
@@ -300,5 +342,48 @@ mod tests {
         let numbers: Collection<u64> = storage.collection("numbers");
         numbers.set("key", &42u64);
         assert_eq!(numbers.get("key"), Some(42u64));
+    }
+
+    #[test]
+    fn test_encrypted_round_trip_and_plaintext_not_stored() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.db");
+
+        let item = TestItem {
+            id: 7,
+            name: "encrypted".to_string(),
+            values: vec![10, 20],
+        };
+        let plaintext = serde_json::to_vec(&item).unwrap();
+
+        {
+            let backend = SledBackend::open_encrypted(&path, "test-secret").unwrap();
+            let storage = Storage::new(backend);
+            let collection: Collection<TestItem> = storage.collection("sessions");
+            collection.set("k1", &item);
+            assert_eq!(collection.get("k1"), Some(item.clone()));
+        }
+
+        // Verify the raw bytes on disk are not the plaintext
+        let raw_backend = SledBackend::open(&path).unwrap();
+        let at_rest = raw_backend.get("sessions", "k1").unwrap();
+        assert_ne!(at_rest, plaintext);
+        assert!(at_rest.len() > NONCE_LEN);
+    }
+
+    #[test]
+    fn test_encrypted_wrong_secret_cannot_decrypt() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.db");
+
+        {
+            let writer = Storage::new(SledBackend::open_encrypted(&path, "secret-a").unwrap());
+            let collection: Collection<String> = writer.collection("sessions");
+            collection.set("k1", &"value".to_string());
+        }
+
+        let reader = Storage::new(SledBackend::open_encrypted(&path, "secret-b").unwrap());
+        let collection: Collection<String> = reader.collection("sessions");
+        assert_eq!(collection.get("k1"), None);
     }
 }

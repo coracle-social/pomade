@@ -104,8 +104,10 @@ async fn main() {
     env_logger::init();
 
     let args = Args::parse();
+    let storage_secret = require_env("POMADE_SECRET");
 
-    let sled = SledBackend::open(&args.db).expect("failed to open sled database");
+    let sled = SledBackend::open_encrypted(&args.db, &storage_secret)
+        .expect("failed to open sled database");
 
     let test_mode = std::env::var("TEST_MODE").is_ok();
 
