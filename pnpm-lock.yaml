@@ -121,9 +121,6 @@ importers:
       '@pomade/core':
         specifier: workspace:*
         version: link:../core
-      '@pomade/templates':
-        specifier: workspace:*
-        version: link:../templates
       '@welshman/lib':
         specifier: ^0.8.0-pre.1
         version: 0.8.0-pre.1
@@ -164,18 +161,9 @@ importers:
 
   packages/templates:
     devDependencies:
-      '@types/node':
-        specifier: ^24.1.0
-        version: 24.10.13
       mjml:
         specifier: ^4.15.3
         version: 4.18.0(encoding@0.1.13)
-      rimraf:
-        specifier: ~6.0.0
-        version: 6.0.1
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
 
   packages/tests:
     dependencies:

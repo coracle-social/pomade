@@ -1,7 +1,10 @@
 import Mustache from "mustache"
-import { loadChallengeTemplateHtml } from "@pomade/templates"
+import { readFileSync } from "fs"
+import { dirname, join } from "path"
+import { fileURLToPath } from "url"
 
-const htmlTemplate = loadChallengeTemplateHtml()
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const htmlTemplate = readFileSync(join(__dirname, "../../challenge.html"), "utf-8")
 
 export interface EmailProvider {
   sendChallenge(email: string, otp: string): Promise<void>

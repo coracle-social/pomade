@@ -6,24 +6,10 @@
   "description": "Email templates for pomade",
   "private": true,
   "type": "module",
-  "files": [
-    "dist"
-  ],
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
   "scripts": {
-    "build": "rimraf ./dist && tsc -b --force && node scripts/build-templates.mjs"
+    "build": "node scripts/build-templates.mjs"
   },
   "devDependencies": {
-    "@types/node": "^24.1.0",
-    "mjml": "^4.15.3",
-    "rimraf": "~6.0.0",
-    "typescript": "^5.9.3"
+    "mjml": "^4.15.3"
   }
 }

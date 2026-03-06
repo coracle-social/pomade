@@ -1,23 +1,24 @@
 #!/usr/bin/env node
 
-import { mkdir, readFile, writeFile } from "fs/promises"
+import { access, readFile, writeFile } from "fs/promises"
 import { dirname, join } from "path"
 import { fileURLToPath } from "url"
 import mjml2html from "mjml"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
-const projectRoot = join(__dirname, "..")
+const repoRoot = join(__dirname, "../../..")
+
+const copyTargets = [
+  join(repoRoot, "packages/signer/challenge.html"),
+  join(repoRoot, "pomade-signer-rust/challenge.html"),
+  join(repoRoot, "pomade-signer-go/challenge.html"),
+]
 
 async function buildTemplates() {
   console.log("Building email templates...")
 
-  const templatesDir = join(projectRoot, "templates")
-  const distDir = join(projectRoot, "dist")
-
-  await mkdir(distDir, { recursive: true })
-
-  const mjmlPath = join(templatesDir, "challenge.mjml")
+  const mjmlPath = join(__dirname, "../templates/challenge.mjml")
   const mjmlContent = await readFile(mjmlPath, "utf-8")
 
   const result = mjml2html(mjmlContent, {
@@ -31,12 +32,18 @@ async function buildTemplates() {
     process.exit(1)
   }
 
-  const htmlPath = join(distDir, "challenge.html")
-  await writeFile(htmlPath, result.html, "utf-8")
+  for (const htmlPath of copyTargets) {
+    const dir = dirname(htmlPath)
+    try {
+      await access(dir)
+      await writeFile(htmlPath, result.html, "utf-8")
+      console.log(`✓ Template written: ${htmlPath}`)
+    } catch {
+      console.log(`- Skipping ${htmlPath} (directory not present)`)
+    }
+  }
 
-  console.log(`✓ Template compiled: ${htmlPath}`)
-
-  if (result.warnings && result.warnings.length > 0) {
+  if (result.warnings?.length > 0) {
     console.warn("Warnings:")
     result.warnings.forEach(warning => console.warn(`  - ${warning.formattedMessage}`))
   }
