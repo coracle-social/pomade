@@ -1,4 +1,4 @@
-# Pomade Signer — Server Hardening Guide
+# Pomade Signer — Deploy Guide
 
 A complete step-by-step guide for provisioning and hardening a fresh Ubuntu server to run Pomade signers. Pomade uses threshold cryptography (FROST) to provide encrypted nostr key custody — the `POMADE_SECRET` on each signer is the most sensitive asset on the machine and must be protected accordingly.
 
@@ -269,13 +269,12 @@ POMADE_URL=https://signer1.example.com
 POMADE_PORT=3000
 POMADE_DATABASE=/data/signer.db
 
-# Email provider (choose one)
-MAIL_PROVIDER=postmark
+# Email settings
 MAIL_FROM_EMAIL=noreply@example.com
-MAIL_FROM_NAME=Pomade Signer
-POSTMARK_API_TOKEN=<token>
+MAIL_FROM_NAME="<app name> Mailer"
 
-# For other providers, replace the above with:
+# Configure an email provider:
+# MAIL_PROVIDER=postmark    POSTMARK_API_TOKEN
 # MAIL_PROVIDER=sendgrid    SENDGRID_API_KEY=...
 # MAIL_PROVIDER=mailgun     MAILGUN_API_KEY=...  MAILGUN_DOMAIN=...  MAILGUN_API_REGION=us
 # MAIL_PROVIDER=sendlayer   SENDLAYER_API_KEY=...
@@ -507,32 +506,3 @@ tmpfs /run/shm tmpfs defaults,noexec,nosuid,nodev 0 0
 
 These take effect on next reboot. Unattended-upgrades will trigger one automatically when a kernel update is installed.
 
----
-
-## 11. Intrusion Detection
-
-### 11.1 rkhunter
-
-```bash
-sudo apt install rkhunter -y
-```
-
-On Ubuntu, rkhunter ships with web updates disabled. Fix this before running `--update`:
-
-```bash
-sudo sed -i 's|WEB_CMD=/bin/false|WEB_CMD=""|' /etc/rkhunter.conf
-```
-
-Then update, take a baseline, and run an initial check:
-
-```bash
-sudo rkhunter --update
-sudo rkhunter --propupd
-sudo rkhunter --check --skip-keypress
-```
-
-Schedule a weekly scan (add to `sudo crontab -e`):
-
-```
-0 3 * * 0 /usr/bin/rkhunter --check --skip-keypress --report-warnings-only >> /var/log/rkhunter-weekly.log 2>&1
-```
