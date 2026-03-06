@@ -12,16 +12,6 @@ For protocol specification and implementation details, see [PROTOCOL.md](PROTOCO
 - There could be fatal flaws resulting in key loss, theft, denial of service, or metadata leakage
 - Use at your own risk
 
-## Structure
-
-This monorepo contains several packages:
-
-- **[frost-taproot](frost-taproot-rust)** - Rust implementation of BIP-340 FROST signatures including trusted key dealer and DKG flows, compatible with the @cmdruid/frost typescript implementation
-- **[frost-taproot](frost-taproot-go)** - Go implementation of BIP-340 FROST signatures including trusted key dealer and DKG flows, compatible with the @cmdruid/frost typescript implementation
-- **[@pomade/core](packages/core)** - Core typescript library with client and signer classes
-- **[pomade-signer](pomade-signer-rust)** - Rust signer implementation (recommended)
-- **[@pomade/signer](packages/signer)** - Typescript signer implementation
-
 ## Getting Started
 
 ### Clients
@@ -36,15 +26,17 @@ Then, follow the guide [here](INTEGRATION.md).
 
 ### Signers
 
-To run your own signer, simply run:
+To run your own signer see [DEPLOY.md](DEPLOY.md) for detailed instructions, or visit the README for the package you're planning to run to cut to the chase:
 
-TODO
+- [pomade-signer-rust](pomade-signer-rust/README.md)
+- [pomade-signer-go][pomade-signer-rust/README.md)
+- [pomade-signer-ts][packages/signer/README.md)
 
-You can then add the signer's pubkey to your client to use it. Note that signers MUST be run by trusted, independent third parties. A list of reputable signers is included below and in the source code - we recommend you use this list unless you have good reasons not to.
+You can then add the signer's url to your client to use it. Note that signers MUST be run by trusted, independent third parties. A list of reputable signers is included below and in the source code - we recommend you use this list unless you have good reasons not to.
 
-- TODO
+- https://pomade.coracle.social
 
-Also note that when logging in, all signers need to be contacted, which involves some pretty computationally-intensive hashing operations. For that reason, you should avoid adding a large number of signers to your app; 7-10 should be enough.
+Also note that when logging in, all signers need to be contacted, which involves some pretty computationally-intensive hashing operations. For that reason, you should avoid adding a large number of signers to your app; 7-10 should be more than enough.
 
 ## Package Details
 
@@ -58,6 +50,10 @@ The core library that can be integrated into any project. Provides:
 
 See [the readme](packages/core/README.md) for detailed documentation.
 
+### @pomade/templates
+
+A tiny repository for generating HTML email templates using MJML.
+
 ### @pomade/signer
 
 Standalone signer service that manages multisig sessions, handles signing requests, and coordinates recovery flows.
@@ -70,9 +66,9 @@ Rust implementation of BIP-340 FROST signatures including trusted key dealer and
 
 See [the readme](frost-taproot-rust/README.md) for configuration and deployment.
 
-### pomade-signer
+### pomade-signer-rust
 
-Rust HTTP signer server with sled storage, email-based recovery, proof-of-work registration, and rate limiting.
+Rust signer server with sled storage.
 
 See [the readme](pomade-signer-rust/README.md) for configuration and deployment.
 
@@ -81,6 +77,12 @@ See [the readme](pomade-signer-rust/README.md) for configuration and deployment.
 Go implementation of BIP-340 FROST signatures including trusted key dealer and DKG flows, compatible with the @cmdruid/frost typescript implementation.
 
 See [the readme](frost-taproot-go/README.md) for configuration and deployment.
+
+### pomade-signer-go
+
+Go signer server with bbolt storage.
+
+See [the readme](pomade-signer-go/README.md) for configuration and deployment.
 
 ## License
 
