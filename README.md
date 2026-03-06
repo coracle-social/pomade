@@ -54,6 +54,10 @@ See [the readme](packages/core/README.md) for detailed documentation.
 
 A tiny repository for generating HTML email templates using MJML.
 
+### @pomade/tests
+
+Integration tests which run a test suite against different combinations of signer implementations.
+
 ### @pomade/signer
 
 Standalone signer service that manages multisig sessions, handles signing requests, and coordinates recovery flows.

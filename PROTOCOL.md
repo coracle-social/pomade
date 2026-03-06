@@ -273,7 +273,7 @@ Signers should respond with a list of sessions that the client can log into:
 }
 ```
 
-Clients should then select a `client` and notify the signer:
+Clients should then select a `client` and notify the signer. Note that a single email may be associated with multiple user pubkeys, so clients should be prepared to show a screen allowing the user to choose which account to log in with.
 
 ```typescript
 POST /login/select
@@ -324,7 +324,7 @@ Signers should respond with a list of sessions that the client can recover from:
 }
 ```
 
-Clients should then select a `client` and notify the signer:
+Clients should then select a `client` and notify the signer. Note that a single email may be associated with multiple user pubkeys, so clients should be prepared to show a screen allowing the user to choose which account to recover.
 
 ```typescript
 POST /recovery/select

@@ -43,9 +43,15 @@ export type ClientOptions = {
   peers: string[]
 }
 
+export type AccountOption = {
+  pubkey: string
+  client: string
+  peers: string[]
+}
+
 export type ClientOptionsResult<T> = {
   ok: boolean
-  options: [string, string[]][]
+  options: AccountOption[]
   messages: Message<T>[]
   clientSecret: string
 }
@@ -67,15 +73,15 @@ export class Client {
     return this.rpc.signer.getPubkey()
   }
 
-  static _buildOptions<T extends LoginStartResponse | RecoveryStartResponse>(
+  static _buildAccountOptions<T extends LoginStartResponse | RecoveryStartResponse>(
     clientSecret: string,
     messages: Message<T>[],
-    threshold: "total" | "threshold",
+    thresholdKey: "total" | "threshold",
   ): ClientOptionsResult<T> {
-    // Extract all items with their metadata
     const items = messages.flatMap(
       m =>
         m.res?.items?.map(item => ({
+          pubkey: item.pubkey,
           client: item.client,
           url: m.url,
           idx: item.idx,
@@ -84,30 +90,17 @@ export class Client {
         })) || [],
     )
 
-    // Group by client
-    const itemsByClient = Array.from(groupBy(item => item.client, items))
+    const options: AccountOption[] = []
 
-    // Build options, filtering out incomplete sets
-    const options: [string, string[]][] = []
+    for (const [, groupItems] of groupBy(item => `${item.pubkey}:${item.client}`, items)) {
+      const required = groupItems[0]?.[thresholdKey]
 
-    for (const [client, clientItems] of itemsByClient) {
-      // Get the expected total (should be the same for all items of this client)
-      const total = clientItems[0]?.[threshold]
+      if (!required || groupItems.length < required) continue
 
-      if (!total || clientItems.length < total) continue
+      const {pubkey, client} = groupItems[0]
+      const peers = sortBy(item => item.idx, groupItems).map(item => item.url)
 
-      // Check that we have all indices from 1 to total
-      const idxSet = new Set(clientItems.map(item => item.idx))
-      const hasAllIndices = Array.from({length: total}, (_, i) => i + 1).every(idx =>
-        idxSet.has(idx),
-      )
-
-      if (!hasAllIndices) continue
-
-      // Sort by idx and map to peers
-      const peers = sortBy(item => item.idx, clientItems).map(item => item.url)
-
-      options.push([client, peers])
+      options.push({pubkey, client, peers})
     }
 
     const ok = messages.some(m => m.res?.ok) && options.length > 0
@@ -223,7 +216,7 @@ export class Client {
       }),
     )
 
-    return this._buildOptions(clientSecret, messages, "total")
+    return this._buildAccountOptions(clientSecret, messages, "total")
   }
 
   static async loginWithChallenge(
@@ -249,7 +242,7 @@ export class Client {
       ),
     )
 
-    return this._buildOptions(clientSecret, messages, "total")
+    return this._buildAccountOptions(clientSecret, messages, "total")
   }
 
   static async selectLogin(clientSecret: string, client: string, peers: string[]) {
@@ -280,7 +273,7 @@ export class Client {
       }),
     )
 
-    return this._buildOptions(clientSecret, messages, "threshold")
+    return this._buildAccountOptions(clientSecret, messages, "threshold")
   }
 
   static async recoverWithChallenge(
@@ -306,7 +299,7 @@ export class Client {
       ),
     )
 
-    return this._buildOptions(clientSecret, messages, "threshold")
+    return this._buildAccountOptions(clientSecret, messages, "threshold")
   }
 
   static async selectRecovery(clientSecret: string, client: string, peers: string[]) {

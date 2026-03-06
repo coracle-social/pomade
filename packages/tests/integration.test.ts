@@ -732,7 +732,7 @@ for (const {label, specs} of suites) {
 
       const otps = ctx.challengePayloads.slice(start).map(p => p.otp)
       const firstLogin = await Client.loginWithChallenge(email, challenge.peersByPrefix, otps)
-      const [selectedClient, peers] = firstLogin.options[0] || []
+      const {client: selectedClient, peers} = firstLogin.options[0] || {}
 
       expect(firstLogin.ok).toBe(true)
       expect(selectedClient).toBeTruthy()
@@ -767,7 +767,7 @@ for (const {label, specs} of suites) {
       const good = await Client.loginWithPassword(email, password)
       expect(good.ok).toBe(true)
 
-      const [selectedClient, selectedPeers] = good.options[0] || []
+      const {client: selectedClient, peers: selectedPeers} = good.options[0] || {}
       expect(selectedClient).toBeTruthy()
       expect(selectedPeers).toBeTruthy()
 
@@ -845,7 +845,7 @@ for (const {label, specs} of suites) {
       const good = await Client.recoverWithPassword(email, password)
       expect(good.ok).toBe(true)
 
-      const [selectedClient, selectedPeers] = good.options[0] || []
+      const {client: selectedClient, peers: selectedPeers} = good.options[0] || {}
       expect(selectedClient).toBeTruthy()
       expect(selectedPeers).toBeTruthy()
 
