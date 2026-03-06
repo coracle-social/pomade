@@ -170,6 +170,8 @@ type SessionListResponse struct {
 	Items   []SessionItem `json:"items"`
 }
 
+type SessionListRequest struct{}
+
 type SessionDeactivateRequest struct {
 	Client string `json:"client"`
 }

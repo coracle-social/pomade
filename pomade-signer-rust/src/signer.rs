@@ -21,6 +21,8 @@ use crate::schema::{
 use crate::session::{create_ecdh_pkg, create_psig_pkg, is_group_member};
 use crate::storage::{Collection, Storage, StorageBackend};
 
+const GENERATOR_X: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+
 const CLIENT_RATE_LIMITS: RateLimitConfig = RateLimitConfig {
     max_attempts: 100,
     window_seconds: 60,
@@ -351,7 +353,7 @@ impl Signer {
             log::debug!("[client {}]: insufficient proof of work", &client[..8]);
             return RegisterResponse {
                 ok: false,
-                message: "Registration requires proof of work (NIP-13).".into(),
+                message: "Registration requires 20 bits of proof of work (NIP-13).".into(),
             };
         }
 
@@ -839,6 +841,14 @@ impl Signer {
             };
         }
 
+        if data.ecdh_pk.0 == GENERATOR_X {
+            return EcdhResponse {
+                ok: false,
+                message: "Invalid ECDH public key".into(),
+                result: None,
+            };
+        }
+
         match create_ecdh_pkg(&data, &session.share) {
             Ok(result) => {
                 self.sessions.set(
@@ -917,7 +927,7 @@ impl Signer {
         );
         SessionDeactivateResponse {
             ok: false,
-            message: "Failed to deactivate selected client.".into(),
+            message: "Failed to deactivate selected session.".into(),
         }
     }
 
@@ -943,7 +953,7 @@ impl Signer {
         );
         SessionDeleteResponse {
             ok: false,
-            message: "Failed to logout selected client.".into(),
+            message: "Failed to delete selected session.".into(),
         }
     }
 
@@ -978,7 +988,13 @@ impl Signer {
             "/register" => route!(body, |a, d| self.handle_register(a, d)),
             "/session/deactivate" => route!(body, |a, d| self.handle_session_deactivate(a, d)),
             "/session/delete" => route!(body, |a, d| self.handle_session_delete(a, d)),
-            "/session/list" => serde_json::to_value(self.handle_session_list(&auth)).unwrap(),
+            "/session/list" => {
+                if !body.is_object() {
+                    serde_json::json!({"ok": false, "message": "Failed to validate request data."})
+                } else {
+                    serde_json::to_value(self.handle_session_list(&auth)).unwrap()
+                }
+            }
             "/sign" => route!(body, |a, d| self.handle_sign(a, d)),
             _ => serde_json::json!({"ok": false, "message": "Not found"}),
         }

@@ -3,8 +3,18 @@ import {bytesToHex, hexToBytes} from "@noble/hashes/utils.js"
 import {describe, it, expect, beforeEach, afterEach} from "vitest"
 import {sortBy, uniq} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
-import {setupSuite, teardownSuite, makeEmail, makeClientWithRecovery, type SuiteContext} from "./util.js"
-import {Client} from "@pomade/core"
+import {
+  setupSuite,
+  teardownSuite,
+  makeEmail,
+  makeClientWithRecovery,
+  makeSignedAuthHeader,
+  makeMalformedAuthHeaders,
+  postToSigner,
+  type SignerResponse,
+  type SuiteContext,
+} from "./util.js"
+import {Client, hashEmail, hashPassword} from "@pomade/core"
 import type {SignerKind} from "./harness.js"
 
 const doLet = <T>(x: T, f: (x: T) => void) => f(x)
@@ -576,6 +586,405 @@ for (const {label, specs} of suites) {
 
         expect(clients3.length).toBe(3)
       }, 10_000)
+    })
+  })
+
+  describe(`adversarial flows (${label})`, () => {
+    // eslint-disable-next-line prefer-const
+    let ctx: SuiteContext = undefined!
+
+    beforeEach(async () => {
+      ctx = await setupSuite(specs)
+    })
+
+    afterEach(async () => {
+      if (ctx) await teardownSuite(ctx)
+    })
+
+    const expectMalformedAuthRejected = async (path: string, body: unknown = {}) => {
+      const url = ctx.signers[0]!.url
+      const headers = await makeMalformedAuthHeaders(makeSecret(), url, path, body)
+
+      const responses = await Promise.all([
+        postToSigner(url, path, body),
+        postToSigner(url, path, body, headers.noPrefix),
+        postToSigner(url, path, body, headers.unsigned),
+        postToSigner(url, path, body, headers.forgedSignature),
+        postToSigner(url, path, body, headers.mismatchedPubkey),
+        postToSigner(url, path, body, headers.wrongPath),
+        postToSigner(url, path, body, headers.wrongMethod),
+        postToSigner(url, path, body, headers.staleTimestamp),
+        postToSigner(url, path, body, headers.futureTimestamp),
+      ])
+
+      expect(responses.every(res => !res.ok)).toBe(true)
+      expect(responses.every(res => res.message === "Failed to validate authentication.")).toBe(true)
+    }
+
+    const expectSchemaRejected = async (path: string) => {
+      const url = ctx.signers[0]!.url
+      const auth = await makeSignedAuthHeader(makeSecret(), url, path, [])
+      const res = await postToSigner(url, path, [], auth)
+
+      expect(res.ok).toBe(false)
+      expect(res.message).toBe("Failed to validate request data.")
+    }
+
+    const getSuccessfulMessage = <T extends {res?: SignerResponse}>(messages: T[]) =>
+      messages.find(m => m.res?.ok)
+
+    it("/register", async () => {
+      await expectMalformedAuthRejected("/register", {})
+      await expectSchemaRejected("/register")
+    })
+
+    it("/sign", async () => {
+      await expectMalformedAuthRejected("/sign", {})
+      await expectSchemaRejected("/sign")
+
+      const url = ctx.signers[0]!.url
+      const body = {
+        request: {
+          content: null,
+          hashes: [[makeSecret()]],
+          members: [1],
+          stamp: 1,
+          type: "event",
+          gid: makeSecret(),
+          sid: makeSecret(),
+        },
+      }
+      const auth = await makeSignedAuthHeader(makeSecret(), url, "/sign", body)
+      const res = await postToSigner(url, "/sign", body, auth)
+
+      expect(res.ok).toBe(false)
+      expect(res.message).toBe("No session found for client")
+    })
+
+    it("/ecdh", async () => {
+      await expectMalformedAuthRejected("/ecdh", {})
+      await expectSchemaRejected("/ecdh")
+
+      const url = ctx.signers[0]!.url
+      const noSessionBody = {idx: 1, members: [1], ecdh_pk: makeSecret()}
+      const noSessionAuth = await makeSignedAuthHeader(makeSecret(), url, "/ecdh", noSessionBody)
+      const noSessionRes = await postToSigner(url, "/ecdh", noSessionBody, noSessionAuth)
+
+      expect(noSessionRes.ok).toBe(false)
+      expect(noSessionRes.message).toBe("No session found for client")
+
+      const clientRegister = await Client.register(1, 2, makeSecret())
+      expect(clientRegister.ok).toBe(true)
+      const client = new Client(clientRegister.clientOptions)
+      const signerUrl = client.peers[0]
+      if (!signerUrl) throw new Error("Expected at least one signer peer")
+      const secret = clientRegister.clientOptions.secret
+      const body = {
+        idx: 1,
+        members: [1],
+        ecdh_pk: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+      }
+      const auth = await makeSignedAuthHeader(secret, signerUrl, "/ecdh", body)
+      const res = await postToSigner(signerUrl, "/ecdh", body, auth)
+
+      expect(res.ok).toBe(false)
+      expect(res.message).toBe("Invalid ECDH public key")
+    })
+
+    it("/recovery/setup", async () => {
+      await expectMalformedAuthRejected("/recovery/setup", {})
+      await expectSchemaRejected("/recovery/setup")
+
+      const clientRegister = await Client.register(1, 2, makeSecret())
+      const client = new Client(clientRegister.clientOptions)
+      const body = {email: makeEmail(), password_hash: "not-a-hash"}
+      const auth = await makeSignedAuthHeader(clientRegister.clientOptions.secret, client.peers[0]!, "/recovery/setup", body)
+      const res = await postToSigner(client.peers[0]!, "/recovery/setup", body, auth)
+
+      expect(res.ok).toBe(false)
+      expect(res.message).toContain("Recovery method password hash")
+    })
+
+    it("/challenge", async () => {
+      await expectMalformedAuthRejected("/challenge", {})
+      await expectSchemaRejected("/challenge")
+
+      const email = makeEmail()
+      const seededClient = await makeClientWithRecovery(email)
+      const signerUrl = seededClient.peers[0]!
+      const authSecret = makeSecret()
+
+      const knownBody = {prefix: "12", email_hash: await hashEmail(email, signerUrl)}
+      const knownAuth = await makeSignedAuthHeader(authSecret, signerUrl, "/challenge", knownBody)
+      const knownRes = await postToSigner(signerUrl, "/challenge", knownBody, knownAuth)
+
+      const unknownBody = {prefix: "34", email_hash: await hashEmail(makeEmail(), signerUrl)}
+      const unknownAuth = await makeSignedAuthHeader(authSecret, signerUrl, "/challenge", unknownBody)
+      const unknownRes = await postToSigner(signerUrl, "/challenge", unknownBody, unknownAuth)
+
+      expect(knownRes.ok).toBe(true)
+      expect(unknownRes.ok).toBe(true)
+      expect(knownRes.message).toBe(unknownRes.message)
+
+      const start = ctx.challengePayloads.length
+      const challenge = await Client.requestChallenge(email)
+      expect(challenge.ok).toBe(true)
+
+      const otps = ctx.challengePayloads.slice(start).map(p => p.otp)
+      const firstLogin = await Client.loginWithChallenge(email, challenge.peersByPrefix, otps)
+      const [selectedClient, peers] = firstLogin.options[0] || []
+
+      expect(firstLogin.ok).toBe(true)
+      expect(selectedClient).toBeTruthy()
+      expect(peers).toBeTruthy()
+
+      const secondLogin = await Client.loginWithChallenge(email, challenge.peersByPrefix, otps)
+      expect(secondLogin.ok).toBe(false)
+
+      const secondMessages = secondLogin.messages
+      expect(secondMessages.every(m => !m.res?.ok)).toBe(true)
+
+      const select = await Client.selectLogin(firstLogin.clientSecret, selectedClient!, peers!)
+      expect(select.ok).toBe(true)
+    })
+
+    it("/login/start", async () => {
+      await expectMalformedAuthRejected("/login/start", {})
+      await expectSchemaRejected("/login/start")
+
+      const url = ctx.signers[0]!.url
+      const body = {auth: {email_hash: makeSecret(), password_hash: makeSecret()}}
+      const auth = await makeSignedAuthHeader(makeSecret(), url, "/login/start", body)
+      const res = await postToSigner(url, "/login/start", body, auth)
+
+      expect(res.ok).toBe(false)
+      expect(res.message).toBe("No sessions found.")
+
+      const email = makeEmail()
+      const password = makeSecret()
+      await makeClientWithRecovery(email, password)
+
+      const good = await Client.loginWithPassword(email, password)
+      expect(good.ok).toBe(true)
+
+      const [selectedClient, selectedPeers] = good.options[0] || []
+      expect(selectedClient).toBeTruthy()
+      expect(selectedPeers).toBeTruthy()
+
+      const select = await Client.selectLogin(good.clientSecret, selectedClient!, selectedPeers!)
+      expect(select.ok).toBe(true)
+
+      const reused = await Client.selectLogin(good.clientSecret, selectedClient!, selectedPeers!)
+      expect(reused.ok).toBe(false)
+      expect(reused.messages.every(m => m.res?.message === "No active login found.")).toBe(true)
+
+      const existingRegister = await Client.register(1, 2, makeSecret())
+      const existingSession = new Client(existingRegister.clientOptions)
+      const signerUrl = existingSession.peers[0]!
+      const reusedEmail = makeEmail()
+      const reusedPassword = makeSecret()
+      await existingSession.setupRecovery(reusedEmail, reusedPassword)
+
+      const loginStart = await Client.loginWithPassword(reusedEmail, reusedPassword)
+      const loginClient = getSuccessfulMessage(loginStart.messages)?.res?.items?.[0]?.client
+      expect(loginClient).toBeTruthy()
+
+      const reusedLoginSecret = makeSecret()
+
+      const reuseBody = {
+        auth: {
+          email_hash: await hashEmail(reusedEmail, signerUrl),
+          password_hash: await hashPassword(reusedEmail, reusedPassword, signerUrl),
+        },
+      }
+      const reusedAuth = await makeSignedAuthHeader(reusedLoginSecret, signerUrl, "/login/start", reuseBody)
+      const reuseRes = await postToSigner(signerUrl, "/login/start", reuseBody, reusedAuth)
+
+      const reusedAuth2 = await makeSignedAuthHeader(
+        reusedLoginSecret,
+        signerUrl,
+        "/login/start",
+        reuseBody,
+      )
+      const reuseRes2 = await postToSigner(signerUrl, "/login/start", reuseBody, reusedAuth2)
+
+      expect(reuseRes.ok).toBe(true)
+      expect(reuseRes2.ok).toBe(false)
+      expect(reuseRes2.message).toBe("Do not re-use session keys.")
+    })
+
+    it("/login/select", async () => {
+      await expectMalformedAuthRejected("/login/select", {})
+      await expectSchemaRejected("/login/select")
+
+      const url = ctx.signers[0]!.url
+      const body = {client: makeSecret()}
+      const auth = await makeSignedAuthHeader(makeSecret(), url, "/login/select", body)
+      const res = await postToSigner(url, "/login/select", body, auth)
+
+      expect(res.ok).toBe(false)
+      expect(res.message).toBe("No active login found.")
+    })
+
+    it("/recovery/start", async () => {
+      await expectMalformedAuthRejected("/recovery/start", {})
+      await expectSchemaRejected("/recovery/start")
+
+      const url = ctx.signers[0]!.url
+      const body = {auth: {email_hash: makeSecret(), password_hash: makeSecret()}}
+      const auth = await makeSignedAuthHeader(makeSecret(), url, "/recovery/start", body)
+      const res = await postToSigner(url, "/recovery/start", body, auth)
+
+      expect(res.ok).toBe(false)
+      expect(res.message).toBe("No sessions found.")
+
+      const email = makeEmail()
+      const password = makeSecret()
+      await makeClientWithRecovery(email, password)
+
+      const good = await Client.recoverWithPassword(email, password)
+      expect(good.ok).toBe(true)
+
+      const [selectedClient, selectedPeers] = good.options[0] || []
+      expect(selectedClient).toBeTruthy()
+      expect(selectedPeers).toBeTruthy()
+
+      const select = await Client.selectRecovery(good.clientSecret, selectedClient!, selectedPeers!)
+      expect(select.ok).toBe(true)
+
+      const reused = await Client.selectRecovery(good.clientSecret, selectedClient!, selectedPeers!)
+      expect(reused.ok).toBe(false)
+      expect(reused.messages.every(m => m.res?.message === "No active recovery found.")).toBe(true)
+
+      const existingRegister = await Client.register(1, 2, makeSecret())
+      const existingSession = new Client(existingRegister.clientOptions)
+      const signerUrl = existingSession.peers[0]!
+      const reusedEmail = makeEmail()
+      const reusedPassword = makeSecret()
+      await existingSession.setupRecovery(reusedEmail, reusedPassword)
+
+      const reusedRecoverySecret = makeSecret()
+      const reuseBody = {
+        auth: {
+          email_hash: await hashEmail(reusedEmail, signerUrl),
+          password_hash: await hashPassword(reusedEmail, reusedPassword, signerUrl),
+        },
+      }
+      const reusedAuth = await makeSignedAuthHeader(
+        reusedRecoverySecret,
+        signerUrl,
+        "/recovery/start",
+        reuseBody,
+      )
+      const reuseRes = await postToSigner(signerUrl, "/recovery/start", reuseBody, reusedAuth)
+
+      const reusedAuth2 = await makeSignedAuthHeader(
+        reusedRecoverySecret,
+        signerUrl,
+        "/recovery/start",
+        reuseBody,
+      )
+      const reuseRes2 = await postToSigner(signerUrl, "/recovery/start", reuseBody, reusedAuth2)
+
+      expect(reuseRes.ok).toBe(true)
+      expect(reuseRes2.ok).toBe(false)
+      expect(reuseRes2.message).toBe("Do not re-use session keys.")
+    })
+
+    it("/recovery/select", async () => {
+      await expectMalformedAuthRejected("/recovery/select", {})
+      await expectSchemaRejected("/recovery/select")
+
+      const url = ctx.signers[0]!.url
+      const body = {client: makeSecret()}
+      const auth = await makeSignedAuthHeader(makeSecret(), url, "/recovery/select", body)
+      const res = await postToSigner(url, "/recovery/select", body, auth)
+
+      expect(res.ok).toBe(false)
+      expect(res.message).toBe("No active recovery found.")
+    })
+
+    it("/recovery/result", async () => {
+      await expectMalformedAuthRejected("/recovery/result", {})
+
+      const url = ctx.signers[0]!.url
+      const auth = await makeSignedAuthHeader(makeSecret(), url, "/recovery/result", {})
+      const res = await postToSigner(url, "/recovery/result", {}, auth)
+
+      expect(res.ok).toBe(false)
+      expect(res.message).toBe("Not found")
+    })
+
+    it("/session/list", async () => {
+      await expectMalformedAuthRejected("/session/list", {})
+      await expectSchemaRejected("/session/list")
+
+      const victim = await Client.register(1, 2, makeSecret())
+      const victimClient = new Client(victim.clientOptions)
+      const attacker = await Client.register(1, 2, makeSecret())
+      const attackerClient = new Client(attacker.clientOptions)
+
+      const victimList = await victimClient.listSessions()
+      const attackerList = await attackerClient.listSessions()
+
+      const victimPubkeys = new Set(victimList.messages.flatMap(m => m.res?.items?.map(i => i.pubkey) ?? []))
+      const attackerPubkeys = new Set(attackerList.messages.flatMap(m => m.res?.items?.map(i => i.pubkey) ?? []))
+
+      expect(victimPubkeys.has(victimClient.userPubkey)).toBe(true)
+      expect(victimPubkeys.has(attackerClient.userPubkey)).toBe(false)
+      expect(attackerPubkeys.has(attackerClient.userPubkey)).toBe(true)
+      expect(attackerPubkeys.has(victimClient.userPubkey)).toBe(false)
+
+      const body = {}
+      const auth = await makeSignedAuthHeader(victim.clientOptions.secret, victimClient.peers[0]!, "/session/list", body)
+      const clientKeyRes = await postToSigner(victimClient.peers[0]!, "/session/list", body, auth)
+
+      expect(clientKeyRes.ok).toBe(true)
+      expect((clientKeyRes.items as unknown[] | undefined)?.length ?? 0).toBe(0)
+    })
+
+    it("/session/deactivate", async () => {
+      await expectMalformedAuthRejected("/session/deactivate", {})
+      await expectSchemaRejected("/session/deactivate")
+
+      const url = ctx.signers[0]!.url
+      const body = {client: makeSecret()}
+      const auth = await makeSignedAuthHeader(makeSecret(), url, "/session/deactivate", body)
+      const res = await postToSigner(url, "/session/deactivate", body, auth)
+
+      expect(res.ok).toBe(false)
+      expect(res.message).toBe("Failed to deactivate selected session.")
+
+      const registered = await Client.register(1, 2, makeSecret())
+      const sessionClient = new Client(registered.clientOptions)
+      const clientBody = {client: await sessionClient.getPubkey()}
+      const clientAuth = await makeSignedAuthHeader(registered.clientOptions.secret, sessionClient.peers[0]!, "/session/deactivate", clientBody)
+      const clientRes = await postToSigner(sessionClient.peers[0]!, "/session/deactivate", clientBody, clientAuth)
+
+      expect(clientRes.ok).toBe(false)
+      expect(clientRes.message).toBe("Failed to deactivate selected session.")
+    })
+
+    it("/session/delete", async () => {
+      await expectMalformedAuthRejected("/session/delete", {})
+      await expectSchemaRejected("/session/delete")
+
+      const url = ctx.signers[0]!.url
+      const body = {client: makeSecret()}
+      const auth = await makeSignedAuthHeader(makeSecret(), url, "/session/delete", body)
+      const res = await postToSigner(url, "/session/delete", body, auth)
+
+      expect(res.ok).toBe(false)
+      expect(res.message).toBe("Failed to delete selected session.")
+
+      const registered = await Client.register(1, 2, makeSecret())
+      const sessionClient = new Client(registered.clientOptions)
+      const clientBody = {client: await sessionClient.getPubkey()}
+      const clientAuth = await makeSignedAuthHeader(registered.clientOptions.secret, sessionClient.peers[0]!, "/session/delete", clientBody)
+      const clientRes = await postToSigner(sessionClient.peers[0]!, "/session/delete", clientBody, clientAuth)
+
+      expect(clientRes.ok).toBe(false)
+      expect(clientRes.message).toBe("Failed to delete selected session.")
     })
   })
 }

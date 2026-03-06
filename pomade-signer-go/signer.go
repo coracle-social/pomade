@@ -78,6 +78,8 @@ type Signer struct {
 	rateLimitByClient    Collection[RateLimitBucket]
 }
 
+const generatorX = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
 func OpenSigner(options SignerOptions, backend StorageBackend) *Signer {
 	storage := NewStorage(backend)
 	return &Signer{
@@ -298,7 +300,7 @@ func (s *Signer) handleRegister(auth NostrAuth, data RegisterRequest) RegisterRe
 	}
 	idBytes := auth.Event.ID
 	if getPow(idBytes) < s.options.RegisterPow {
-		return RegisterResponse{OK: false, Message: "Registration requires proof of work (NIP-13)."}
+		return RegisterResponse{OK: false, Message: "Registration requires 20 bits of proof of work (NIP-13)."}
 	}
 	threshold := int(data.Group.Threshold)
 	total := len(data.Group.Commits)
@@ -546,6 +548,9 @@ func (s *Signer) handleEcdh(auth NostrAuth, data EcdhRequest) EcdhResponse {
 	if !s.checkAndRecordRateLimit(client) {
 		return EcdhResponse{OK: false, Message: "Rate limit exceeded. Please try again later."}
 	}
+	if data.EcdhPk == generatorX {
+		return EcdhResponse{OK: false, Message: "Invalid ECDH public key"}
+	}
 	if !containsIdx(data.Members, session.Share.Idx) {
 		return EcdhResponse{OK: false, Message: "Signer index not present in members list"}
 	}
@@ -576,7 +581,7 @@ func (s *Signer) handleSessionDeactivate(auth NostrAuth, data SessionDeactivateR
 		s.deactivateSession(data.Client)
 		return SessionDeactivateResponse{OK: true, Message: "Successfully deactivated selected session."}
 	}
-	return SessionDeactivateResponse{OK: false, Message: "Failed to deactivate selected client."}
+	return SessionDeactivateResponse{OK: false, Message: "Failed to deactivate selected session."}
 }
 
 func (s *Signer) handleSessionDelete(auth NostrAuth, data SessionDeleteRequest) SessionDeleteResponse {
@@ -586,7 +591,7 @@ func (s *Signer) handleSessionDelete(auth NostrAuth, data SessionDeleteRequest) 
 		s.deleteSession(data.Client)
 		return SessionDeleteResponse{OK: true, Message: "Successfully deleted selected session."}
 	}
-	return SessionDeleteResponse{OK: false, Message: "Failed to logout selected client."}
+	return SessionDeleteResponse{OK: false, Message: "Failed to delete selected session."}
 }
 
 func decodeJSON[T any](raw json.RawMessage) (*T, bool) {
@@ -660,6 +665,11 @@ func (s *Signer) Handle(path string, method string, authHeader string, expectedU
 		}
 		return s.handleLoginSelect(*auth, *data)
 	case "/session/list":
+		data, ok := decodeJSON[SessionListRequest](body)
+		if !ok {
+			return map[string]any{"ok": false, "message": "Failed to validate request data."}
+		}
+		_ = data
 		return s.handleSessionList(*auth)
 	case "/session/deactivate":
 		data, ok := decodeJSON[SessionDeactivateRequest](body)
