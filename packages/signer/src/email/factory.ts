@@ -4,8 +4,9 @@ import { SendGridProvider } from "./sendgrid.js"
 import { MailgunProvider } from "./mailgun.js"
 import { SendlayerProvider } from "./sendlayer.js"
 import { ResendProvider } from "./resend.js"
+import { SmtpProvider } from "./smtp.js"
 
-export type MailProvider = "postmark" | "sendgrid" | "mailgun" | "sendlayer" | "resend"
+export type MailProvider = "postmark" | "sendgrid" | "mailgun" | "sendlayer" | "resend" | "smtp"
 
 export interface EmailConfig {
   provider: MailProvider
@@ -27,6 +28,13 @@ export interface EmailConfig {
   }
   resend?: {
     apiKey: string
+  }
+  smtp?: {
+    host: string
+    port: number
+    secure?: boolean
+    user?: string
+    password?: string
   }
 }
 
@@ -86,6 +94,20 @@ export function createEmailProvider(config: EmailConfig): EmailProvider {
         fromName,
       })
 
+    case "smtp":
+      if (!config.smtp?.host) {
+        throw new Error("SMTP_HOST is required when using smtp provider")
+      }
+      return new SmtpProvider({
+        host: config.smtp.host,
+        port: config.smtp.port,
+        secure: config.smtp.secure,
+        user: config.smtp.user,
+        password: config.smtp.password,
+        fromEmail,
+        fromName,
+      })
+
     default:
       throw new Error(`Unknown mail provider: ${provider}`)
   }
@@ -98,7 +120,7 @@ export function loadEmailConfigFromEnv(): EmailConfig {
     throw new Error("MAIL_PROVIDER environment variable is required")
   }
 
-  const validProviders: MailProvider[] = ["postmark", "sendgrid", "mailgun", "sendlayer", "resend"]
+  const validProviders: MailProvider[] = ["postmark", "sendgrid", "mailgun", "sendlayer", "resend", "smtp"]
   if (!validProviders.includes(provider)) {
     throw new Error(`MAIL_PROVIDER must be one of: ${validProviders.join(", ")}`)
   }
@@ -146,6 +168,16 @@ export function loadEmailConfigFromEnv(): EmailConfig {
     case "resend":
       config.resend = {
         apiKey: process.env.RESEND_API_KEY || "",
+      }
+      break
+
+    case "smtp":
+      config.smtp = {
+        host: process.env.SMTP_HOST || "",
+        port: parseInt(process.env.SMTP_PORT || "587", 10),
+        secure: process.env.SMTP_SECURE === "true",
+        user: process.env.SMTP_USER,
+        password: process.env.SMTP_PASSWORD,
       }
       break
   }

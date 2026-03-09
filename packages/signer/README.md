@@ -8,7 +8,7 @@ For protocol specification, see [PROTOCOL.md](../../PROTOCOL.md)
 
 Required environment variables:
 - `POMADE_SECRET`: A nostr private key used for encryption at rest
-- `MAIL_PROVIDER`: Email provider (`postmark`, `sendgrid`, `mailgun`, `sendlayer`, or `resend`)
+- `MAIL_PROVIDER`: Email provider (`postmark`, `sendgrid`, `mailgun`, `sendlayer`, `resend`, or `smtp`)
 - `MAIL_FROM_EMAIL`: Sender email address
 
 Optional environment variables:
@@ -22,6 +22,9 @@ Email provider specific variables:
 - `MAILGUN_API_REGION` - `us` or `eu` (default: `us`)
 - `SENDLAYER_API_KEY` - For SendLayer
 - `RESEND_API_KEY` - For Resend
+- `SMTP_HOST`, `SMTP_PORT` - For SMTP (port defaults to `587`)
+- `SMTP_SECURE` - `true` for TLS on connect (default: auto-detected; true if port is 465)
+- `SMTP_USER`, `SMTP_PASSWORD` - SMTP credentials (optional for unauthenticated relays)
 
 ## Running
 

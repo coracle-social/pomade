@@ -35,6 +35,8 @@ To run your own signer see [DEPLOY.md](DEPLOY.md) for detailed instructions, or 
 You can then add the signer's url to your client to use it. Note that signers MUST be run by trusted, independent third parties. A list of reputable signers is included below and in the source code - we recommend you use this list unless you have good reasons not to.
 
 - https://pomade.coracle.social
+- TBD
+- TBD
 
 Also note that when logging in, all signers need to be contacted, which involves some pretty computationally-intensive hashing operations. For that reason, you should avoid adding a large number of signers to your app; 7-10 should be more than enough.
 
