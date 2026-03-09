@@ -26,19 +26,24 @@ Then, follow the guide [here](INTEGRATION.md).
 
 ### Signers
 
+Clients need to register at least `threshold` signers for storing user key shares. Client developers are responsible to ensure that:
+
+- Signers are run by multiple independent parties that can be trusted not to collude to steal key material.
+- Signers remain responsive; if a signer goes down users should be encouraged to rotate to a new set using the key recovery flow.
+- Signer implementations are secure and up to date; multiple implementations are provided which should be mixed to diffuse attack surface area.
+
+Client developers SHOULD run one signer themselves. They MAY also consider deploying an embedded signer to their client application (an in-memory typescript signer implementation is provided in @pomade/core) to hold one user key share. For all third party signers, client developers may either manually select their own trusted parties, or select signers from the list below.
+
+- https://pomade.coracle.social - run by [@hodlbod](https://coracle.social/hodlbod@coracle.social)
+
+Note that when logging in all signers need to be contacted, which involves some pretty computationally-intensive hashing operations. For that reason, you should avoid adding a large number of signers to your app; 7-10 should be more than enough.
+
 To run your own signer see [DEPLOY.md](DEPLOY.md) for detailed instructions, or visit the README for the package you're planning to run to cut to the chase:
 
 - [pomade-signer-rust](pomade-signer-rust/README.md)
 - [pomade-signer-go](pomade-signer-rust/README.md)
 - [pomade-signer-ts](packages/signer/README.md)
 
-You can then add the signer's url to your client to use it. Note that signers MUST be run by trusted, independent third parties. A list of reputable signers is included below and in the source code - we recommend you use this list unless you have good reasons not to.
-
-- https://pomade.coracle.social
-- TBD
-- TBD
-
-Also note that when logging in, all signers need to be contacted, which involves some pretty computationally-intensive hashing operations. For that reason, you should avoid adding a large number of signers to your app; 7-10 should be more than enough.
 
 ## Package Details
 
