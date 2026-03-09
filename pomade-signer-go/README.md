@@ -15,7 +15,7 @@ Optional environment variables:
 
 - `POMADE_PORT` - Port for both bind address and signer URL base (default: `3000`)
 - `POMADE_DATABASE` - BoltDB file path (default: `./signer.db`)
-- `MAIL_PROVIDER` - `postmark`, `sendgrid`, `mailgun`, `sendlayer`, or `resend`
+- `MAIL_PROVIDER` - `postmark`, `sendgrid`, `mailgun`, `sendlayer`, `resend`, or `smtp`
 - `MAIL_FROM_EMAIL` - Sender email (default: `noreply@example.com`)
 - `MAIL_FROM_NAME` - Sender name (default: `Pomade Signer`)
 - `TEST_MODE` - Set to any value to disable mail-provider requirement, reduce argon memory settings, and set `REGISTER_POW` to `0`
@@ -27,6 +27,7 @@ Provider specific variables:
 - `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_API_REGION`
 - `SENDLAYER_API_KEY`
 - `RESEND_API_KEY`
+- `SMTP_HOST`, `SMTP_PORT` (default: `587`), `SMTP_USER`, `SMTP_PASSWORD`
 
 ## Running
 

@@ -139,6 +139,9 @@ importers:
       mustache:
         specifier: ^4.2.0
         version: 4.2.0
+      nodemailer:
+        specifier: ^6.9.16
+        version: 6.10.1
       sqlite3:
         specifier: ^5.1.7
         version: 5.1.7
@@ -149,6 +152,9 @@ importers:
       '@types/mustache':
         specifier: ^4.2.5
         version: 4.2.6
+      '@types/nodemailer':
+        specifier: ^6.4.17
+        version: 6.4.23
       '@types/sqlite3':
         specifier: ^3.1.11
         version: 3.1.11
@@ -1001,6 +1007,9 @@ packages:
 
   '@types/node@25.0.3':
     resolution: {integrity: sha512-W609buLVRVmeW693xKfzHeIV6nJGGz98uCPfeXI1ELMLXVeKYZ9m15fAMSaUPBHYLGFsVRcMmSCksQOrZV9BYA==}
+
+  '@types/nodemailer@6.4.23':
+    resolution: {integrity: sha512-aFV3/NsYFLSx9mbb5gtirBSXJnAlrusoKNuPbxsASWc7vrKLmIrTQRpdcxNcSFL3VW2A2XpeLEavwb2qMi6nlQ==}
 
   '@types/sqlite3@3.1.11':
     resolution: {integrity: sha512-KYF+QgxAnnAh7DWPdNDroxkDI3/MspH1NMx6m/N/6fT1G6+jvsw4/ZePt8R8cr7ta58aboeTfYFBDxTJ5yv15w==}
@@ -2121,6 +2130,10 @@ packages:
     resolution: {integrity: sha512-olTJRgUtAb/hOXG0E93wZDs5YiJlgbXxTwQAFHyNlRsXQnYzUaF2aGgujZbw+hR8aF4ZG/rST57bWMWD16jr9w==}
     engines: {node: '>= 10.12.0'}
     hasBin: true
+
+  nodemailer@6.10.1:
+    resolution: {integrity: sha512-Z+iLaBGVaSjbIzQ4pX6XV41HrooLsQ10ZWPUehGmuantvzWoDVBnmsdUcOIDM1t+yPor5pDhVlDESgOMEGxhHA==}
+    engines: {node: '>=6.0.0'}
 
   nopt@5.0.0:
     resolution: {integrity: sha512-Tbj67rffqceeLpcRXrT7vKAN8CwfPeIBgM7E6iBkmKLV7bEMwpGgYLGv0jACUsECaa/vuxP0IjEont6umdMgtQ==}
@@ -3401,6 +3414,10 @@ snapshots:
   '@types/node@25.0.3':
     dependencies:
       undici-types: 7.16.0
+
+  '@types/nodemailer@6.4.23':
+    dependencies:
+      '@types/node': 25.0.3
 
   '@types/sqlite3@3.1.11':
     dependencies:
@@ -4915,6 +4932,8 @@ snapshots:
       - bluebird
       - supports-color
     optional: true
+
+  nodemailer@6.10.1: {}
 
   nopt@5.0.0:
     dependencies:

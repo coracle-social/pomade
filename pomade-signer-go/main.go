@@ -35,6 +35,17 @@ func buildMailer(provider string, client *http.Client) mailer.Mailer {
 		return mailer.SendlayerMailer{Client: client, APIKey: requireEnv("SENDLAYER_API_KEY")}
 	case "resend":
 		return mailer.ResendMailer{Client: client, APIKey: requireEnv("RESEND_API_KEY")}
+	case "smtp":
+		port := 587
+		if p := os.Getenv("SMTP_PORT"); p != "" {
+			fmt.Sscanf(p, "%d", &port)
+		}
+		return mailer.SmtpMailer{
+			Host:     requireEnv("SMTP_HOST"),
+			Port:     port,
+			User:     os.Getenv("SMTP_USER"),
+			Password: os.Getenv("SMTP_PASSWORD"),
+		}
 	default:
 		log.Fatalf("unknown MAIL_PROVIDER: %s", provider)
 		return nil
