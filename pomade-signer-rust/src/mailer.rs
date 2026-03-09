@@ -3,6 +3,7 @@ pub mod postmark;
 pub mod resend;
 pub mod sendgrid;
 pub mod sendlayer;
+pub mod smtp;
 
 use std::future::Future;
 use std::pin::Pin;

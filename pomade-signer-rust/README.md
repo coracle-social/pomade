@@ -13,7 +13,7 @@ Required environment variables:
 Optional environment variables:
 - `POMADE_PORT` - Port for both bind address and signer URL base (default: `3000`)
 - `POMADE_DATABASE` - Path to sled database directory (default: `./signer-db`)
-- `MAIL_PROVIDER` - Email provider: `postmark`, `sendgrid`, `mailgun`, `sendlayer`, or `resend`
+- `MAIL_PROVIDER` - Email provider: `postmark`, `sendgrid`, `mailgun`, `sendlayer`, `resend`, or `smtp`
 - `MAIL_FROM_EMAIL` - Sender email address (default: `noreply@example.com`)
 - `MAIL_FROM_NAME` - Sender display name (default: `Pomade Signer`)
 - `TEST_MODE` - Set to any value to disable mail-provider requirement, reduce argon memory settings, and set `REGISTER_POW` to `0`
@@ -25,6 +25,7 @@ Email provider specific variables:
 - `MAILGUN_API_REGION` - `us` or `eu` (default: `us`)
 - `SENDLAYER_API_KEY` - For SendLayer
 - `RESEND_API_KEY` - For Resend
+- `SMTP_HOST`, `SMTP_PORT` (default: `587`), `SMTP_USER`, `SMTP_PASSWORD` - For SMTP
 
 ## Running
 

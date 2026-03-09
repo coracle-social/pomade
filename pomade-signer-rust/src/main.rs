@@ -29,6 +29,7 @@ use mailer::{
     resend::ResendMailer,
     sendgrid::SendgridMailer,
     sendlayer::SendlayerMailer,
+    smtp::SmtpMailer,
 };
 use signer::{Signer, SignerOptions};
 use storage::SledBackend;
@@ -48,7 +49,7 @@ struct Args {
     #[arg(long, env = "POMADE_DATABASE", default_value = "./signer-db")]
     db: String,
 
-    /// Email provider (postmark, sendgrid, mailgun, sendlayer, resend)
+    /// Email provider (postmark, sendgrid, mailgun, sendlayer, resend, smtp)
     #[arg(long, env = "MAIL_PROVIDER")]
     mail_provider: Option<String>,
 
@@ -90,6 +91,15 @@ fn build_mailer(provider: &str, client: reqwest::Client) -> Box<dyn Mailer> {
         "resend" => Box::new(ResendMailer {
             client,
             api_key: require_env("RESEND_API_KEY"),
+        }),
+        "smtp" => Box::new(SmtpMailer {
+            host: require_env("SMTP_HOST"),
+            port: std::env::var("SMTP_PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(587),
+            user: std::env::var("SMTP_USER").ok(),
+            password: std::env::var("SMTP_PASSWORD").ok(),
         }),
         other => panic!("unknown MAIL_PROVIDER: {}", other),
     }

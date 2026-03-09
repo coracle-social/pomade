@@ -23,6 +23,7 @@ tower-layer = "0.3"
 tower-service = "0.3"
 clap = { version = "4", features = ["derive", "env"] }
 reqwest = { version = "0.12", features = ["json"] }
+lettre = { version = "0.11", features = ["tokio1", "tokio1-native-tls", "smtp-transport", "builder"], default-features = false }
 argon2 = "0.5"
 
 [dev-dependencies]
