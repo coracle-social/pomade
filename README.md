@@ -29,8 +29,8 @@ Then, follow the guide [here](INTEGRATION.md).
 To run your own signer see [DEPLOY.md](DEPLOY.md) for detailed instructions, or visit the README for the package you're planning to run to cut to the chase:
 
 - [pomade-signer-rust](pomade-signer-rust/README.md)
-- [pomade-signer-go][pomade-signer-rust/README.md)
-- [pomade-signer-ts][packages/signer/README.md)
+- [pomade-signer-go](pomade-signer-rust/README.md)
+- [pomade-signer-ts](packages/signer/README.md)
 
 You can then add the signer's url to your client to use it. Note that signers MUST be run by trusted, independent third parties. A list of reputable signers is included below and in the source code - we recommend you use this list unless you have good reasons not to.
 
