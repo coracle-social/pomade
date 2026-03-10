@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -395,7 +396,9 @@ func (s *Signer) handleChallenge(data ChallengeRequest) ChallengeResponse {
 				mail.To = *sess.Email
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
-				_ = s.options.Mailer.Send(ctx, s.options.FromEmail, s.options.FromName, mail)
+				if err := s.options.Mailer.Send(ctx, s.options.FromEmail, s.options.FromName, mail); err != nil {
+					log.Printf("failed to send challenge email: %v", err)
+				}
 			}
 		}
 	}
