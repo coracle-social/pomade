@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/coracle-social/pomade/pomade-signer-go/mailer"
 )
@@ -53,7 +55,14 @@ func buildMailer(provider string, client *http.Client) mailer.Mailer {
 }
 
 func main() {
-	url := requireEnv("POMADE_URL")
+	baseURL := requireEnv("POMADE_URL")
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		log.Fatal("POMADE_URL must include protocol and host (e.g. https://signer.example.com)")
+	}
+	if strings.HasSuffix(baseURL, "/") {
+		log.Fatal("POMADE_URL must not have a trailing slash")
+	}
 	port := os.Getenv("POMADE_PORT")
 	if port == "" {
 		port = "3000"
@@ -103,7 +112,7 @@ func main() {
 	defer backend.Close()
 
 	signer := OpenSigner(SignerOptions{
-		URL:         url,
+		URL:         baseURL,
 		RegisterPow: registerPow,
 		ArgonM:      argonM,
 		FromEmail:   fromEmail,
@@ -133,7 +142,7 @@ func main() {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "message": "Failed to validate request data."})
 			return
 		}
-		res := signer.Handle(r.URL.Path, r.Method, r.Header.Get("Authorization"), url+r.URL.Path, body)
+		res := signer.Handle(r.URL.Path, r.Method, r.Header.Get("Authorization"), baseURL+r.URL.Path, body)
 		_ = json.NewEncoder(w).Encode(res)
 	})
 
