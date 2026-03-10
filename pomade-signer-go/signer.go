@@ -374,10 +374,12 @@ var prefixRe = regexp.MustCompile(`^\d{2}$`)
 
 func (s *Signer) handleChallenge(data ChallengeRequest) ChallengeResponse {
 	if !prefixRe.MatchString(data.Prefix) || !isHex64(data.EmailHash) {
+		log.Printf("[challenge] ignored invalid request")
 		return ChallengeResponse{OK: true, Message: "Please check your email inbox for a one-time password."}
 	}
 	b := s.rateLimitByEmailHash.Get(data.EmailHash)
 	if isRateLimited(b, emailRateLimits) {
+		log.Printf("[challenge] rate limited email_hash=%s", data.EmailHash[:8])
 		return ChallengeResponse{OK: true, Message: "Please check your email inbox for a one-time password."}
 	}
 	// Always record an attempt to prevent email hash enumeration via rate limit side-channel.
@@ -388,6 +390,7 @@ func (s *Signer) handleChallenge(data ChallengeRequest) ChallengeResponse {
 		if sess != nil && sess.Email != nil {
 			otp := fmt.Sprintf("%s%d", data.Prefix, randomInt(100000, 1000000))
 			s.challenges.Set(data.EmailHash, SignerChallenge{CreatedAt: nowSec(), OTP: otp})
+			log.Printf("[challenge] created challenge email_hash=%s", data.EmailHash[:8])
 			if s.options.TestMode {
 				fmt.Printf("[challenge] otp=%s to=%s\n", otp, *sess.Email)
 			}
@@ -398,9 +401,18 @@ func (s *Signer) handleChallenge(data ChallengeRequest) ChallengeResponse {
 				defer cancel()
 				if err := s.options.Mailer.Send(ctx, s.options.FromEmail, s.options.FromName, mail); err != nil {
 					log.Printf("failed to send challenge email: %v", err)
+				} else {
+					log.Printf("[challenge] sent challenge email email_hash=%s", data.EmailHash[:8])
 				}
 			}
+			if !s.options.TestMode && s.options.Mailer == nil {
+				log.Printf("[challenge] skipped email send: mailer not configured email_hash=%s", data.EmailHash[:8])
+			}
+		} else {
+			log.Printf("[challenge] no session email available email_hash=%s", data.EmailHash[:8])
 		}
+	} else {
+		log.Printf("[challenge] no sessions for email_hash=%s", data.EmailHash[:8])
 	}
 	return ChallengeResponse{OK: true, Message: "Please check your email inbox for a one-time password."}
 }
