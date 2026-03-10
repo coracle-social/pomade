@@ -35,6 +35,8 @@ Clients need to register at least `threshold` signers for storing user key share
 Client developers SHOULD run one signer themselves. They MAY also consider deploying an embedded signer to their client application (an in-memory typescript signer implementation is provided in @pomade/core) to hold one user key share. For all third party signers, client developers may either manually select their own trusted parties, or select signers from the list below.
 
 - https://pomade.coracle.social - run by [@hodlbod](https://coracle.social/hodlbod@coracle.social)
+- https://pomade.nostrver.se - run by [@sebastix](https://coracle.social/_@sebastix.dev)
+- https://pomade.scuttle.works - run by [@mplorentz](https://coracle.social._@mattlorentz.com)
 
 Note that when logging in all signers need to be contacted, which involves some pretty computationally-intensive hashing operations. For that reason, you should avoid adding a large number of signers to your app; 7-10 should be more than enough.
 
