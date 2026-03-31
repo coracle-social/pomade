@@ -146,9 +146,8 @@ export class Client {
 
           if (message.res?.ok) {
             peersByIndex.set(i, url)
+            return message
           }
-
-          return message
         }
       }),
     )

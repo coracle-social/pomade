@@ -1,6 +1,6 @@
 {
   "name": "pomade-monorepo",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.15.5",
@@ -19,7 +19,6 @@
     "lint": "pnpm --filter @pomade/core lint",
     "lint:fix": "pnpm --filter @pomade/core lint:fix",
     "format": "pnpm --filter @pomade/core format",
-    "check": "pnpm --filter @pomade/core check",
     "bump": "node scripts/bump.ts",
     "prepare": "husky"
   },
