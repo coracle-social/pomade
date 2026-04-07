@@ -36,7 +36,8 @@ Client developers SHOULD run one signer themselves. They MAY also consider deplo
 
 - https://pomade.coracle.social - run by [@hodlbod](https://coracle.social/hodlbod@coracle.social)
 - https://pomade.nostrver.se - run by [@sebastix](https://coracle.social/_@sebastix.dev)
-- https://pomade.scuttle.works - run by [@mplorentz](https://coracle.social._@mattlorentz.com)
+- https://pomade.scuttle.works - run by [@mplorentz](https://coracle.social/_@mattlorentz.com)
+- https://pomade.fiatjaf.com - run by [@fiatjaf](https://coracle.social/_@fiatjaf.com)
 
 Note that when logging in all signers need to be contacted, which involves some pretty computationally-intensive hashing operations. For that reason, you should avoid adding a large number of signers to your app; 7-10 should be more than enough.
 
