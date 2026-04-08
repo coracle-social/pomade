@@ -1,6 +1,6 @@
 import * as nt44 from "nostr-tools/nip44"
 import {bytesToHex, hexToBytes} from "@noble/hashes/utils.js"
-import {describe, it, expect, beforeEach, afterEach} from "vitest"
+import {describe, it, expect, beforeEach, afterEach, beforeAll, afterAll} from "vitest"
 import {sortBy, uniq} from "@welshman/lib"
 import {makeSecret, verifyEvent, getPubkey, makeEvent} from "@welshman/util"
 import {
@@ -988,3 +988,60 @@ for (const {label, specs} of suites) {
     })
   })
 }
+
+describe("partial failure resilience", () => {
+  let ctx: SuiteContext = undefined!
+
+  beforeEach(async () => {
+    ctx = await setupSuite(["ts", "ts", "ts"])
+  })
+
+  afterEach(async () => {
+    if (ctx) await teardownSuite(ctx)
+  })
+
+  it("login, recovery, sign, and ecdh succeed with one signer down", async () => {
+    const email = makeEmail()
+    const password = makeSecret()
+    const userSecret = makeSecret()
+    const expectedPubkey = getPubkey(userSecret)
+
+    // Register with 2/3 threshold while all signers are up
+    const clientRegister = await Client.register(2, 3, userSecret)
+    const client = new Client(clientRegister.clientOptions)
+    await client.setupRecovery(email, password)
+
+    // Stop one signer to simulate partial failure
+    ctx.signers[2]!.stop()
+
+    // Login with password should still succeed
+    const loginResult = await Client.loginWithPassword(email, password)
+    expect(loginResult.ok).toBe(true)
+    expect(loginResult.options.length).toBeGreaterThan(0)
+
+    const {client: loginClient, peers: loginPeers} = loginResult.options[0]!
+    const selectResult = await Client.selectLogin(loginResult.clientSecret, loginClient, loginPeers)
+    expect(selectResult.ok).toBe(true)
+
+    const loggedInClient = new Client(selectResult.clientOptions!)
+
+    // Signing should succeed with 2/3 peers available
+    const signResult = await loggedInClient.sign(makeEvent(1))
+    expect(signResult.ok).toBe(true)
+    expect(verifyEvent(signResult.event!)).toBe(true)
+
+    // ECDH should succeed with 2/3 peers available
+    const otherPubkey = getPubkey(makeSecret())
+    const conversationKey = await loggedInClient.getConversationKey(otherPubkey)
+    expect(conversationKey).toBeDefined()
+
+    // Recovery should succeed with 2/3 peers available
+    const recoverResult = await Client.recoverWithPassword(email, password)
+    expect(recoverResult.ok).toBe(true)
+
+    const {client: recoverClient, peers: recoverPeers} = recoverResult.options[0]!
+    const recoverSelect = await Client.selectRecovery(recoverResult.clientSecret, recoverClient, recoverPeers)
+    expect(recoverSelect.ok).toBe(true)
+    expect(getPubkey(recoverSelect.userSecret!)).toBe(expectedPubkey)
+  })
+})

@@ -10,6 +10,7 @@ import {
   isDefined,
   sample,
   textEncoder,
+  identity,
 } from "@welshman/lib"
 import {extract} from "@noble/hashes/hkdf.js"
 import {sha256} from "@noble/hashes/sha2.js"
@@ -76,7 +77,6 @@ export class Client {
   static _buildAccountOptions<T extends LoginStartResponse | RecoveryStartResponse>(
     clientSecret: string,
     messages: Message<T>[],
-    thresholdKey: "total" | "threshold",
   ): ClientOptionsResult<T> {
     const items = messages.flatMap(
       m =>
@@ -93,12 +93,15 @@ export class Client {
     const options: AccountOption[] = []
 
     for (const [, groupItems] of groupBy(item => `${item.pubkey}:${item.client}`, items)) {
-      const required = groupItems[0]?.[thresholdKey]
+      const required = groupItems[0]?.threshold
 
       if (!required || groupItems.length < required) continue
 
-      const {pubkey, client} = groupItems[0]
-      const peers = sortBy(item => item.idx, groupItems).map(item => item.url)
+      const {pubkey, client, total} = groupItems[0]
+      const peers: string[] = new Array(total).fill("")
+      for (const item of groupItems) {
+        peers[item.idx - 1] = item.url
+      }
 
       options.push({pubkey, client, peers})
     }
@@ -215,7 +218,7 @@ export class Client {
       }),
     )
 
-    return this._buildAccountOptions(clientSecret, messages, "total")
+    return this._buildAccountOptions(clientSecret, messages)
   }
 
   static async loginWithChallenge(
@@ -241,18 +244,21 @@ export class Client {
       ),
     )
 
-    return this._buildAccountOptions(clientSecret, messages, "total")
+    return this._buildAccountOptions(clientSecret, messages)
   }
 
   static async selectLogin(clientSecret: string, client: string, peers: string[]) {
     const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
-      peers.map(url => rpc.post<LoginSelectResponse>(url, "/login/select", {client})),
+      peers
+        .filter(identity)
+        .map(url => rpc.post<LoginSelectResponse>(url, "/login/select", {client})),
     )
 
     const group = messages.find(m => m.res?.group)?.res?.group
-    const ok = Boolean(group && messages.every(m => m.res?.ok))
+    const successCount = messages.filter(m => m.res?.ok).length
+    const ok = Boolean(group && successCount >= (group?.threshold || messages.length))
     const clientOptions = ok ? ({group, peers, secret: clientSecret} as ClientOptions) : undefined
 
     return {ok, messages, clientOptions}
@@ -272,7 +278,7 @@ export class Client {
       }),
     )
 
-    return this._buildAccountOptions(clientSecret, messages, "threshold")
+    return this._buildAccountOptions(clientSecret, messages)
   }
 
   static async recoverWithChallenge(
@@ -298,14 +304,16 @@ export class Client {
       ),
     )
 
-    return this._buildAccountOptions(clientSecret, messages, "threshold")
+    return this._buildAccountOptions(clientSecret, messages)
   }
 
   static async selectRecovery(clientSecret: string, client: string, peers: string[]) {
     const rpc = RPC.fromSecret(clientSecret)
 
     const messages = await Promise.all(
-      peers.map(url => rpc.post<RecoverySelectResponse>(url, "/recovery/select", {client})),
+      peers
+        .filter(identity)
+        .map(url => rpc.post<RecoverySelectResponse>(url, "/recovery/select", {client})),
     )
 
     const group = messages.find(m => m.res?.group)?.res?.group
@@ -317,8 +325,14 @@ export class Client {
 
   async sign(stampedEvent: StampedEvent) {
     const {threshold, commits} = this.group
+    const availableCommits = commits.filter(c => this.peers[c.idx - 1])
+
+    if (availableCommits.length < threshold) {
+      throw new Error("Not enough available peers for signing")
+    }
+
     const event = prep(stampedEvent, this.userPubkey)
-    const members = sample(threshold, commits).map(c => c.idx)
+    const members = sample(threshold, availableCommits).map(c => c.idx)
     const template = Lib.create_session_template(members, event.id)
 
     if (!template) throw new Error("Failed to create signing template")
@@ -348,7 +362,13 @@ export class Client {
 
   async getConversationKey(ecdh_pk: string) {
     const {threshold, commits} = this.group
-    const members = sample(threshold, commits).map(c => c.idx)
+    const availableCommits = commits.filter(c => this.peers[c.idx - 1])
+
+    if (availableCommits.length < threshold) {
+      throw new Error("Not enough available peers for ECDH")
+    }
+
+    const members = sample(threshold, availableCommits).map(c => c.idx)
 
     const results = await Promise.all(
       members.map(idx => {
