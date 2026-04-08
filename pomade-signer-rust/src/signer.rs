@@ -535,8 +535,10 @@ impl Signer {
                 mail.to = email.clone();
                 let fut = mailer.send(&self.options.from_email, &self.options.from_name, mail);
                 tokio::spawn(async move {
-                    if let Err(e) = fut.await {
-                        log::error!("[challenge]: mail send failed: {}", e);
+                    match tokio::time::timeout(std::time::Duration::from_secs(30), fut).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => log::error!("[challenge]: mail send failed: {}", e),
+                        Err(_) => log::error!("[challenge]: mail send timed out"),
                     }
                 });
             } else {

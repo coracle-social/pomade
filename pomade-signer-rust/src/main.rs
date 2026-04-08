@@ -9,6 +9,7 @@ mod signer;
 mod storage;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
     Json, Router,
@@ -126,7 +127,11 @@ async fn main() {
         panic!("MAIL_PROVIDER must be set when TEST_MODE is not enabled");
     }
 
-    let http_client = reqwest::Client::new();
+    let http_client = reqwest::ClientBuilder::new()
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .build()
+        .expect("failed to build HTTP client");
 
     let mailer = args
         .mail_provider
@@ -144,6 +149,18 @@ async fn main() {
     };
 
     let signer = Arc::new(Signer::open(options, sled));
+
+    // Run cleanup every hour to purge expired sessions, challenges, and rate limit buckets
+    let cleanup_signer = Arc::clone(&signer);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(3600));
+        interval.tick().await; // skip the immediate first tick
+        loop {
+            interval.tick().await;
+            log::info!("[cleanup]: running periodic cleanup");
+            cleanup_signer.cleanup();
+        }
+    });
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
