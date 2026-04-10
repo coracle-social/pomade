@@ -19,10 +19,7 @@ This guide provides complete documentation and examples for integrating the Poma
 
 ## Prerequisites
 
-Before integrating Pomade, ensure you have:
-
-1. **Running Signer Services**: At least 2-3 signer services running and accessible via HTTPS. These **must** be run by multiple independent parties who are not likely to collude to steal user keys. Signers handle email delivery directly.
-2. **User's Nostr Key**: A nostr private key (either existing or newly generated)
+Before integrating Pomade, ensure you have at least 2-3 signer services running and accessible via HTTPS. These **must** be run by multiple independent parties who are not likely to collude to steal user keys. Signers handle email delivery directly.
 
 ## Core Concepts
 
@@ -379,19 +376,23 @@ for (const message of messages) {
 }
 ```
 
-### Deleting Current Session (Logout)
+### Deactivating Sessions
+
+Session deactivation prevents the session from being used for signing or ecdh, but signers still retain user key shares so that users can still login later. This is best used for logging out of the current device.
 
 ```typescript
 // Log out of current device
 const clientPubkey = await client.getPubkey()
-const {ok} = await client.deleteSession(clientPubkey, client.peers)
+const {ok} = await client.deactivateSession(clientPubkey, client.peers)
 
 if (ok) {
   console.log("Logged out successfully")
 }
 ```
 
-### Deleting Other Sessions (Remote Logout)
+### Deleting Other Sessions
+
+Session deletion requests that signers completely delete user key material for the given session. If the last user session is deleted, they will not be able to log in or recover their key. This is best used for cleaning up old sessions.
 
 ```typescript
 // Get all sessions
