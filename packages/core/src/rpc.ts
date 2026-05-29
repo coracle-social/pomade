@@ -10,6 +10,7 @@ export type PreppedRequest = {
   options?: {
     method: "POST"
     body: string
+    signal: AbortSignal
     headers: {
       "Content-Type": string
       Authorization: string
@@ -55,6 +56,7 @@ export class RPC {
         options: {
           method: "POST",
           body: requestBody,
+          signal: AbortSignal.timeout(15_000),
           headers: {
             "Content-Type": "application/json",
             Authorization: authHeader,
