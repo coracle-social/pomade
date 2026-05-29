@@ -15,7 +15,7 @@ import {
   type SuiteContext,
 } from "./util.js"
 import {Client, hashEmail, hashPassword} from "@pomade/core"
-import type {SignerKind} from "./harness.js"
+import {assertSignersAvailable, type SignerKind} from "./harness.js"
 
 const doLet = <T>(x: T, f: (x: T) => void) => f(x)
 
@@ -27,6 +27,10 @@ const suites: SuiteSpec[] = [
   {label: "8 go signers", specs: Array(8).fill("go") as SignerKind[]},
   {label: "one of each", specs: ["ts", "rust", "go"]},
 ]
+
+// Fail fast at collection time if any signer binary required by the suites
+// below is missing, instead of grinding through earlier suites first.
+assertSignersAvailable(suites.flatMap(s => s.specs))
 
 for (const {label, specs} of suites) {
   describe(`protocol flows (${label})`, () => {

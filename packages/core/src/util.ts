@@ -127,3 +127,28 @@ export function debug(...args: any) {
     console.log(...args)
   }
 }
+
+// Other stuff
+
+export function permutations<T>(items: T[], k: number): T[][] {
+  if (k <= 0) return [[]]
+  if (k > items.length) return []
+  if (k === items.length) return [items]
+  const [head, ...rest] = items
+  return [...permutations(rest, k - 1).map(combo => [head, ...combo]), ...permutations(rest, k)]
+}
+
+export function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal.reason)
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener("abort", onAbort, {once: true})
+  })
+}

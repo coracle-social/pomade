@@ -12,6 +12,18 @@ const GO_SIGNER_BIN = join(REPO_ROOT, "pomade-signer-go/bin/pomade-signer")
 
 export type SignerKind = "ts" | "rust" | "go"
 
+const SIGNER_BINS: Record<SignerKind, {path: string; build: string}> = {
+  ts: {path: TS_SIGNER_BIN, build: "pnpm --filter @pomade/signer build"},
+  rust: {
+    path: RUST_SIGNER_BIN,
+    build: "cargo build --release (in pomade-signer-rust/)",
+  },
+  go: {
+    path: GO_SIGNER_BIN,
+    build: "go build -o bin/pomade-signer . (in pomade-signer-go/)",
+  },
+}
+
 export type SignerInstance = {
   url: string
   stop: () => void
@@ -43,10 +55,6 @@ async function spawnSigner(
   port: number,
   challengePayloads: ChallengePayload[],
 ): Promise<SignerInstance> {
-  if (kind === "go" && !existsSync(GO_SIGNER_BIN)) {
-    throw new Error(`go signer binary not found at ${GO_SIGNER_BIN}`)
-  }
-
   const secret = makeSecret()
   const url = `http://127.0.0.1:${port}`
   const dataDir = mkdtempSync(join(tmpdir(), `pomade-signer-${kind}-${port}-`))
@@ -128,9 +136,24 @@ function allocatePort(): number {
   return nextPort++
 }
 
+export function assertSignersAvailable(specs: SignerKind[]): void {
+  const missing = [...new Set(specs)]
+    .map(kind => SIGNER_BINS[kind])
+    .filter(bin => !existsSync(bin.path))
+
+  if (missing.length > 0) {
+    throw new Error(
+      "Signer binaries are missing. Build them before running tests:\n" +
+        missing.map(bin => `  - ${bin.path}\n    ${bin.build}`).join("\n"),
+    )
+  }
+}
+
 export async function spawnSigners(
   specs: SignerKind[],
   challengePayloads: ChallengePayload[],
 ): Promise<SignerInstance[]> {
+  assertSignersAvailable(specs)
+
   return Promise.all(specs.map(kind => spawnSigner(kind, allocatePort(), challengePayloads)))
 }

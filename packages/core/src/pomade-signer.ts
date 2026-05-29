@@ -32,11 +32,11 @@ export class PomadeSigner implements ISigner {
   sign = async (event: StampedEvent, options: SignOptions = {}): Promise<SignedEvent> => {
     const result = await this.client.sign(event)
 
-    if (!result.event) {
+    if (!result.ok) {
       throw new Error(result.messages[0]?.res?.message || "Failed to sign event")
     }
 
-    return result.event as SignedEvent
+    return result.event
   }
 
   nip04 = {

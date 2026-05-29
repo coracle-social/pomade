@@ -1,3 +1,7 @@
+## Commands
+
+For commands, refer to the justfile.
+
 ## Coding conventions
 
 ### Return values
