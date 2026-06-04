@@ -96,3 +96,28 @@ export type ClientOptions = {
   peers: string[]
 }
 ```
+
+## Cryptographic conventions
+
+### FROST session-nonce tweak is additive
+
+The per-session nonce tweak (`tweak_seckey` / `tweak_pubkey`) is **additive**, not
+multiplicative:
+
+- `tweak_seckey(sk, t) = (sk + t) mod N`
+- `tweak_pubkey(P, t) = P + t*G`
+
+This is consistent across all three signer implementations and the reference
+`@frostr/bifrost`:
+
+- TS reference: bifrost's own `tweak_seckey` (`FD.add(sk, twk)`) — used by
+  `create_sighash_share`
+- Go: `frost-taproot-go/helpers/helpers.go` `TweakSeckey`/`TweakPubkey`
+- Rust: `frost-taproot-rust/src/helpers.rs` `tweak_seckey`/`tweak_pubkey`
+
+Gotcha: the transitive dependency `@cmdcode/frost` defines a *multiplicative*
+`tweak_seckey` (`mod_n(sk * t)`), but bifrost does **not** use it for session-nonce
+tweaking — it defines and uses its own additive version. Do not "fix" Go/Rust to be
+multiplicative to match `@cmdcode/frost`; they correctly match bifrost. Both
+conventions are internally self-consistent (`(sk+t)*G == sk*G + t*G`), so a mismatch
+would silently produce invalid aggregate signatures rather than an obvious error.
