@@ -540,33 +540,6 @@ func (s *Signer) handleLoginSelect(auth NostrAuth, data LoginSelectRequest) Logi
 	return LoginSelectResponse{OK: true, Message: "Login successfully completed.", Group: &group}
 }
 
-func (s *Signer) handleSign(auth NostrAuth, data SignRequest) SignResponse {
-	client := auth.Pubkey.Hex()
-	session := s.sessions.Get(client)
-	if session == nil {
-		return SignResponse{OK: false, Message: "No session found for client"}
-	}
-	if session.Deactivated != nil {
-		return SignResponse{OK: false, Message: "Session is deactivated"}
-	}
-	if !s.checkAndRecordRateLimit(client) {
-		return SignResponse{OK: false, Message: "Rate limit exceeded. Please try again later."}
-	}
-	if !verifySessionPkg(session.Group, data.Request) {
-		return SignResponse{OK: false, Message: "Failed to sign event"}
-	}
-	if !containsIdx(data.Request.Members, session.Share.Idx) {
-		return SignResponse{OK: false, Message: "Signer index not present in members list"}
-	}
-	result, ok := createPsigPkg(session.Group, data, session.Share)
-	if !ok {
-		return SignResponse{OK: false, Message: "Failed to sign event"}
-	}
-	session.LastActivity = nowSec()
-	s.sessions.Set(client, *session)
-	return SignResponse{OK: true, Message: "Successfully signed event", Result: result}
-}
-
 func containsIdx(members []uint32, idx uint32) bool {
 	for _, m := range members {
 		if m == idx {
@@ -683,19 +656,6 @@ func (s *Signer) handleSignComplete(auth NostrAuth, data SignCompleteRequest) Si
 		return SignCompleteResponse{OK: false, Message: "Failed to sign event"}
 	}
 
-	// The two-round flow signs exactly one message per fresh nonce. Wrap the
-	// single hash as a one-element batch so the existing single-message logic
-	// (session id, pnonce validation, signing) is reused unchanged.
-	request := SignRequestInner{
-		Content: data.Request.Content,
-		Hashes:  [][]string{data.Request.Hash},
-		Members: data.Request.Members,
-		Stamp:   data.Request.Stamp,
-		Type:    data.Request.Type,
-		Gid:     data.Request.Gid,
-		Sid:     data.Request.Sid,
-	}
-
 	// Atomic single-use: the nonce is consumed here and never restored, even if
 	// signing below fails. A second completion for this commit id is refused.
 	entry, ok := s.takeCommit(data.CommitID, client)
@@ -703,20 +663,20 @@ func (s *Signer) handleSignComplete(auth NostrAuth, data SignCompleteRequest) Si
 		return SignCompleteResponse{OK: false, Message: "Commitment not found or already used"}
 	}
 
-	if !verifySessionPkg(session.Group, request) {
+	if !verifySessionPkg(session.Group, data.Request) {
 		return SignCompleteResponse{OK: false, Message: "Failed to sign event"}
 	}
-	if !containsIdx(request.Members, session.Share.Idx) {
+	if !containsIdx(data.Request.Members, session.Share.Idx) {
 		return SignCompleteResponse{OK: false, Message: "Signer index not present in members list"}
 	}
-	if !sameMembers(entry.members, request.Members) {
+	if !sameMembers(entry.members, data.Request.Members) {
 		return SignCompleteResponse{OK: false, Message: "Failed to sign event"}
 	}
-	if !validatePnonces(session.Group, request.Members, data.Pnonces, entry.secret) {
+	if !validatePnonces(session.Group, data.Request.Members, data.Pnonces, entry.secret) {
 		return SignCompleteResponse{OK: false, Message: "Failed to sign event"}
 	}
 
-	psig, ok := createPsigPkgWithNonce(session.Group, request, session.Share, entry.secret, data.Pnonces)
+	psig, ok := createPsigPkgWithNonce(session.Group, data.Request, session.Share, entry.secret, data.Pnonces)
 	if !ok {
 		return SignCompleteResponse{OK: false, Message: "Failed to sign event"}
 	}
@@ -857,12 +817,6 @@ func (s *Signer) Handle(path string, method string, authHeader string, expectedU
 			return map[string]any{"ok": false, "message": "Failed to validate request data."}
 		}
 		return s.handleRegister(*auth, *data)
-	case "/sign":
-		data, ok := decodeJSON[SignRequest](body)
-		if !ok {
-			return map[string]any{"ok": false, "message": "Failed to validate request data."}
-		}
-		return s.handleSign(*auth, *data)
 	case "/sign/commit":
 		data, ok := decodeJSON[SignCommitRequest](body)
 		if !ok {

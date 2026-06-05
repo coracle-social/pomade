@@ -14,10 +14,8 @@ type Group struct {
 }
 
 type Share struct {
-	Idx      uint32 `json:"idx"`
-	BinderSn string `json:"binder_sn"`
-	HiddenSn string `json:"hidden_sn"`
-	Seckey   string `json:"seckey"`
+	Idx    uint32 `json:"idx"`
+	Seckey string `json:"seckey"`
 }
 
 type SessionItem struct {
@@ -55,33 +53,6 @@ type RegisterRequest struct {
 type RegisterResponse struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message"`
-}
-
-type SignRequestInner struct {
-	Content *string    `json:"content"`
-	Hashes  [][]string `json:"hashes"`
-	Members []uint32   `json:"members"`
-	Stamp   uint64     `json:"stamp"`
-	Type    string     `json:"type"`
-	Gid     string     `json:"gid"`
-	Sid     string     `json:"sid"`
-}
-
-type SignRequest struct {
-	Request SignRequestInner `json:"request"`
-}
-
-type SignResult struct {
-	Idx    uint32      `json:"idx"`
-	Psigs  [][2]string `json:"psigs"`
-	Pubkey string      `json:"pubkey"`
-	Sid    string      `json:"sid"`
-}
-
-type SignResponse struct {
-	OK      bool        `json:"ok"`
-	Message string      `json:"message"`
-	Result  *SignResult `json:"result,omitempty"`
 }
 
 type SignCommitRequest struct {

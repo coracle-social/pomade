@@ -18,7 +18,7 @@ import {hexToBytes, bytesToHex} from "@noble/hashes/utils.js"
 import {prep, makeSecret} from "@welshman/util"
 import type {StampedEvent, SignedEvent} from "@welshman/util"
 import {Lib} from "@frostr/bifrost"
-import type {CommitPackage, GroupPackage} from "@frostr/bifrost"
+import type {CommitPackage, GroupPackage, SharePackage} from "@frostr/bifrost"
 import {context, hashEmail, hashPassword, permutations, delay} from "./util.js"
 import {RPC} from "./rpc.js"
 import {PomadeSigner} from "./pomade-signer.js"
@@ -141,10 +141,12 @@ export class Client {
       shares.map(async (share, i) => {
         while (remainingSignerUrls.length > 0) {
           const url = remainingSignerUrls.shift()!
+          // Only the index and secret share are registered; the dealer package's
+          // per-share FROST nonces are not used by the two-round signing flow.
           const message = await rpc.post<RegisterResponse>(
             url,
             "/register",
-            {share, group, recovery},
+            {share: {idx: share.idx, seckey: share.seckey}, group, recovery},
             {pow: context.registerPow},
           )
 
@@ -318,7 +320,7 @@ export class Client {
     )
 
     const group = messages.find(m => m.res?.group)?.res?.group
-    const shares = removeUndefined(messages.map(m => m.res?.share))
+    const shares = removeUndefined(messages.map(m => m.res?.share)) as SharePackage[]
     const userSecret = tryCatch(() => Lib.recover_secret_key(group!, shares))
 
     return {ok: Boolean(userSecret), messages, userSecret}

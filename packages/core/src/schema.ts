@@ -2,7 +2,6 @@ import * as z from "zod"
 
 // Security limits to prevent DoS attacks via unbounded payloads
 const MAX_HASHES_PER_REQUEST = 10 // Maximum number of hashes in a single signature request
-const MAX_HASH_VECTORS = 10 // Maximum number of hash vectors per request
 const MAX_MEMBERS = 5 // Maximum number of members in a signing group
 const MAX_COMMITS = 5 // Maximum number of commits in a group
 
@@ -34,8 +33,6 @@ const group = z.object({
 
 const share = z.object({
   idx: z.number(),
-  binder_sn: hex32,
-  hidden_sn: hex32,
   seckey: hex32,
 })
 
@@ -92,29 +89,6 @@ export const Schema = {
   registerResponse: z.object({
     ok: z.boolean(),
     message: z.string(),
-  }),
-  signRequest: z.object({
-    request: z.object({
-      content: z.string().nullable(),
-      hashes: sighash_vec.array().max(MAX_HASH_VECTORS),
-      members: z.number().array().max(MAX_MEMBERS),
-      stamp: z.number(),
-      type: z.string(),
-      gid: hex32,
-      sid: hex32,
-    }),
-  }),
-  signResponse: z.object({
-    ok: z.boolean(),
-    message: z.string(),
-    result: z
-      .object({
-        idx: z.number(),
-        psigs: psig_entry.array(),
-        pubkey: hex33,
-        sid: hex32,
-      })
-      .optional(),
   }),
   signCommitRequest: z.object({
     members: z.number().array().max(MAX_MEMBERS),

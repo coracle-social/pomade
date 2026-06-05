@@ -4,7 +4,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 // Security limits to prevent DoS attacks via unbounded payloads
 const MAX_HASHES_PER_REQUEST: usize = 10;
-const MAX_HASH_VECTORS: usize = 10;
 const MAX_MEMBERS: usize = 5;
 const MAX_COMMITS: usize = 5;
 
@@ -103,8 +102,6 @@ pub struct Group {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Share {
     pub idx: u32,
-    pub binder_sn: Hex32,
-    pub hidden_sn: Hex32,
     pub seckey: Hex32,
 }
 
@@ -208,39 +205,6 @@ pub struct RegisterResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignRequestInner {
-    pub content: Option<String>,
-    pub hashes: BoundedVec<SighashVec, MAX_HASH_VECTORS>,
-    pub members: BoundedVec<u32, MAX_MEMBERS>,
-    pub stamp: u64,
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub gid: Hex32,
-    pub sid: Hex32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignRequest {
-    pub request: SignRequestInner,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignResult {
-    pub idx: u32,
-    pub psigs: Vec<PsigEntry>,
-    pub pubkey: Hex33,
-    pub sid: Hex32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignResponse {
-    pub ok: bool,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<SignResult>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignCommitRequest {
     pub members: BoundedVec<u32, MAX_MEMBERS>,
 }
@@ -269,10 +233,8 @@ pub struct PublicNonceItem {
     pub binder_pn: Hex33,
 }
 
-/// The `request` object of a /sign/complete call. Identical to
-/// [`SignRequestInner`] except it carries a single sighash vector `hash`
-/// instead of a `hashes` batch, so each fresh round-1 nonce signs exactly one
-/// message.
+/// The `request` object of a /sign/complete call. Carries a single sighash
+/// vector `hash` so each fresh round-1 nonce signs exactly one message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignCompleteRequestInner {
     pub content: Option<String>,
@@ -283,24 +245,6 @@ pub struct SignCompleteRequestInner {
     pub kind: String,
     pub gid: Hex32,
     pub sid: Hex32,
-}
-
-impl SignCompleteRequestInner {
-    /// Wrap this single-message request as an internal [`SignRequestInner`] with
-    /// `hashes = vec![hash]`, so the existing session/signing logic can be reused
-    /// unchanged. The resulting sid is computed over a single-message `[hash]`,
-    /// byte-identical to the session the client/bifrost computed.
-    pub fn to_inner(&self) -> SignRequestInner {
-        SignRequestInner {
-            content: self.content.clone(),
-            hashes: BoundedVec(vec![self.hash.clone()]),
-            members: BoundedVec(self.members.0.clone()),
-            stamp: self.stamp,
-            kind: self.kind.clone(),
-            gid: self.gid.clone(),
-            sid: self.sid.clone(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -588,8 +532,6 @@ mod tests {
     fn test_share_serialization() {
         let share = Share {
             idx: 0,
-            binder_sn: Hex32("a".repeat(64)),
-            hidden_sn: Hex32("b".repeat(64)),
             seckey: Hex32("c".repeat(64)),
         };
 
@@ -604,8 +546,6 @@ mod tests {
         let register = RegisterRequest {
             share: Share {
                 idx: 0,
-                binder_sn: Hex32("a".repeat(64)),
-                hidden_sn: Hex32("b".repeat(64)),
                 seckey: Hex32("c".repeat(64)),
             },
             group: Group {
@@ -647,24 +587,6 @@ mod tests {
         assert_eq!(deserialized.created_at, 1234567890);
         assert_eq!(deserialized.deactivated_at, None);
         assert_eq!(deserialized.email, Some("test@example.com".to_string()));
-    }
-
-    #[test]
-    fn test_sign_request_validation() {
-        // Valid sign request
-        let valid = SignRequest {
-            request: SignRequestInner {
-                content: Some("test content".to_string()),
-                hashes: BoundedVec(vec![SighashVec(vec![Hex32("a".repeat(64))])]),
-                members: BoundedVec(vec![0, 1]),
-                stamp: 1234567890,
-                kind: "sign".to_string(),
-                gid: Hex32("b".repeat(64)),
-                sid: Hex32("c".repeat(64)),
-            },
-        };
-        let json = serde_json::to_string(&valid).unwrap();
-        let _deserialized: SignRequest = serde_json::from_str(&json).unwrap();
     }
 
     #[test]

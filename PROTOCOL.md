@@ -40,8 +40,6 @@ POST /register
 {
   share: {
     idx: number // commit index
-    binder_sn: string // 32 byte hex string
-    hidden_sn: string // 32 byte hex string
     seckey: string // 32 byte hex string
   }
   group: {
@@ -387,8 +385,6 @@ POST /recovery/result
 {
   share?: {
     idx: number            // commit index
-    binder_sn: string      // 32 byte hex string
-    hidden_sn: string      // 32 byte hex string
     seckey: string         // 32 byte hex string
   }
   group?: {

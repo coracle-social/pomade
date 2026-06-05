@@ -5,7 +5,7 @@ pub use crate::schema::{
     LoginSelectResponse, LoginStartRequest, LoginStartResponse, RecoverySelectRequest,
     RecoverySelectResponse, RecoverySetupRequest, RecoverySetupResponse, RecoveryStartRequest,
     RecoveryStartResponse, RegisterRequest, RegisterResponse, SessionDeleteRequest,
-    SessionDeleteResponse, SessionListRequest, SessionListResponse, SignRequest, SignResponse,
+    SessionDeleteResponse, SessionListRequest, SessionListResponse,
 };
 
 #[derive(Debug, Clone)]

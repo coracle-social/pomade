@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
-/// Bridges the hex-string schema types (GroupPackage, SharePackage, SignRequest)
-/// to frost-taproot's byte-array types, implementing the bifrost session logic.
+/// Bridges the hex-string schema types (GroupPackage, SharePackage,
+/// SignCompleteRequest) to frost-taproot's byte-array types, implementing the
+/// bifrost session logic.
 use frost_taproot::{
     Error,
     context::get_group_signing_ctx,
@@ -12,10 +13,7 @@ use frost_taproot::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::schema::{
-    Commit, EcdhRequest, EcdhResult, Group, Hex32, PsigEntry, Share, SignCompleteResult,
-    SignRequest, SignResult,
-};
+use crate::schema::{EcdhRequest, EcdhResult, Group, Hex32, PsigEntry, Share, SignCompleteResult};
 
 /// Mirrors `Buff.bytes(n)` / `numToBytes(n, undefined)` from @cmdcode/buff:
 /// encodes n as the minimum number of big-endian bytes needed (1, 2, or 4).
@@ -77,22 +75,6 @@ fn get_sighash_binder(session_id: &[u8; 32], member_idx: u32, sigvec: &[Hex32]) 
     hasher.finalize().into()
 }
 
-/// Tweak a commit's public nonces for a given sighash vector.
-/// Mirrors `create_sighash_commit` in bifrost.
-fn tweak_commit_pnonces(
-    commit: &Commit,
-    session_id: &[u8; 32],
-    sigvec: &[Hex32],
-) -> Result<PublicNonce, Error> {
-    tweak_pnonce(
-        commit.idx,
-        &commit.hidden_pn.0,
-        &commit.binder_pn.0,
-        session_id,
-        sigvec,
-    )
-}
-
 /// Tweak a raw pair of hex public nonces for a given sighash vector.
 /// Mirrors `create_sighash_commit` in bifrost, sourcing the base nonces from
 /// either the registration commits or a round-1 fresh-nonce set.
@@ -119,29 +101,6 @@ fn tweak_pnonce(
     })
 }
 
-/// Tweak a share's secret nonces for a given sighash vector.
-/// Mirrors `create_sighash_share` in bifrost.
-fn tweak_share_snonces(
-    share: &Share,
-    session_id: &[u8; 32],
-    sigvec: &[Hex32],
-) -> Result<SecretNonce, Error> {
-    let bind_hash = get_sighash_binder(session_id, share.idx, sigvec);
-    let hidden_sn = tweak_seckey(
-        &decode32(&share.hidden_sn.0).map_err(|_| Error::InvalidPoint)?,
-        &bind_hash,
-    );
-    let binder_sn = tweak_seckey(
-        &decode32(&share.binder_sn.0).map_err(|_| Error::InvalidPoint)?,
-        &bind_hash,
-    );
-    Ok(SecretNonce {
-        idx: share.idx,
-        hidden_sn,
-        binder_sn,
-    })
-}
-
 /// Per-sighash signing context: the frost-taproot GroupSigningCtx plus the sighash it covers.
 struct SighashCtx {
     sighash: [u8; 32],
@@ -155,40 +114,19 @@ struct BasePnonce {
     binder_pn: String,
 }
 
-/// Build all per-sighash contexts for a sign request (mirrors `get_session_ctx` in bifrost),
-/// deriving each member's base public nonce from the registration commits.
-fn build_sighash_contexts(
-    group: &Group,
-    request: &crate::schema::SignRequestInner,
-    session_id: &[u8; 32],
-) -> Result<Vec<SighashCtx>, Error> {
-    let base: Vec<BasePnonce> = request
-        .members
-        .0
-        .iter()
-        .filter_map(|&idx| group.commits.0.iter().find(|c| c.idx == idx))
-        .map(|c| BasePnonce {
-            idx: c.idx,
-            hidden_pn: c.hidden_pn.0.clone(),
-            binder_pn: c.binder_pn.0.clone(),
-        })
-        .collect();
-    build_sighash_contexts_from_pnonces(group, request, session_id, &base)
-}
-
 /// Build all per-sighash contexts from an explicit set of base public nonces.
 /// Used by the two-round flow where the base nonces are the fresh round-1 nonces
 /// rather than the registration commits.
 fn build_sighash_contexts_from_pnonces(
     group: &Group,
-    request: &crate::schema::SignRequestInner,
+    request: &crate::schema::SignCompleteRequestInner,
     session_id: &[u8; 32],
     base: &[BasePnonce],
 ) -> Result<Vec<SighashCtx>, Error> {
     let group_pk = decode33(&group.group_pk.0).map_err(|_| Error::InvalidPoint)?;
     let mut result = Vec::new();
 
-    for sigvec in &request.hashes.0 {
+    for sigvec in std::iter::once(&request.hash) {
         let hashes = &sigvec.0;
         let sighash = decode32(&hashes[0].0).map_err(|_| Error::InvalidPoint)?;
         let tweaks: Vec<[u8; 32]> = hashes[1..]
@@ -213,7 +151,10 @@ fn build_sighash_contexts_from_pnonces(
 
 /// Compute the session ID from the group ID and session template fields.
 /// Mirrors `get_session_id` in bifrost.
-fn compute_session_id(group: &Group, request: &crate::schema::SignRequestInner) -> [u8; 32] {
+fn compute_session_id(
+    group: &Group,
+    request: &crate::schema::SignCompleteRequestInner,
+) -> [u8; 32] {
     // group_id = SHA-256(commits_prefix || group_pk)
     let group_id = compute_group_id(group);
 
@@ -223,11 +164,12 @@ fn compute_session_id(group: &Group, request: &crate::schema::SignRequestInner) 
     for &m in &request.members.0 {
         hasher.update(num_to_bytes_be_varwidth(m));
     }
-    for sigvec in &request.hashes.0 {
-        for h in &sigvec.0 {
-            if let Ok(b) = hex::decode(&h.0) {
-                hasher.update(&b);
-            }
+    // The session is computed over the single sighash vector. This is
+    // byte-identical to the old `for sigvec in hashes { for h in sigvec.0 }`
+    // because `hashes` held exactly one element equal to `hash`.
+    for h in &request.hash.0 {
+        if let Ok(b) = hex::decode(&h.0) {
+            hasher.update(&b);
         }
     }
     // Buff.bytes(content ?? '00'): hex-decode the string, or [0x00] if null
@@ -273,7 +215,10 @@ fn compute_group_id(group: &Group) -> [u8; 32] {
 }
 
 /// Verify that the request's gid/sid match what we'd compute from the group.
-pub fn verify_session_pkg(group: &Group, request: &crate::schema::SignRequestInner) -> bool {
+pub fn verify_session_pkg(
+    group: &Group,
+    request: &crate::schema::SignCompleteRequestInner,
+) -> bool {
     let gid = compute_group_id(group);
     let sid = compute_session_id(group, request);
     hex::encode(gid) == request.gid.0 && hex::encode(sid) == request.sid.0
@@ -287,7 +232,10 @@ pub fn test_group_id(group: &Group) -> [u8; 32] {
 
 /// Test-only: expose the session id for building wire-compatible requests.
 #[cfg(test)]
-pub fn test_session_id(group: &Group, request: &crate::schema::SignRequestInner) -> [u8; 32] {
+pub fn test_session_id(
+    group: &Group,
+    request: &crate::schema::SignCompleteRequestInner,
+) -> [u8; 32] {
     compute_session_id(group, request)
 }
 
@@ -296,7 +244,7 @@ pub fn test_session_id(group: &Group, request: &crate::schema::SignRequestInner)
 #[cfg(test)]
 pub fn test_build_contexts(
     group: &Group,
-    request: &crate::schema::SignRequestInner,
+    request: &crate::schema::SignCompleteRequestInner,
     pnonces: &[crate::schema::PublicNonceItem],
 ) -> Vec<frost_taproot::types::GroupSigningCtx> {
     let session_id = compute_session_id(group, request);
@@ -315,56 +263,8 @@ pub fn test_build_contexts(
         .collect()
 }
 
-/// Create a partial signature package for a sign request (mirrors `Lib.create_psig_pkg`).
-pub fn create_psig_pkg(
-    group: &Group,
-    request: &SignRequest,
-    share: &Share,
-) -> Result<SignResult, Error> {
-    let session_id = compute_session_id(group, &request.request);
-    let sighash_ctxs = build_sighash_contexts(group, &request.request, &session_id)?;
-
-    let seckey = decode32(&share.seckey.0).map_err(|_| Error::InvalidPoint)?;
-    let pubkey = get_pubkey(&seckey);
-    let secret_share = SecretShare {
-        idx: share.idx,
-        seckey,
-    };
-
-    let mut psigs: Vec<PsigEntry> = Vec::new();
-
-    let sighash_hex = sighash_ctxs
-        .iter()
-        .map(|sc| hex::encode(sc.sighash))
-        .collect::<Vec<_>>();
-    for (sc, sc_hex) in sighash_ctxs.iter().zip(sighash_hex.iter()) {
-        let sigvec = request
-            .request
-            .hashes
-            .0
-            .iter()
-            .find(|v| v.0.first().map(|h| &h.0) == Some(sc_hex))
-            .map(|v| v.0.as_slice())
-            .unwrap_or_default();
-        let snonce = tweak_share_snonces(share, &session_id, sigvec)?;
-
-        let sig = sign_msg(&sc.ctx, &secret_share, &snonce)?;
-        psigs.push((
-            crate::schema::Hex32(hex::encode(sc.sighash)),
-            crate::schema::Hex32(hex::encode(sig.psig)),
-        ));
-    }
-
-    Ok(SignResult {
-        idx: share.idx,
-        psigs,
-        pubkey: crate::schema::Hex33(encode33(&pubkey)),
-        sid: crate::schema::Hex32(hex::encode(session_id)),
-    })
-}
-
-/// Tweak a fresh secret nonce for a given sighash vector.
-/// Mirrors `tweak_share_snonces` but operates on a round-1 secret nonce.
+/// Tweak a fresh round-1 secret nonce for a given sighash vector.
+/// Mirrors `create_sighash_share` in bifrost.
 fn tweak_secret_nonce(
     secret: &SecretNonce,
     session_id: &[u8; 32],
@@ -378,16 +278,15 @@ fn tweak_secret_nonce(
     }
 }
 
-/// Create a partial signature package for the two-round flow (mirrors `create_psig_pkg`
-/// but signs with a fresh round-1 secret nonce and builds contexts from the request's
-/// fresh `pnonces` rather than the registration commits).
+/// Create a partial signature package for the two-round flow: signs with a fresh
+/// round-1 secret nonce and builds contexts from the request's fresh `pnonces`
+/// rather than the registration commits.
 ///
-/// `request` is the internally-wrapped single-message request (`hashes` holds
-/// exactly one sighash vector), so the signing loop runs exactly once and the
-/// single resulting partial signature is returned as `psig`.
+/// `request` carries a single sighash vector (`hash`), so the signing loop runs
+/// exactly once and the single resulting partial signature is returned as `psig`.
 pub fn create_psig_pkg_with_nonce(
     group: &Group,
-    request: &crate::schema::SignRequestInner,
+    request: &crate::schema::SignCompleteRequestInner,
     share: &Share,
     secret: &SecretNonce,
     pnonces: &[crate::schema::PublicNonceItem],
@@ -413,18 +312,9 @@ pub fn create_psig_pkg_with_nonce(
 
     let mut psigs: Vec<PsigEntry> = Vec::new();
 
-    let sighash_hex = sighash_ctxs
-        .iter()
-        .map(|sc| hex::encode(sc.sighash))
-        .collect::<Vec<_>>();
-    for (sc, sc_hex) in sighash_ctxs.iter().zip(sighash_hex.iter()) {
-        let sigvec = request
-            .hashes
-            .0
-            .iter()
-            .find(|v| v.0.first().map(|h| &h.0) == Some(sc_hex))
-            .map(|v| v.0.as_slice())
-            .unwrap_or_default();
+    // The request carries exactly one sighash vector, matching the single context.
+    for sc in sighash_ctxs.iter() {
+        let sigvec = request.hash.0.as_slice();
         let snonce = tweak_secret_nonce(secret, &session_id, sigvec);
 
         let sig = sign_msg(&sc.ctx, &secret_share, &snonce)?;
@@ -476,8 +366,8 @@ pub fn create_ecdh_pkg(request: &EcdhRequest, share: &Share) -> Result<EcdhResul
 mod tests {
     use super::*;
     use crate::schema::{
-        BoundedVec, Commit, EcdhRequest, Group, Hex32, Hex33, Share, SighashVec, SignRequest,
-        SignRequestInner,
+        BoundedVec, Commit, EcdhRequest, Group, Hex32, Hex33, PublicNonceItem, Share, SighashVec,
+        SignCompleteRequestInner,
     };
 
     /// End-to-end test: generate a 2-of-3 FROST group, sign a nostr event,
@@ -545,15 +435,26 @@ mod tests {
             ),
         };
 
-        // Build the schema Share for each signer.
+        // Build the schema Share for each signer (just idx + seckey now).
         let schema_shares: Vec<Share> = low_shares
             .iter()
-            .zip(&commit_pkgs)
-            .map(|(s, c)| Share {
+            .map(|s| Share {
                 idx: s.idx,
                 seckey: Hex32(hex::encode(s.seckey)),
-                hidden_sn: Hex32(hex::encode(c.hidden_sn)),
-                binder_sn: Hex32(hex::encode(c.binder_sn)),
+            })
+            .collect();
+
+        // The fresh round-1 secret nonces for each signer.
+        let secret_nonces: Vec<SecretNonce> =
+            commit_pkgs.iter().map(|c| c.secret_nonce()).collect();
+
+        // The matching public nonces, as carried in /sign/complete's pnonces.
+        let pnonces: Vec<PublicNonceItem> = commit_pkgs
+            .iter()
+            .map(|c| PublicNonceItem {
+                idx: c.idx,
+                hidden_pn: Hex33(hex::encode(c.hidden_pn)),
+                binder_pn: Hex33(hex::encode(c.binder_pn)),
             })
             .collect();
 
@@ -561,50 +462,48 @@ mod tests {
         let gid_bytes = compute_group_id(&schema_group);
         let gid = hex::encode(gid_bytes);
 
-        let request_inner_template = SignRequestInner {
+        let request_template = SignCompleteRequestInner {
             gid: Hex32(gid.clone()),
             sid: Hex32("00".repeat(32)), // placeholder; recomputed below
             members: BoundedVec(members.clone()),
-            hashes: BoundedVec(vec![SighashVec(vec![Hex32(sighash_hex.clone())])]),
+            hash: SighashVec(vec![Hex32(sighash_hex.clone())]),
             content: None,
             kind: "message".to_string(),
             stamp: 1234567890,
         };
-        let sid_bytes = compute_session_id(&schema_group, &request_inner_template);
+        let sid_bytes = compute_session_id(&schema_group, &request_template);
         let sid = hex::encode(sid_bytes);
 
-        let request_inner = SignRequestInner {
+        let request = SignCompleteRequestInner {
             sid: Hex32(sid),
-            ..request_inner_template
+            ..request_template
         };
 
         assert!(
-            verify_session_pkg(&schema_group, &request_inner),
+            verify_session_pkg(&schema_group, &request),
             "gid/sid should verify"
         );
 
-        let sign_request = SignRequest {
-            request: request_inner,
-        };
-
-        // ── 4. Produce partial signatures from each signer ────────────────────
+        // ── 4. Produce partial signatures from each signer (round 2) ──────────
 
         let psig_results: Vec<_> = schema_shares
             .iter()
-            .map(|share| create_psig_pkg(&schema_group, &sign_request, share).unwrap())
+            .zip(&secret_nonces)
+            .map(|(share, secret)| {
+                create_psig_pkg_with_nonce(&schema_group, &request, share, secret, &pnonces)
+                    .unwrap()
+            })
             .collect();
 
         // ── 5. Aggregate partial signatures ───────────────────────────────────
 
         // Rebuild the signing context to call combine_partial_sigs.
-        let session_id = compute_session_id(&schema_group, &sign_request.request);
-        let sighash_ctxs =
-            build_sighash_contexts(&schema_group, &sign_request.request, &session_id).unwrap();
+        let sighash_ctxs = test_build_contexts(&schema_group, &request, &pnonces);
 
         let share_sigs: Vec<ShareSignature> = psig_results
             .iter()
             .map(|r| {
-                let psig_hex = &r.psigs[0].1.0;
+                let psig_hex = &r.psig.1.0;
                 ShareSignature {
                     idx: r.idx,
                     pubkey: decode33(&r.pubkey.0).unwrap(),
@@ -613,7 +512,7 @@ mod tests {
             })
             .collect();
 
-        let final_sig = combine_partial_sigs(&sighash_ctxs[0].ctx, &share_sigs).unwrap();
+        let final_sig = combine_partial_sigs(&sighash_ctxs[0], &share_sigs).unwrap();
 
         // ── 6. Assemble and verify the nostr event ────────────────────────────
 
@@ -646,8 +545,6 @@ mod tests {
         // Use a valid-looking secret key (32 bytes of hex)
         Share {
             idx,
-            binder_sn: Hex32("e".repeat(64)),
-            hidden_sn: Hex32("f".repeat(64)),
             seckey: Hex32("1".repeat(64)),
         }
     }
@@ -714,8 +611,6 @@ mod tests {
         let group = create_test_group_with_commits(1, vec![create_test_commit(0, "02")]);
         let share = Share {
             idx: 0,
-            binder_sn: Hex32("e".repeat(64)),
-            hidden_sn: Hex32("f".repeat(64)),
             seckey: Hex32("invalid".to_string()), // Invalid hex
         };
 
@@ -775,9 +670,9 @@ mod tests {
     fn test_compute_session_id_deterministic() {
         let group = create_test_group_with_commits(1, vec![create_test_commit(0, "02")]);
 
-        let request = SignRequestInner {
+        let request = SignCompleteRequestInner {
             content: Some("test".to_string()),
-            hashes: BoundedVec(vec![SighashVec(vec![Hex32("a".repeat(64))])]),
+            hash: SighashVec(vec![Hex32("a".repeat(64))]),
             members: BoundedVec(vec![0]),
             stamp: 1234567890,
             kind: "sign".to_string(),
@@ -799,18 +694,18 @@ mod tests {
 
         // Create a request with matching gid/sid
         let gid = compute_group_id(&group);
-        let request_inner = SignRequestInner {
+        let request_inner = SignCompleteRequestInner {
             content: Some("test".to_string()),
-            hashes: BoundedVec(vec![SighashVec(vec![Hex32("a".repeat(64))])]),
+            hash: SighashVec(vec![Hex32("a".repeat(64))]),
             members: BoundedVec(vec![0]),
             stamp: 1234567890,
             kind: "sign".to_string(),
             gid: Hex32(hex::encode(gid)),
             sid: Hex32(hex::encode(compute_session_id(
                 &group,
-                &SignRequestInner {
+                &SignCompleteRequestInner {
                     content: Some("test".to_string()),
-                    hashes: BoundedVec(vec![SighashVec(vec![Hex32("a".repeat(64))])]),
+                    hash: SighashVec(vec![Hex32("a".repeat(64))]),
                     members: BoundedVec(vec![0]),
                     stamp: 1234567890,
                     kind: "sign".to_string(),
@@ -826,54 +721,37 @@ mod tests {
     }
 
     #[test]
-    fn test_tweak_commit_pnonces_invalid() {
-        let commit = create_test_commit(0, "02");
-        let session_id = [0u8; 32];
-        let sigvec = vec![];
-
-        // Invalid hidden_pn format should fail
-        let result = tweak_commit_pnonces(&commit, &session_id, &sigvec);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_tweak_share_snonces_invalid() {
-        let mut share = create_test_share(0);
-        share.hidden_sn = Hex32("invalid".to_string()); // Invalid hex
-
-        let session_id = [0u8; 32];
-        let sigvec = vec![];
-
-        // Invalid hidden_sn format should fail
-        let result = tweak_share_snonces(&share, &session_id, &sigvec);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_create_psig_pkg_invalid_share() {
+    fn test_create_psig_pkg_with_nonce_invalid_share() {
         let group = create_test_group_with_commits(1, vec![create_test_commit(0, "02")]);
 
-        let request = SignRequest {
-            request: SignRequestInner {
-                content: Some("test".to_string()),
-                hashes: BoundedVec(vec![SighashVec(vec![Hex32("a".repeat(64))])]),
-                members: BoundedVec(vec![0]),
-                stamp: 1234567890,
-                kind: "sign".to_string(),
-                gid: Hex32("b".repeat(64)),
-                sid: Hex32("c".repeat(64)),
-            },
+        let request = SignCompleteRequestInner {
+            content: Some("test".to_string()),
+            hash: SighashVec(vec![Hex32("a".repeat(64))]),
+            members: BoundedVec(vec![0]),
+            stamp: 1234567890,
+            kind: "sign".to_string(),
+            gid: Hex32("b".repeat(64)),
+            sid: Hex32("c".repeat(64)),
         };
 
         let share = Share {
             idx: 0,
-            binder_sn: Hex32("e".repeat(64)),
-            hidden_sn: Hex32("f".repeat(64)),
             seckey: Hex32("invalid".to_string()),
         };
 
-        // Invalid seckey should fail
-        let result = create_psig_pkg(&group, &request, &share);
+        let secret = SecretNonce {
+            idx: 0,
+            hidden_sn: [1u8; 32],
+            binder_sn: [2u8; 32],
+        };
+        let pnonces = [PublicNonceItem {
+            idx: 0,
+            hidden_pn: Hex33("02".to_string() + &"b".repeat(64)),
+            binder_pn: Hex33("02".to_string() + &"c".repeat(64)),
+        }];
+
+        // Invalid seckey should fail.
+        let result = create_psig_pkg_with_nonce(&group, &request, &share, &secret, &pnonces);
         assert!(result.is_err());
     }
 
@@ -914,9 +792,9 @@ mod tests {
             threshold: 1,
         };
 
-        let request = SignRequestInner {
+        let request = SignCompleteRequestInner {
             content: Some("test".to_string()),
-            hashes: BoundedVec(vec![SighashVec(vec![Hex32("a".repeat(64))])]),
+            hash: SighashVec(vec![Hex32("a".repeat(64))]),
             members: BoundedVec(vec![0]),
             stamp: 1234567890,
             kind: "sign".to_string(),
@@ -927,7 +805,7 @@ mod tests {
         let session_id = [0u8; 32];
 
         // Invalid group_pk should fail
-        let result = build_sighash_contexts(&group, &request, &session_id);
+        let result = build_sighash_contexts_from_pnonces(&group, &request, &session_id, &[]);
         assert!(result.is_err());
     }
 }

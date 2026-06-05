@@ -47,8 +47,6 @@ import {
   SessionDeactivateResponse,
   SessionDeleteRequest,
   SessionDeleteResponse,
-  SignRequest,
-  SignResponse,
   SignCommitRequest,
   SignCommitResponse,
   SignCompleteRequest,
@@ -100,9 +98,14 @@ function makeSessionItem(session: SignerSession): SessionItem {
   }
 }
 
+// The signer never needs the share's FROST nonce material: the two-round flow
+// generates a fresh nonce per /sign/commit and never touches stored nonces. Only
+// the index and secret share are persisted (and returned on recovery).
+export type StoredShare = Pick<SharePackage, "idx" | "seckey">
+
 export type SignerSession = {
   client: string
-  share: SharePackage
+  share: StoredShare
   group: GroupPackage
   recovery: boolean
   created_at: number
@@ -133,8 +136,6 @@ export type CommitEntry = {
   secret: FreshNonce
   created_at: number
 }
-
-export type SignResult = NonNullable<SignResponse["result"]>
 
 export type SignerSessionIndex = {
   clients: string[]
@@ -300,7 +301,7 @@ export class Signer {
   _createPsigPkgWithNonce(
     ctx: ReturnType<typeof Lib.get_session_ctx>,
     session: SignSessionPackage,
-    share: SharePackage,
+    share: StoredShare,
     secret: FreshNonce,
   ): SignCompleteResult {
     const tempShare: SharePackage = {
@@ -465,7 +466,7 @@ export class Signer {
         return {ok: false, message: "Invalid group threshold."}
       }
 
-      if (!Lib.is_group_member(group, share)) {
+      if (!Lib.is_group_member(group, share as SharePackage)) {
         debug(`[client ${client.slice(0, 8)}]: share does not belong to the provided group`)
         return {ok: false, message: "Share does not belong to the provided group."}
       }
@@ -718,42 +719,6 @@ export class Signer {
     return {ok: true, message: "Login successfully completed.", group: session.group}
   }
 
-  async _handleSign({pubkey: client}: SignedEvent, data: SignRequest): Promise<SignResponse> {
-    return this.options.storage.tx(async () => {
-      const session = await this.sessions.get(client)
-
-      if (!session) {
-        debug(`[client ${client.slice(0, 8)}]: signing failed - no session found`)
-        return {ok: false, message: "No session found for client"}
-      }
-
-      if (session.deactivated_at) {
-        debug(`[client ${client.slice(0, 8)}]: signing failed - session is deactivated`)
-        return {ok: false, message: "Session is deactivated"}
-      }
-
-      const allowed = await this._checkAndRecordRateLimit(client)
-      if (!allowed) {
-        return {ok: false, message: "Rate limit exceeded. Please try again later."}
-      }
-
-      try {
-        const ctx = Lib.get_session_ctx(session.group, data.request)
-        const partialSignature = Lib.create_psig_pkg(ctx, session.share)
-
-        await this.sessions.set(client, {...session, last_activity: now()})
-
-        debug(`[client ${client.slice(0, 8)}]: signing complete`)
-
-        return {result: partialSignature, ok: true, message: "Successfully signed event"}
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e)
-        debug(`[client ${client.slice(0, 8)}]: signing failed - ${msg}`)
-        return {ok: false, message: "Failed to sign event"}
-      }
-    })
-  }
-
   async _handleSignCommit(
     {pubkey: client}: SignedEvent,
     data: SignCommitRequest,
@@ -945,7 +910,7 @@ export class Signer {
       }
 
       try {
-        const ecdhPackage = Lib.create_ecdh_pkg(members, ecdh_pk, session.share)
+        const ecdhPackage = Lib.create_ecdh_pkg(members, ecdh_pk, session.share as SharePackage)
 
         await this.sessions.set(client, {...session, last_activity: now()})
 
@@ -1101,8 +1066,6 @@ export class Signer {
           Schema.sessionListRequest,
           this._handleSessionList.bind(this),
         )
-      case "/sign":
-        return this._handle(auth, body, Schema.signRequest, this._handleSign.bind(this))
       case "/sign/commit":
         return this._handle(auth, body, Schema.signCommitRequest, this._handleSignCommit.bind(this))
       case "/sign/complete":

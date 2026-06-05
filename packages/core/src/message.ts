@@ -9,9 +9,6 @@ export type Message<T> = {
 export type RegisterRequest = z.infer<typeof Schema.registerRequest>
 export type RegisterResponse = z.infer<typeof Schema.registerResponse>
 
-export type SignRequest = z.infer<typeof Schema.signRequest>
-export type SignResponse = z.infer<typeof Schema.signResponse>
-
 export type SignCommitRequest = z.infer<typeof Schema.signCommitRequest>
 export type SignCommitResponse = z.infer<typeof Schema.signCommitResponse>
 

@@ -1014,24 +1014,14 @@ for (const {label, specs} of suites) {
       await expectSchemaRejected("/register")
     })
 
-    it("/sign", async () => {
-      await expectMalformedAuthRejected("/sign", {})
-      await expectSchemaRejected("/sign")
+    it("/sign/commit", async () => {
+      await expectMalformedAuthRejected("/sign/commit", {})
+      await expectSchemaRejected("/sign/commit")
 
       const url = ctx.signers[0]!.url
-      const body = {
-        request: {
-          content: null,
-          hashes: [[makeSecret()]],
-          members: [1],
-          stamp: 1,
-          type: "event",
-          gid: makeSecret(),
-          sid: makeSecret(),
-        },
-      }
-      const auth = await makeSignedAuthHeader(makeSecret(), url, "/sign", body)
-      const res = await postToSigner(url, "/sign", body, auth)
+      const body = {members: [1]}
+      const auth = await makeSignedAuthHeader(makeSecret(), url, "/sign/commit", body)
+      const res = await postToSigner(url, "/sign/commit", body, auth)
 
       expect(res.ok).toBe(false)
       expect(res.message).toBe("No session found for client")
