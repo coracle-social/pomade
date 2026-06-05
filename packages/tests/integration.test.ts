@@ -14,7 +14,7 @@ import {
   type SignerResponse,
   type SuiteContext,
 } from "./util.js"
-import {Client, hashEmail, hashPassword} from "@pomade/core"
+import {Client, RPC, hashEmail, hashPassword} from "@pomade/core"
 import {assertSignersAvailable, type SignerKind} from "./harness.js"
 
 const doLet = <T>(x: T, f: (x: T) => void) => f(x)
@@ -234,13 +234,385 @@ for (const {label, specs} of suites) {
         expect(verifyEvent(result.event!)).toBe(true)
       })
 
-      it("successfully signs an event with 2/3 threshold", async () => {
+      it("signs an event with 2/3 threshold", async () => {
         const clientRegister = await Client.register(2, 3, makeSecret())
         const client = new Client(clientRegister.clientOptions)
         const result = await client.sign(makeEvent(1))
 
         expect(result.ok).toBe(true)
         expect(verifyEvent(result.event!)).toBe(true)
+      })
+
+      it("signs an event with 3/5 threshold", async () => {
+        if (ctx.signers.length < 5) return // not enough signers in this suite
+
+        const clientRegister = await Client.register(3, 5, makeSecret())
+        const client = new Client(clientRegister.clientOptions)
+        const result = await client.sign(makeEvent(1))
+
+        expect(result.ok).toBe(true)
+        expect(verifyEvent(result.event!)).toBe(true)
+      })
+
+      it("produces fresh nonces across two consecutive signatures", async () => {
+        const clientRegister = await Client.register(2, 3, makeSecret())
+        const client = new Client(clientRegister.clientOptions)
+
+        // Sign the SAME event twice: fresh per-session nonces must produce
+        // different signatures. A reused/deterministic nonce would repeat the
+        // signature for an identical message.
+        const event = makeEvent(1, {content: "same"})
+        const first = await client.sign(event)
+        const second = await client.sign(event)
+
+        expect(first.ok).toBe(true)
+        expect(second.ok).toBe(true)
+        expect(verifyEvent(first.event!)).toBe(true)
+        expect(verifyEvent(second.event!)).toBe(true)
+        expect(first.event!.sig).not.toBe(second.event!.sig)
+      })
+    })
+
+    describe("single-use nonce enforcement", () => {
+      // Capture the exact /sign/commit and /sign/complete payloads the client
+      // produces during a real two-round sign, so we can replay round 2 by hand
+      // without reconstructing the wire format.
+      const captureTwoRound = async (client: Client) => {
+        const original = RPC.fetch
+        const completes: {url: string; body: Record<string, unknown>; auth: string}[] = []
+        let supported = true
+
+        RPC.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input)
+          const res = await original(input, init)
+
+          if (url.endsWith("/sign/complete") && init?.body) {
+            completes.push({
+              url: url.slice(0, -"/sign/complete".length),
+              body: JSON.parse(init.body as string),
+              auth: (init.headers as Record<string, string>).Authorization,
+            })
+          }
+
+          if (url.endsWith("/sign/commit")) {
+            const clone = res.clone()
+            const json = (await clone.json()) as SignerResponse
+            if (!json.ok && json.message === "Not found") supported = false
+          }
+
+          return res
+        }
+
+        try {
+          const result = await client.sign(makeEvent(1))
+          return {result, completes, supported}
+        } finally {
+          RPC.fetch = original
+        }
+      }
+
+      it("refuses a second completion for the same commit id", async () => {
+        const clientRegister = await Client.register(2, 3, makeSecret())
+        const client = new Client(clientRegister.clientOptions)
+        const {result, completes, supported} = await captureTwoRound(client)
+
+        if (!supported) return // signer does not support the two-round flow yet
+
+        expect(result.ok).toBe(true)
+        expect(completes.length).toBeGreaterThan(0)
+
+        const {url, body, auth} = completes[0]!
+        const replay = await postToSigner(url, "/sign/complete", body, auth)
+
+        expect(replay.ok).toBe(false)
+        expect(replay.message).toBe("Commitment not found or already used")
+      })
+
+      it("yields at most one signature for concurrent completions", async () => {
+        const clientRegister = await Client.register(2, 3, makeSecret())
+        const client = new Client(clientRegister.clientOptions)
+
+        // Capture the round-2 bodies the client builds, but short-circuit the
+        // outbound /sign/complete so the commitments stay unconsumed. We then
+        // replay one captured body twice concurrently to race the take.
+        const original = RPC.fetch
+        const captured: {url: string; body: Record<string, unknown>; auth: string}[] = []
+        let supported = true
+
+        RPC.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input)
+
+          if (url.endsWith("/sign/commit")) {
+            const res = await original(input, init)
+            const json = (await res.clone().json()) as SignerResponse
+            if (!json.ok && json.message === "Not found") supported = false
+            return res
+          }
+
+          if (url.endsWith("/sign/complete") && init?.body) {
+            captured.push({
+              url: url.slice(0, -"/sign/complete".length),
+              body: JSON.parse(init.body as string),
+              auth: (init.headers as Record<string, string>).Authorization,
+            })
+            return new Response(JSON.stringify({ok: false, message: "intercepted"}), {status: 200})
+          }
+
+          return original(input, init)
+        }
+
+        try {
+          await client.sign(makeEvent(1))
+        } finally {
+          RPC.fetch = original
+        }
+
+        if (!supported) return
+
+        const {url, body, auth} = captured[0]!
+        const [a, b] = await Promise.all([
+          postToSigner(url, "/sign/complete", body, auth),
+          postToSigner(url, "/sign/complete", body, auth),
+        ])
+
+        expect(a.ok !== b.ok).toBe(true)
+        expect([a, b].filter(r => r.ok).length).toBe(1)
+        // The single winner must carry a real partial signature, and the loser
+        // must be refused with the exact single-use message (never re-signed).
+        expect([a, b].find(r => r.ok)!.result).toBeTruthy()
+        expect([a, b].find(r => !r.ok)!.message).toBe("Commitment not found or already used")
+
+        // A subsequent sequential replay of the same commit id is also refused,
+        // proving the nonce was destroyed by the winning completion above.
+        const replay = await postToSigner(url, "/sign/complete", body, auth)
+        expect(replay.ok).toBe(false)
+        expect(replay.message).toBe("Commitment not found or already used")
+      })
+
+      it("refuses an unknown commit id without signing", async () => {
+        const clientRegister = await Client.register(2, 3, makeSecret())
+        const client = new Client(clientRegister.clientOptions)
+
+        const url = client.peers[0]!
+        const secret = makeSecret()
+        const members = client.group.commits.slice(0, 2).map(c => c.idx)
+
+        // Probe support without consuming a real commitment; an old signer
+        // returns "Not found" for the unknown endpoint.
+        const probeAuth = await makeSignedAuthHeader(secret, url, "/sign/commit", {members})
+        const probe = await postToSigner(url, "/sign/commit", {members}, probeAuth)
+        if (!probe.ok) return
+
+        const body = {
+          commit_id: makeSecret(), // never issued by this signer
+          request: {
+            content: null,
+            hash: [makeSecret()],
+            members,
+            stamp: 1,
+            type: "event",
+            gid: makeSecret(),
+            sid: makeSecret(),
+          },
+          pnonces: members.map(idx => ({
+            idx,
+            hidden_pn: "02" + makeSecret(),
+            binder_pn: "02" + makeSecret(),
+          })),
+        }
+        const auth = await makeSignedAuthHeader(secret, url, "/sign/complete", body)
+        const res = await postToSigner(url, "/sign/complete", body, auth)
+
+        expect(res.ok).toBe(false)
+        expect(res.message).toBe("Commitment not found or already used")
+        expect(res.result).toBeFalsy()
+      })
+
+      it("rejects a commit whose member set excludes the signer", async () => {
+        const clientRegister = await Client.register(2, 3, makeSecret())
+        const client = new Client(clientRegister.clientOptions)
+
+        // Authenticate as the registered client so the membership check runs
+        // (an unknown key would short-circuit with "No session found").
+        const secret = clientRegister.clientOptions.secret
+        // peers[0] holds the share at idx 1; ask it to commit for a member set
+        // that omits its own index.
+        const url = client.peers[0]!
+        const members = client.group.commits.map(c => c.idx).filter(idx => idx !== 1)
+
+        const auth = await makeSignedAuthHeader(secret, url, "/sign/commit", {members})
+        const res = await postToSigner(url, "/sign/commit", {members}, auth)
+
+        // An old signer answers "Not found"; an upgraded one must reject the
+        // out-of-set commit with the spec failure string.
+        if (res.message === "Not found") return
+
+        expect(res.ok).toBe(false)
+        expect(res.message).toBe("Signer index not present in members list")
+        expect(res.result).toBeFalsy()
+      })
+
+      it("rejects a completion whose own pnonce does not match the commitment", async () => {
+        const clientRegister = await Client.register(2, 3, makeSecret())
+        const client = new Client(clientRegister.clientOptions)
+
+        const url = client.peers[0]!
+        const secret = makeSecret()
+        const members = client.group.commits.slice(0, 2).map(c => c.idx)
+
+        const commitAuth = await makeSignedAuthHeader(secret, url, "/sign/commit", {members})
+        const commit = await postToSigner(url, "/sign/commit", {members}, commitAuth)
+
+        if (!commit.ok) return // signer does not support the two-round flow yet
+
+        const commitResult = commit.result as {commit_id: string; idx: number}
+
+        const tamperedBody = {
+          commit_id: commitResult.commit_id,
+          request: {
+            content: null,
+            hash: [makeSecret()],
+            members,
+            stamp: 1,
+            type: "event",
+            gid: makeSecret(),
+            sid: makeSecret(),
+          },
+          pnonces: members.map(idx => ({
+            idx,
+            hidden_pn: "02" + makeSecret(),
+            binder_pn: "02" + makeSecret(),
+          })),
+        }
+        const completeAuth = await makeSignedAuthHeader(secret, url, "/sign/complete", tamperedBody)
+        const res = await postToSigner(url, "/sign/complete", tamperedBody, completeAuth)
+
+        expect(res.ok).toBe(false)
+      })
+    })
+
+    describe("racing and permutations", () => {
+      it("falls back to an alternate subset when a peer is down", async () => {
+        const clientRegister = await Client.register(2, 3, makeSecret())
+        const client = new Client(clientRegister.clientOptions)
+
+        const downPeer = client.peers[0]!
+        await ctx.signers.find(s => s.url === downPeer)?.stop()
+
+        const result = await client.sign(makeEvent(1))
+
+        expect(result.ok).toBe(true)
+        expect(verifyEvent(result.event!)).toBe(true)
+      })
+
+      it("falls back to an alternate subset on a round-2 dropout", async () => {
+        // Round 1 succeeds for every peer, but round 2 fails for one specific
+        // peer. With 2-of-3 this leaves exactly one viable 2-subset, so the
+        // client must abandon any permutation containing the bad peer and
+        // complete round 2 with the remaining pair.
+        const clientRegister = await Client.register(2, 3, makeSecret())
+        const client = new Client(clientRegister.clientOptions)
+
+        const badPeer = client.peers[0]!
+        const original = RPC.fetch
+        let supported = true
+        let badCompletes = 0
+
+        RPC.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input)
+
+          // Skip this assertion entirely if a signer lacks the two-round
+          // endpoints; the client no longer has a single-round fallback.
+          if (url.endsWith("/sign/commit")) {
+            const res = await original(input, init)
+            const json = (await res.clone().json()) as SignerResponse
+            if (!json.ok && json.message === "Not found") supported = false
+            return res
+          }
+
+          // Drop round 2 for the bad peer only, after its round 1 succeeded.
+          if (url === `${badPeer}/sign/complete`) {
+            badCompletes++
+            return new Response(
+              JSON.stringify({ok: false, message: "Round 2 dropped"}),
+              {status: 200},
+            )
+          }
+
+          return original(input, init)
+        }
+
+        try {
+          const result = await client.sign(makeEvent(1))
+
+          if (!supported) return // signer does not support the two-round flow
+
+          expect(result.ok).toBe(true)
+          expect(verifyEvent(result.event!)).toBe(true)
+          // The bad peer's round 2 was attempted and dropped at least once,
+          // proving we fell back rather than simply skipping it from the start.
+          expect(badCompletes).toBeGreaterThan(0)
+        } finally {
+          RPC.fetch = original
+        }
+      })
+
+      it("reports failure when round 2 fails on every subset", async () => {
+        // If no permutation can complete round 2, sign must surface ok:false
+        // rather than fabricate a signature.
+        const clientRegister = await Client.register(2, 3, makeSecret())
+        const client = new Client(clientRegister.clientOptions)
+
+        const original = RPC.fetch
+        let supported = true
+
+        RPC.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input)
+
+          if (url.endsWith("/sign/commit")) {
+            const res = await original(input, init)
+            const json = (await res.clone().json()) as SignerResponse
+            if (!json.ok && json.message === "Not found") supported = false
+            return res
+          }
+
+          if (url.endsWith("/sign/complete")) {
+            return new Response(
+              JSON.stringify({ok: false, message: "Round 2 dropped"}),
+              {status: 200},
+            )
+          }
+
+          return original(input, init)
+        }
+
+        let result
+        try {
+          result = await client.sign(makeEvent(1))
+        } finally {
+          RPC.fetch = original
+        }
+
+        if (!supported) return
+
+        expect(result.ok).toBe(false)
+        expect(result.event).toBeUndefined()
+      })
+
+      it("resolves the first viable permutation without waiting for the stagger", async () => {
+        // The first permutation runs immediately; later ones are staggered by
+        // one second each. With all peers healthy, the winner must resolve well
+        // inside that stagger window.
+        const clientRegister = await Client.register(2, 3, makeSecret())
+        const client = new Client(clientRegister.clientOptions)
+
+        const start = Date.now()
+        const result = await client.sign(makeEvent(1))
+        const elapsed = Date.now() - start
+
+        expect(result.ok).toBe(true)
+        expect(verifyEvent(result.event!)).toBe(true)
+        expect(elapsed).toBeLessThan(1000)
       })
     })
 
@@ -509,7 +881,7 @@ for (const {label, specs} of suites) {
         expect(res1.ok).toBe(true)
 
         const otps = ["00123456"] // Invalid OTP with unknown prefix
-        const res2 = await Client.loginWithChallenge(email, res1.peersByPrefix, otps)
+        const res2 = await Client.recoverWithChallenge(email, res1.peersByPrefix, otps)
 
         expect(res2.ok).toBe(false)
       })

@@ -20,6 +20,12 @@ const commit = z.object({
   binder_pn: hex33,
 })
 
+const publicNonceItem = z.object({
+  idx: z.number(),
+  hidden_pn: hex33,
+  binder_pn: hex33,
+})
+
 const group = z.object({
   commits: z.array(commit).max(MAX_COMMITS),
   group_pk: hex33,
@@ -105,6 +111,47 @@ export const Schema = {
       .object({
         idx: z.number(),
         psigs: psig_entry.array(),
+        pubkey: hex33,
+        sid: hex32,
+      })
+      .optional(),
+  }),
+  signCommitRequest: z.object({
+    members: z.number().array().max(MAX_MEMBERS),
+  }),
+  signCommitResponse: z.object({
+    ok: z.boolean(),
+    message: z.string(),
+    result: z
+      .object({
+        commit_id: hex32,
+        idx: z.number(),
+        pubkey: hex33,
+        hidden_pn: hex33,
+        binder_pn: hex33,
+      })
+      .optional(),
+  }),
+  signCompleteRequest: z.object({
+    commit_id: hex32,
+    request: z.object({
+      content: z.string().nullable(),
+      hash: sighash_vec,
+      members: z.number().array().max(MAX_MEMBERS),
+      stamp: z.number(),
+      type: z.string(),
+      gid: hex32,
+      sid: hex32,
+    }),
+    pnonces: publicNonceItem.array().max(MAX_MEMBERS),
+  }),
+  signCompleteResponse: z.object({
+    ok: z.boolean(),
+    message: z.string(),
+    result: z
+      .object({
+        idx: z.number(),
+        psig: psig_entry,
         pubkey: hex33,
         sid: hex32,
       })

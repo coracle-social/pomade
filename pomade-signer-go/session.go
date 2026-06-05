@@ -215,6 +215,111 @@ func buildSighashContexts(group Group, request SignRequestInner, sessionID [32]b
 	return out, true
 }
 
+func tweakPnonceItem(pn PublicNonceItem, sessionID [32]byte, sigvec []string) (types.PublicNonce, bool) {
+	binder := getSighashBinder(sessionID, pn.Idx, sigvec)
+	hidden, ok := decodeHex33(pn.HiddenPn)
+	if !ok {
+		return types.PublicNonce{}, false
+	}
+	hiddenPn, err := helpers.TweakPubkey(hidden[:], binder)
+	if err != nil {
+		return types.PublicNonce{}, false
+	}
+	binderPoint, ok := decodeHex33(pn.BinderPn)
+	if !ok {
+		return types.PublicNonce{}, false
+	}
+	binderPn, err := helpers.TweakPubkey(binderPoint[:], binder)
+	if err != nil {
+		return types.PublicNonce{}, false
+	}
+	return types.PublicNonce{ID: pn.Idx, HiddenPn: hiddenPn, BinderPn: binderPn}, true
+}
+
+func buildSighashContextsFromPnonces(group Group, request SignRequestInner, sessionID [32]byte, pnonces []PublicNonceItem) ([]sighashCtx, bool) {
+	groupPk, ok := decodeHex33(group.GroupPk)
+	if !ok {
+		return nil, false
+	}
+	if len(request.Hashes) == 0 {
+		return nil, false
+	}
+	out := make([]sighashCtx, 0, len(request.Hashes))
+	for _, sigvec := range request.Hashes {
+		if len(sigvec) == 0 {
+			return nil, false
+		}
+		sighash, ok := decodeHex32(sigvec[0])
+		if !ok {
+			return nil, false
+		}
+		tweaks := make([][32]byte, 0, len(sigvec)-1)
+		for _, tw := range sigvec[1:] {
+			if b, ok := decodeHex32(tw); ok {
+				tweaks = append(tweaks, b)
+			}
+		}
+		tweaked := make([]types.PublicNonce, 0, len(request.Members))
+		for _, id := range request.Members {
+			for _, pn := range pnonces {
+				if pn.Idx != id {
+					continue
+				}
+				nonce, ok := tweakPnonceItem(pn, sessionID, sigvec)
+				if !ok {
+					return nil, false
+				}
+				tweaked = append(tweaked, nonce)
+			}
+		}
+		ctx, err := context.GetGroupSigningCtx(groupPk[:], tweaked, sighash[:], tweaks)
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, sighashCtx{sighash: sighash, ctx: ctx})
+	}
+	return out, true
+}
+
+func createPsigPkgWithNonce(group Group, request SignRequestInner, share Share, secret types.SecretNonce, pnonces []PublicNonceItem) (*SignCompleteResult, bool) {
+	sessionID := computeSessionID(group, request)
+	contexts, ok := buildSighashContextsFromPnonces(group, request, sessionID, pnonces)
+	if !ok || len(contexts) != 1 {
+		return nil, false
+	}
+	seckey, ok := decodeHex32(share.Seckey)
+	if !ok {
+		return nil, false
+	}
+	secretShare := types.SecretShare{ID: share.Idx, Seckey: seckey}
+	sc := contexts[0]
+	sighashHex := hex.EncodeToString(sc.sighash[:])
+	var sigvec []string
+	for _, candidate := range request.Hashes {
+		if len(candidate) > 0 && candidate[0] == sighashHex {
+			sigvec = candidate
+			break
+		}
+	}
+	binder := getSighashBinder(sessionID, share.Idx, sigvec)
+	snonce := types.SecretNonce{
+		ID:       share.Idx,
+		HiddenSn: helpers.TweakSeckey(secret.HiddenSn, binder),
+		BinderSn: helpers.TweakSeckey(secret.BinderSn, binder),
+	}
+	sig, err := sign.SignMsg(&sc.ctx, &secretShare, &snonce)
+	if err != nil {
+		return nil, false
+	}
+	pubkey := helpers.GetPubkey(seckey)
+	return &SignCompleteResult{
+		Idx:    share.Idx,
+		Psig:   [2]string{sighashHex, hex.EncodeToString(sig.Psig[:])},
+		Pubkey: hex.EncodeToString(pubkey[:]),
+		Sid:    hex.EncodeToString(sessionID[:]),
+	}, true
+}
+
 func verifySessionPkg(group Group, request SignRequestInner) bool {
 	gid := computeGroupID(group)
 	sid := computeSessionID(group, request)

@@ -84,6 +84,59 @@ type SignResponse struct {
 	Result  *SignResult `json:"result,omitempty"`
 }
 
+type SignCommitRequest struct {
+	Members []uint32 `json:"members"`
+}
+
+type SignCommitResult struct {
+	CommitID string `json:"commit_id"`
+	Idx      uint32 `json:"idx"`
+	Pubkey   string `json:"pubkey"`
+	HiddenPn string `json:"hidden_pn"`
+	BinderPn string `json:"binder_pn"`
+}
+
+type SignCommitResponse struct {
+	OK      bool              `json:"ok"`
+	Message string            `json:"message"`
+	Result  *SignCommitResult `json:"result,omitempty"`
+}
+
+type PublicNonceItem struct {
+	Idx      uint32 `json:"idx"`
+	HiddenPn string `json:"hidden_pn"`
+	BinderPn string `json:"binder_pn"`
+}
+
+type SignCompleteRequestInner struct {
+	Content *string  `json:"content"`
+	Hash    []string `json:"hash"`
+	Members []uint32 `json:"members"`
+	Stamp   uint64   `json:"stamp"`
+	Type    string   `json:"type"`
+	Gid     string   `json:"gid"`
+	Sid     string   `json:"sid"`
+}
+
+type SignCompleteRequest struct {
+	CommitID string                   `json:"commit_id"`
+	Request  SignCompleteRequestInner `json:"request"`
+	Pnonces  []PublicNonceItem        `json:"pnonces"`
+}
+
+type SignCompleteResult struct {
+	Idx    uint32    `json:"idx"`
+	Psig   [2]string `json:"psig"`
+	Pubkey string    `json:"pubkey"`
+	Sid    string    `json:"sid"`
+}
+
+type SignCompleteResponse struct {
+	OK      bool                `json:"ok"`
+	Message string              `json:"message"`
+	Result  *SignCompleteResult `json:"result,omitempty"`
+}
+
 type EcdhRequest struct {
 	Idx     uint32   `json:"idx"`
 	Members []uint32 `json:"members"`

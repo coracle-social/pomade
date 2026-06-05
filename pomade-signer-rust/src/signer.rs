@@ -1,7 +1,11 @@
 #![allow(dead_code)]
 
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use frost_taproot::commit::create_commit_pkg;
+use frost_taproot::types::{SecretNonce, SecretShare};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -11,14 +15,18 @@ use crate::ratelimit::{
     RateLimitBucket, RateLimitConfig, get_rate_limit_reset_time, is_rate_limited, record_attempt,
 };
 use crate::schema::{
-    Auth, ChallengeRequest, ChallengeResponse, EcdhRequest, EcdhResponse, Group,
+    Auth, ChallengeRequest, ChallengeResponse, EcdhRequest, EcdhResponse, Group, Hex32, Hex33,
     LoginSelectRequest, LoginSelectResponse, LoginStartRequest, LoginStartResponse,
     RecoverySelectRequest, RecoverySelectResponse, RecoverySetupRequest, RecoverySetupResponse,
     RecoveryStartRequest, RecoveryStartResponse, RegisterRequest, RegisterResponse,
     SessionDeactivateRequest, SessionDeactivateResponse, SessionDeleteRequest,
-    SessionDeleteResponse, SessionItem, SessionListResponse, Share, SignRequest, SignResponse,
+    SessionDeleteResponse, SessionItem, SessionListResponse, Share, SignCommitRequest,
+    SignCommitResponse, SignCommitResult, SignCompleteRequest, SignCompleteResponse, SignRequest,
+    SignResponse,
 };
-use crate::session::{create_ecdh_pkg, create_psig_pkg, is_group_member};
+use crate::session::{
+    create_ecdh_pkg, create_psig_pkg, create_psig_pkg_with_nonce, is_group_member,
+};
 use crate::storage::{Collection, Storage, StorageBackend};
 
 const GENERATOR_X: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
@@ -36,6 +44,9 @@ const EMAIL_RATE_LIMITS: RateLimitConfig = RateLimitConfig {
 const MONTH_SECS: u64 = 30 * 24 * 3600;
 const MINUTE_SECS: u64 = 60;
 
+/// How long an unconsumed round-1 commitment lives before being reaped.
+const COMMIT_TTL_SECS: u64 = 2 * 60;
+
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -48,6 +59,27 @@ fn random_int(min: u32, max: u32) -> u32 {
     rand::rngs::OsRng.fill_bytes(&mut buf);
     let v = u32::from_be_bytes(buf);
     min + (v % (max - min))
+}
+
+/// Generate a fresh, globally-unique opaque commit id (32 random bytes, hex).
+fn random_commit_id() -> String {
+    let mut buf = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut buf);
+    hex::encode(buf)
+}
+
+/// Derive a compressed (33-byte) public key from a 32-byte secret.
+fn get_pubkey_compressed(secret: &[u8; 32]) -> [u8; 33] {
+    frost_taproot::helpers::get_pubkey(secret)
+}
+
+/// A pending round-1 commitment. The secret nonce lives in memory only and is
+/// never serialized, logged, or returned to the client.
+struct CommitEntry {
+    commit_id: String,
+    members: Vec<u32>,
+    secret: SecretNonce,
+    created_at: u64,
 }
 
 // ---- Domain types ----
@@ -149,6 +181,7 @@ pub struct Signer {
     sessions_by_email_hash: Collection<SessionIndex>,
     rate_limit_by_email_hash: Collection<RateLimitBucket>,
     rate_limit_by_client: Collection<RateLimitBucket>,
+    commits_by_client: Mutex<HashMap<String, Vec<CommitEntry>>>,
 }
 
 impl Signer {
@@ -162,6 +195,7 @@ impl Signer {
             sessions_by_email_hash: storage.collection("sessionsByEmailHash"),
             rate_limit_by_email_hash: storage.collection("rateLimitByEmailHash"),
             rate_limit_by_client: storage.collection("rateLimitByClient"),
+            commits_by_client: Mutex::new(HashMap::new()),
             options,
         }
     }
@@ -201,6 +235,13 @@ impl Signer {
                 self.sessions.delete(&k);
             }
         }
+
+        let commit_cutoff = now().saturating_sub(COMMIT_TTL_SECS);
+        let mut commits = self.commits_by_client.lock().unwrap();
+        commits.retain(|_, pending| {
+            pending.retain(|e| e.created_at >= commit_cutoff);
+            !pending.is_empty()
+        });
     }
 
     // ---- Internal helpers ----
@@ -221,6 +262,23 @@ impl Signer {
             &record_attempt(bucket.as_ref(), &CLIENT_RATE_LIMITS),
         );
         true
+    }
+
+    /// Atomically consume the commitment for `commit_id` from `client`'s pending
+    /// list, splicing it out under the lock. Returns the entry if present, else
+    /// None. Scoping the lookup to the requesting client's own list structurally
+    /// prevents consuming another client's commitment, and the single locked
+    /// find-and-remove enforces single-use: concurrent completions for one
+    /// commit_id yield at most one success.
+    fn take_commit(&self, commit_id: &str, client: &str) -> Option<CommitEntry> {
+        let mut commits = self.commits_by_client.lock().unwrap();
+        let pending = commits.get_mut(client)?;
+        let pos = pending.iter().position(|e| e.commit_id == commit_id)?;
+        let entry = pending.swap_remove(pos);
+        if pending.is_empty() {
+            commits.remove(client);
+        }
+        Some(entry)
     }
 
     fn get_authenticated_sessions(&self, auth: &Auth) -> Vec<SignerSession> {
@@ -812,6 +870,224 @@ impl Signer {
         }
     }
 
+    fn handle_sign_commit(&self, auth: &NostrAuth, data: SignCommitRequest) -> SignCommitResponse {
+        let client = &auth.pubkey;
+        let Some(session) = self.sessions.get(client) else {
+            log::debug!(
+                "[client {}]: commit failed - no session found",
+                &client[..8]
+            );
+            return SignCommitResponse {
+                ok: false,
+                message: "No session found for client".into(),
+                result: None,
+            };
+        };
+
+        if session.deactivated_at.is_some() {
+            return SignCommitResponse {
+                ok: false,
+                message: "Session is deactivated".into(),
+                result: None,
+            };
+        }
+
+        if !self.check_and_record_rate_limit(client) {
+            return SignCommitResponse {
+                ok: false,
+                message: "Rate limit exceeded. Please try again later.".into(),
+                result: None,
+            };
+        }
+
+        if !data.members.0.contains(&session.share.idx) {
+            return SignCommitResponse {
+                ok: false,
+                message: "Signer index not present in members list".into(),
+                result: None,
+            };
+        }
+
+        let Some(seckey) = hex::decode(&session.share.seckey.0)
+            .ok()
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+        else {
+            return SignCommitResponse {
+                ok: false,
+                message: "Failed to create commitment".into(),
+                result: None,
+            };
+        };
+
+        let secret_share = SecretShare {
+            idx: session.share.idx,
+            seckey,
+        };
+        let pkg = create_commit_pkg(&secret_share, None, None);
+        let commit_id = random_commit_id();
+
+        {
+            let mut commits = self.commits_by_client.lock().unwrap();
+            let pending = commits.entry(client.clone()).or_default();
+            pending.push(CommitEntry {
+                commit_id: commit_id.clone(),
+                members: data.members.0.clone(),
+                secret: pkg.secret_nonce(),
+                created_at: now(),
+            });
+        }
+
+        log::debug!("[client {}]: commitment created", &client[..8]);
+        SignCommitResponse {
+            ok: true,
+            message: "Commitment created".into(),
+            result: Some(SignCommitResult {
+                commit_id: Hex32(commit_id),
+                idx: session.share.idx,
+                pubkey: Hex33(hex::encode(get_pubkey_compressed(&seckey))),
+                hidden_pn: Hex33(hex::encode(pkg.hidden_pn)),
+                binder_pn: Hex33(hex::encode(pkg.binder_pn)),
+            }),
+        }
+    }
+
+    fn handle_sign_complete(
+        &self,
+        auth: &NostrAuth,
+        data: SignCompleteRequest,
+    ) -> SignCompleteResponse {
+        let client = &auth.pubkey;
+        let Some(session) = self.sessions.get(client) else {
+            log::debug!(
+                "[client {}]: complete failed - no session found",
+                &client[..8]
+            );
+            return SignCompleteResponse {
+                ok: false,
+                message: "No session found for client".into(),
+                result: None,
+            };
+        };
+
+        if session.deactivated_at.is_some() {
+            return SignCompleteResponse {
+                ok: false,
+                message: "Session is deactivated".into(),
+                result: None,
+            };
+        }
+
+        if !self.check_and_record_rate_limit(client) {
+            return SignCompleteResponse {
+                ok: false,
+                message: "Rate limit exceeded. Please try again later.".into(),
+                result: None,
+            };
+        }
+
+        // Atomically consume the commitment before doing any work. A second
+        // completion for the same commit_id finds nothing and is refused.
+        let Some(entry) = self.take_commit(&data.commit_id.0, client) else {
+            log::debug!(
+                "[client {}]: complete failed - commitment not found or already used",
+                &client[..8]
+            );
+            return SignCompleteResponse {
+                ok: false,
+                message: "Commitment not found or already used".into(),
+                result: None,
+            };
+        };
+
+        // The completion's member set must match the one committed in round 1.
+        if data.request.members.0 != entry.members {
+            return SignCompleteResponse {
+                ok: false,
+                message: "Member set does not match commitment".into(),
+                result: None,
+            };
+        }
+
+        // pnonces must cover exactly the chosen member set, one entry each.
+        let members = &data.request.members.0;
+        let pnonces = &data.pnonces.0;
+        let group_idxs: Vec<u32> = session.group.commits.0.iter().map(|c| c.idx).collect();
+        let pnonces_valid = pnonces.len() == members.len()
+            && members.iter().all(|m| {
+                group_idxs.contains(m) && pnonces.iter().filter(|pn| pn.idx == *m).count() == 1
+            });
+        if !pnonces_valid {
+            return SignCompleteResponse {
+                ok: false,
+                message: "Invalid public nonce set".into(),
+                result: None,
+            };
+        }
+
+        // The pnonce for this signer must equal the public half of the stored
+        // fresh secret, binding round 2 to round 1 and blocking nonce substitution.
+        let own_hidden = hex::encode(get_pubkey_compressed(&entry.secret.hidden_sn));
+        let own_binder = hex::encode(get_pubkey_compressed(&entry.secret.binder_sn));
+        let own_matches = pnonces.iter().any(|pn| {
+            pn.idx == entry.secret.idx
+                && pn.hidden_pn.0 == own_hidden
+                && pn.binder_pn.0 == own_binder
+        });
+        if !own_matches {
+            return SignCompleteResponse {
+                ok: false,
+                message: "Public nonce does not match commitment".into(),
+                result: None,
+            };
+        }
+
+        // Wrap the single-message request internally as hashes = vec![hash] so
+        // the existing session/signing logic runs unchanged over exactly one
+        // message. sid is computed over [hash], byte-identical to the one-message
+        // session the client/bifrost computed.
+        let inner = data.request.to_inner();
+
+        if !crate::session::verify_session_pkg(&session.group, &inner) {
+            return SignCompleteResponse {
+                ok: false,
+                message: "Failed to verify session package".into(),
+                result: None,
+            };
+        }
+
+        match create_psig_pkg_with_nonce(
+            &session.group,
+            &inner,
+            &session.share,
+            &entry.secret,
+            pnonces,
+        ) {
+            Ok(result) => {
+                self.sessions.set(
+                    client,
+                    &SignerSession {
+                        last_activity: now(),
+                        ..session
+                    },
+                );
+                log::debug!("[client {}]: signing complete", &client[..8]);
+                SignCompleteResponse {
+                    ok: true,
+                    message: "Successfully signed event".into(),
+                    result: Some(result),
+                }
+            }
+            Err(e) => {
+                log::debug!("[client {}]: complete failed - {}", &client[..8], e);
+                SignCompleteResponse {
+                    ok: false,
+                    message: "Failed to sign event".into(),
+                    result: None,
+                }
+            }
+        }
+    }
+
     fn handle_ecdh(&self, auth: &NostrAuth, data: EcdhRequest) -> EcdhResponse {
         let client = &auth.pubkey;
         let Some(session) = self.sessions.get(client) else {
@@ -998,6 +1274,8 @@ impl Signer {
                 }
             }
             "/sign" => route!(body, |a, d| self.handle_sign(a, d)),
+            "/sign/commit" => route!(body, |a, d| self.handle_sign_commit(a, d)),
+            "/sign/complete" => route!(body, |a, d| self.handle_sign_complete(a, d)),
             _ => serde_json::json!({"ok": false, "message": "Not found"}),
         }
     }
@@ -1369,5 +1647,272 @@ mod tests {
         assert_eq!(item.total, 3);
         assert_eq!(item.created_at, 1234567890);
         assert_eq!(item.email, Some("user@example.com".to_string()));
+    }
+
+    fn insert_test_commit(signer: &Signer, commit_id: &str, client: &str, created_at: u64) {
+        signer
+            .commits_by_client
+            .lock()
+            .unwrap()
+            .entry(client.to_string())
+            .or_default()
+            .push(CommitEntry {
+                commit_id: commit_id.to_string(),
+                members: vec![1, 2],
+                secret: SecretNonce {
+                    idx: 1,
+                    hidden_sn: [1u8; 32],
+                    binder_sn: [2u8; 32],
+                },
+                created_at,
+            });
+    }
+
+    #[test]
+    fn test_take_commit_single_use() {
+        let (storage, _temp) = create_test_backend();
+        let signer = Signer::open(create_test_signer_options(), storage);
+
+        insert_test_commit(&signer, "cid", "client_a", now());
+
+        // First take succeeds; the entry is consumed.
+        assert!(signer.take_commit("cid", "client_a").is_some());
+        // Replay finds nothing - the nonce is destroyed, never re-signed.
+        assert!(signer.take_commit("cid", "client_a").is_none());
+    }
+
+    #[test]
+    fn test_take_commit_wrong_client() {
+        let (storage, _temp) = create_test_backend();
+        let signer = Signer::open(create_test_signer_options(), storage);
+
+        insert_test_commit(&signer, "cid", "client_a", now());
+
+        // A different client must not be able to consume the commitment.
+        assert!(signer.take_commit("cid", "client_b").is_none());
+        // The rightful owner can still consume it afterwards.
+        assert!(signer.take_commit("cid", "client_a").is_some());
+    }
+
+    #[test]
+    fn test_take_commit_unknown_id() {
+        let (storage, _temp) = create_test_backend();
+        let signer = Signer::open(create_test_signer_options(), storage);
+        assert!(signer.take_commit("missing", "client_a").is_none());
+    }
+
+    #[test]
+    fn test_commit_gc_reaps_expired() {
+        let (storage, _temp) = create_test_backend();
+        let signer = Signer::open(create_test_signer_options(), storage);
+
+        insert_test_commit(
+            &signer,
+            "old",
+            "client_a",
+            now().saturating_sub(COMMIT_TTL_SECS + 1),
+        );
+        insert_test_commit(&signer, "fresh", "client_a", now());
+
+        signer.cleanup();
+
+        assert!(signer.take_commit("old", "client_a").is_none());
+        assert!(signer.take_commit("fresh", "client_a").is_some());
+    }
+
+    /// End-to-end two-round flow: register two signers from a dealer-generated
+    /// 2-of-2 group, run /sign/commit then /sign/complete for both, and verify
+    /// the aggregated nostr event signature. Also asserts single-use enforcement.
+    #[test]
+    fn test_two_round_sign_and_verify() {
+        use crate::nostr::NostrAuth;
+        use crate::schema::{SighashVec, SignCompleteRequestInner, SignRequestInner};
+        use frost_taproot::frost::dealer::generate_dealer_package;
+        use frost_taproot::sign::combine_partial_sigs;
+        use frost_taproot::types::ShareSignature;
+        use nostr::secp256k1::schnorr::Signature as SchnorrSig;
+        use nostr::util::JsonUtil;
+        use nostr::{EventBuilder, Kind, PublicKey};
+
+        fn auth_for(pubkey: &str) -> NostrAuth {
+            let now = now();
+            let event_json = format!(
+                r#"{{"id":"{id}","pubkey":"{pubkey}","created_at":{now},"kind":27235,"tags":[["u","http://localhost:3000/test"],["method","POST"]],"content":"","sig":"{sig}"}}"#,
+                id = "a".repeat(64),
+                sig = "b".repeat(128),
+            );
+            NostrAuth {
+                pubkey: pubkey.to_string(),
+                event: nostr::Event::from_json(event_json).expect("valid test event json"),
+            }
+        }
+
+        let (storage, _temp) = create_test_backend();
+        let signer = Signer::open(create_test_signer_options(), storage);
+
+        // ── Generate a 2-of-2 FROST group ──
+        let secrets = [[0x11u8; 32], [0x22u8; 32]];
+        let pkg = generate_dealer_package(2, 2, &secrets).unwrap();
+        let group = &pkg.group;
+        let group_pk_xonly = PublicKey::from_slice(&group.group_pk[1..]).unwrap();
+
+        let low_shares: Vec<_> = pkg.shares[..2]
+            .iter()
+            .map(|s| SecretShare {
+                idx: s.idx,
+                seckey: s.seckey,
+            })
+            .collect();
+        let commit_pkgs: Vec<_> = low_shares
+            .iter()
+            .map(|s| create_commit_pkg(s, None, None))
+            .collect();
+
+        let schema_group = Group {
+            group_pk: Hex33(hex::encode(group.group_pk)),
+            threshold: group.threshold as u32,
+            commits: BoundedVec(
+                commit_pkgs
+                    .iter()
+                    .zip(&low_shares)
+                    .map(|(c, s)| Commit {
+                        idx: c.idx,
+                        pubkey: Hex33(hex::encode(get_pubkey_compressed(&s.seckey))),
+                        hidden_pn: Hex33(hex::encode(c.hidden_pn)),
+                        binder_pn: Hex33(hex::encode(c.binder_pn)),
+                    })
+                    .collect(),
+            ),
+        };
+
+        // ── Register one session per signer (clients keyed arbitrarily) ──
+        let clients = ["c".repeat(64), "d".repeat(64)];
+        for (i, share) in low_shares.iter().enumerate() {
+            let cp = &commit_pkgs[i];
+            signer.add_session(
+                &clients[i],
+                SignerSession {
+                    client: clients[i].clone(),
+                    share: Share {
+                        idx: share.idx,
+                        seckey: Hex32(hex::encode(share.seckey)),
+                        hidden_sn: Hex32(hex::encode(cp.hidden_sn)),
+                        binder_sn: Hex32(hex::encode(cp.binder_sn)),
+                    },
+                    group: schema_group.clone(),
+                    recovery: false,
+                    created_at: now(),
+                    deactivated_at: None,
+                    last_activity: now(),
+                    email: None,
+                    email_hash: None,
+                    password_hash: None,
+                },
+            );
+        }
+
+        // ── Build an unsigned nostr event ──
+        let mut unsigned =
+            EventBuilder::new(Kind::TextNote, "two-round hello").build(group_pk_xonly);
+        let sighash_hex = hex::encode(unsigned.id().as_bytes());
+        let members = vec![1u32, 2u32];
+
+        // ── Round 1: collect fresh public nonces from both signers ──
+        let mut commit_results = Vec::new();
+        for client in &clients {
+            let resp = signer.handle_sign_commit(
+                &auth_for(client),
+                SignCommitRequest {
+                    members: BoundedVec(members.clone()),
+                },
+            );
+            assert!(resp.ok, "commit should succeed");
+            commit_results.push(resp.result.unwrap());
+        }
+
+        let pnonces: Vec<crate::schema::PublicNonceItem> = commit_results
+            .iter()
+            .map(|r| crate::schema::PublicNonceItem {
+                idx: r.idx,
+                hidden_pn: Hex33(r.hidden_pn.0.clone()),
+                binder_pn: Hex33(r.binder_pn.0.clone()),
+            })
+            .collect();
+
+        // ── Build the session request bound to the fresh pnonces ──
+        let gid = hex::encode(crate::session::test_group_id(&schema_group));
+        let template = SignRequestInner {
+            gid: Hex32(gid.clone()),
+            sid: Hex32("00".repeat(32)),
+            members: BoundedVec(members.clone()),
+            hashes: BoundedVec(vec![SighashVec(vec![Hex32(sighash_hex)])]),
+            content: None,
+            kind: "message".to_string(),
+            stamp: 1234567890,
+        };
+        let sid = hex::encode(crate::session::test_session_id(&schema_group, &template));
+        let request = SignRequestInner {
+            sid: Hex32(sid.clone()),
+            ..template
+        };
+
+        // The complete request carries a single `hash` vector; the signer wraps it
+        // internally as `hashes = vec![hash]`, producing a session byte-identical
+        // to `request` above.
+        let complete_request = SignCompleteRequestInner {
+            gid: Hex32(gid.clone()),
+            sid: Hex32(sid),
+            members: BoundedVec(members.clone()),
+            hash: SighashVec(vec![request.hashes.0[0].0[0].clone()]),
+            content: None,
+            kind: "message".to_string(),
+            stamp: 1234567890,
+        };
+
+        // ── Round 2: complete with both signers ──
+        let mut psig_results = Vec::new();
+        for (i, client) in clients.iter().enumerate() {
+            let resp = signer.handle_sign_complete(
+                &auth_for(client),
+                SignCompleteRequest {
+                    commit_id: Hex32(commit_results[i].commit_id.0.clone()),
+                    request: complete_request.clone(),
+                    pnonces: BoundedVec(pnonces.clone()),
+                },
+            );
+            assert!(resp.ok, "complete should succeed: {}", resp.message);
+            psig_results.push(resp.result.unwrap());
+        }
+
+        // ── A replayed completion for a consumed commit_id must be refused ──
+        let replay = signer.handle_sign_complete(
+            &auth_for(&clients[0]),
+            SignCompleteRequest {
+                commit_id: Hex32(commit_results[0].commit_id.0.clone()),
+                request: complete_request.clone(),
+                pnonces: BoundedVec(pnonces.clone()),
+            },
+        );
+        assert!(!replay.ok);
+        assert_eq!(replay.message, "Commitment not found or already used");
+
+        // ── Aggregate and verify against the real group key ──
+        let base: Vec<_> = pnonces.clone();
+        let ctxs = crate::session::test_build_contexts(&schema_group, &request, &base);
+        let share_sigs: Vec<ShareSignature> = psig_results
+            .iter()
+            .map(|r| ShareSignature {
+                idx: r.idx,
+                pubkey: <[u8; 33]>::try_from(hex::decode(&r.pubkey.0).unwrap()).unwrap(),
+                psig: <[u8; 32]>::try_from(hex::decode(&r.psig.1.0).unwrap()).unwrap(),
+            })
+            .collect();
+        let final_sig = combine_partial_sigs(&ctxs[0], &share_sigs).unwrap();
+
+        let schnorr_sig = SchnorrSig::from_slice(&final_sig).unwrap();
+        let event = unsigned.add_signature(schnorr_sig).unwrap();
+        event
+            .verify()
+            .expect("two-round FROST-signed nostr event must verify");
     }
 }

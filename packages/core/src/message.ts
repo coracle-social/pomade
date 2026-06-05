@@ -12,6 +12,15 @@ export type RegisterResponse = z.infer<typeof Schema.registerResponse>
 export type SignRequest = z.infer<typeof Schema.signRequest>
 export type SignResponse = z.infer<typeof Schema.signResponse>
 
+export type SignCommitRequest = z.infer<typeof Schema.signCommitRequest>
+export type SignCommitResponse = z.infer<typeof Schema.signCommitResponse>
+
+export type SignCompleteRequest = z.infer<typeof Schema.signCompleteRequest>
+export type SignCompleteResponse = z.infer<typeof Schema.signCompleteResponse>
+
+export type SignCompleteRequestInner = SignCompleteRequest["request"]
+export type SignCompleteResult = NonNullable<SignCompleteResponse["result"]>
+
 export type EcdhRequest = z.infer<typeof Schema.ecdhRequest>
 export type EcdhResponse = z.infer<typeof Schema.ecdhResponse>
 

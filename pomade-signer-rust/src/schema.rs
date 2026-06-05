@@ -241,6 +241,94 @@ pub struct SignResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignCommitRequest {
+    pub members: BoundedVec<u32, MAX_MEMBERS>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignCommitResult {
+    pub commit_id: Hex32,
+    pub idx: u32,
+    pub pubkey: Hex33,
+    pub hidden_pn: Hex33,
+    pub binder_pn: Hex33,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignCommitResponse {
+    pub ok: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<SignCommitResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublicNonceItem {
+    pub idx: u32,
+    pub hidden_pn: Hex33,
+    pub binder_pn: Hex33,
+}
+
+/// The `request` object of a /sign/complete call. Identical to
+/// [`SignRequestInner`] except it carries a single sighash vector `hash`
+/// instead of a `hashes` batch, so each fresh round-1 nonce signs exactly one
+/// message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignCompleteRequestInner {
+    pub content: Option<String>,
+    pub hash: SighashVec,
+    pub members: BoundedVec<u32, MAX_MEMBERS>,
+    pub stamp: u64,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub gid: Hex32,
+    pub sid: Hex32,
+}
+
+impl SignCompleteRequestInner {
+    /// Wrap this single-message request as an internal [`SignRequestInner`] with
+    /// `hashes = vec![hash]`, so the existing session/signing logic can be reused
+    /// unchanged. The resulting sid is computed over a single-message `[hash]`,
+    /// byte-identical to the session the client/bifrost computed.
+    pub fn to_inner(&self) -> SignRequestInner {
+        SignRequestInner {
+            content: self.content.clone(),
+            hashes: BoundedVec(vec![self.hash.clone()]),
+            members: BoundedVec(self.members.0.clone()),
+            stamp: self.stamp,
+            kind: self.kind.clone(),
+            gid: self.gid.clone(),
+            sid: self.sid.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignCompleteRequest {
+    pub commit_id: Hex32,
+    pub request: SignCompleteRequestInner,
+    pub pnonces: BoundedVec<PublicNonceItem, MAX_MEMBERS>,
+}
+
+/// The `result` object of a /sign/complete call. Carries a single partial
+/// signature `psig` (a [sighash, partial_signature] pair) instead of a batch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignCompleteResult {
+    pub idx: u32,
+    pub psig: PsigEntry,
+    pub pubkey: Hex33,
+    pub sid: Hex32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignCompleteResponse {
+    pub ok: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<SignCompleteResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EcdhRequest {
     pub idx: u32,
     pub members: BoundedVec<u32, MAX_MEMBERS>,

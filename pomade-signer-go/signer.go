@@ -10,9 +10,13 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coracle-social/pomade/pomade-signer-go/mailer"
+	"github.com/frost-taproot/frost-taproot-go/commit"
+	"github.com/frost-taproot/frost-taproot-go/helpers"
+	"github.com/frost-taproot/frost-taproot-go/types"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -24,6 +28,9 @@ const minuteSecs uint64 = 60
 
 var clientRateLimits = RateLimitConfig{MaxAttempts: 100, WindowSeconds: 60}
 var emailRateLimits = RateLimitConfig{MaxAttempts: 5, WindowSeconds: 120}
+
+const commitTTLSecs uint64 = 2 * 60
+const maxMembers = 5
 
 type SignerOptions struct {
 	URL         string
@@ -67,6 +74,15 @@ type SignerChallenge struct {
 	OTP       string `json:"otp"`
 }
 
+// commitEntry holds the in-memory, non-durable state for a single round-1
+// commitment. The secret nonce is server-only and never serialized or returned.
+type commitEntry struct {
+	commitID  string
+	members   []uint32
+	secret    types.SecretNonce
+	createdAt uint64
+}
+
 type Signer struct {
 	options SignerOptions
 
@@ -77,6 +93,9 @@ type Signer struct {
 	sessionsByEmailHash  Collection[SessionIndex]
 	rateLimitByEmailHash Collection[RateLimitBucket]
 	rateLimitByClient    Collection[RateLimitBucket]
+
+	commitMu        sync.Mutex
+	commitsByClient map[string][]*commitEntry
 }
 
 const generatorX = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
@@ -92,6 +111,7 @@ func OpenSigner(options SignerOptions, backend StorageBackend) *Signer {
 		sessionsByEmailHash:  GetCollection[SessionIndex](storage, "sessionsByEmailHash"),
 		rateLimitByEmailHash: GetCollection[RateLimitBucket](storage, "rateLimitByEmailHash"),
 		rateLimitByClient:    GetCollection[RateLimitBucket](storage, "rateLimitByClient"),
+		commitsByClient:      make(map[string][]*commitEntry),
 	}
 }
 
@@ -157,6 +177,23 @@ func (s *Signer) cleanup() {
 			s.deleteSession(k)
 		}
 	}
+
+	commitCutoff := nowSec() - commitTTLSecs
+	s.commitMu.Lock()
+	for client, entries := range s.commitsByClient {
+		kept := entries[:0]
+		for _, entry := range entries {
+			if entry.createdAt >= commitCutoff {
+				kept = append(kept, entry)
+			}
+		}
+		if len(kept) == 0 {
+			delete(s.commitsByClient, client)
+		} else {
+			s.commitsByClient[client] = kept
+		}
+	}
+	s.commitMu.Unlock()
 }
 
 func (s *Signer) checkAndRecordRateLimit(client string) bool {
@@ -539,6 +576,207 @@ func containsIdx(members []uint32, idx uint32) bool {
 	return false
 }
 
+func randomCommitID() string {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// takeCommit performs an atomic check-and-remove within the requesting client's
+// slice. Looking up only within that client's commitments structurally prevents
+// access to another client's commitment. At most one caller can ever succeed for
+// a given commit id, which guarantees a fresh nonce signs exactly once. The
+// returned entry is the only remaining copy; signing happens outside the lock.
+func (s *Signer) takeCommit(commitID string, client string) (*commitEntry, bool) {
+	s.commitMu.Lock()
+	defer s.commitMu.Unlock()
+	entries := s.commitsByClient[client]
+	for i, entry := range entries {
+		if entry.commitID != commitID {
+			continue
+		}
+		next := append(entries[:i], entries[i+1:]...)
+		if len(next) == 0 {
+			delete(s.commitsByClient, client)
+		} else {
+			s.commitsByClient[client] = next
+		}
+		return entry, true
+	}
+	return nil, false
+}
+
+func (s *Signer) putCommit(client string, entry *commitEntry) string {
+	s.commitMu.Lock()
+	defer s.commitMu.Unlock()
+	entry.commitID = randomCommitID()
+	s.commitsByClient[client] = append(s.commitsByClient[client], entry)
+	return entry.commitID
+}
+
+func (s *Signer) handleSignCommit(auth NostrAuth, data SignCommitRequest) SignCommitResponse {
+	client := auth.Pubkey.Hex()
+	session := s.sessions.Get(client)
+	if session == nil {
+		return SignCommitResponse{OK: false, Message: "No session found for client"}
+	}
+	if session.Deactivated != nil {
+		return SignCommitResponse{OK: false, Message: "Session is deactivated"}
+	}
+	if !s.checkAndRecordRateLimit(client) {
+		return SignCommitResponse{OK: false, Message: "Rate limit exceeded. Please try again later."}
+	}
+	if len(data.Members) == 0 || len(data.Members) > maxMembers {
+		return SignCommitResponse{OK: false, Message: "Invalid members list"}
+	}
+	if !containsIdx(data.Members, session.Share.Idx) {
+		return SignCommitResponse{OK: false, Message: "Signer index not present in members list"}
+	}
+
+	seckey, ok := decodeHex32(session.Share.Seckey)
+	if !ok {
+		return SignCommitResponse{OK: false, Message: "Failed to create commitment"}
+	}
+	secretShare := types.SecretShare{ID: session.Share.Idx, Seckey: seckey}
+	pkg := commit.CreateCommitPkg(&secretShare, nil, nil)
+
+	members := append([]uint32(nil), data.Members...)
+	commitID := s.putCommit(client, &commitEntry{
+		members:   members,
+		secret:    pkg.SecretNonce(),
+		createdAt: nowSec(),
+	})
+
+	pubkey := ""
+	for _, c := range session.Group.Commits {
+		if c.Idx == session.Share.Idx {
+			pubkey = c.Pubkey
+			break
+		}
+	}
+
+	session.LastActivity = nowSec()
+	s.sessions.Set(client, *session)
+	return SignCommitResponse{OK: true, Message: "Commitment created", Result: &SignCommitResult{
+		CommitID: commitID,
+		Idx:      session.Share.Idx,
+		Pubkey:   pubkey,
+		HiddenPn: hex.EncodeToString(pkg.HiddenPn[:]),
+		BinderPn: hex.EncodeToString(pkg.BinderPn[:]),
+	}}
+}
+
+func (s *Signer) handleSignComplete(auth NostrAuth, data SignCompleteRequest) SignCompleteResponse {
+	client := auth.Pubkey.Hex()
+	session := s.sessions.Get(client)
+	if session == nil {
+		return SignCompleteResponse{OK: false, Message: "No session found for client"}
+	}
+	if session.Deactivated != nil {
+		return SignCompleteResponse{OK: false, Message: "Session is deactivated"}
+	}
+	if !s.checkAndRecordRateLimit(client) {
+		return SignCompleteResponse{OK: false, Message: "Rate limit exceeded. Please try again later."}
+	}
+
+	if len(data.Request.Hash) == 0 {
+		return SignCompleteResponse{OK: false, Message: "Failed to sign event"}
+	}
+
+	// The two-round flow signs exactly one message per fresh nonce. Wrap the
+	// single hash as a one-element batch so the existing single-message logic
+	// (session id, pnonce validation, signing) is reused unchanged.
+	request := SignRequestInner{
+		Content: data.Request.Content,
+		Hashes:  [][]string{data.Request.Hash},
+		Members: data.Request.Members,
+		Stamp:   data.Request.Stamp,
+		Type:    data.Request.Type,
+		Gid:     data.Request.Gid,
+		Sid:     data.Request.Sid,
+	}
+
+	// Atomic single-use: the nonce is consumed here and never restored, even if
+	// signing below fails. A second completion for this commit id is refused.
+	entry, ok := s.takeCommit(data.CommitID, client)
+	if !ok {
+		return SignCompleteResponse{OK: false, Message: "Commitment not found or already used"}
+	}
+
+	if !verifySessionPkg(session.Group, request) {
+		return SignCompleteResponse{OK: false, Message: "Failed to sign event"}
+	}
+	if !containsIdx(request.Members, session.Share.Idx) {
+		return SignCompleteResponse{OK: false, Message: "Signer index not present in members list"}
+	}
+	if !sameMembers(entry.members, request.Members) {
+		return SignCompleteResponse{OK: false, Message: "Failed to sign event"}
+	}
+	if !validatePnonces(session.Group, request.Members, data.Pnonces, entry.secret) {
+		return SignCompleteResponse{OK: false, Message: "Failed to sign event"}
+	}
+
+	psig, ok := createPsigPkgWithNonce(session.Group, request, session.Share, entry.secret, data.Pnonces)
+	if !ok {
+		return SignCompleteResponse{OK: false, Message: "Failed to sign event"}
+	}
+	session.LastActivity = nowSec()
+	s.sessions.Set(client, *session)
+	return SignCompleteResponse{OK: true, Message: "Successfully signed event", Result: psig}
+}
+
+func sameMembers(a, b []uint32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// validatePnonces enforces that the supplied public nonce set matches the chosen
+// members exactly, every nonce belongs to a group member, and the entry for this
+// signer's own idx equals the public nonce derived from the stored secret nonce.
+func validatePnonces(group Group, members []uint32, pnonces []PublicNonceItem, secret types.SecretNonce) bool {
+	if len(pnonces) != len(members) || len(pnonces) > maxMembers {
+		return false
+	}
+	groupIdx := map[uint32]bool{}
+	for _, c := range group.Commits {
+		groupIdx[c.Idx] = true
+	}
+	expectHidden := helpers.GetPubkey(secret.HiddenSn)
+	expectBinder := helpers.GetPubkey(secret.BinderSn)
+	for _, m := range members {
+		var match *PublicNonceItem
+		for i := range pnonces {
+			if pnonces[i].Idx == m {
+				if match != nil {
+					return false
+				}
+				match = &pnonces[i]
+			}
+		}
+		if match == nil || !groupIdx[m] {
+			return false
+		}
+		if m == secret.ID {
+			hidden, ok := decodeHex33(match.HiddenPn)
+			if !ok || hidden != expectHidden {
+				return false
+			}
+			binder, ok := decodeHex33(match.BinderPn)
+			if !ok || binder != expectBinder {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (s *Signer) handleEcdh(auth NostrAuth, data EcdhRequest) EcdhResponse {
 	client := auth.Pubkey.Hex()
 	session := s.sessions.Get(client)
@@ -625,6 +863,18 @@ func (s *Signer) Handle(path string, method string, authHeader string, expectedU
 			return map[string]any{"ok": false, "message": "Failed to validate request data."}
 		}
 		return s.handleSign(*auth, *data)
+	case "/sign/commit":
+		data, ok := decodeJSON[SignCommitRequest](body)
+		if !ok {
+			return map[string]any{"ok": false, "message": "Failed to validate request data."}
+		}
+		return s.handleSignCommit(*auth, *data)
+	case "/sign/complete":
+		data, ok := decodeJSON[SignCompleteRequest](body)
+		if !ok {
+			return map[string]any{"ok": false, "message": "Failed to validate request data."}
+		}
+		return s.handleSignComplete(*auth, *data)
 	case "/ecdh":
 		data, ok := decodeJSON[EcdhRequest](body)
 		if !ok {

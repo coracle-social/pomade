@@ -8,6 +8,7 @@ import {
   first,
   last,
   isDefined,
+  indexBy,
   textEncoder,
   identity,
 } from "@welshman/lib"
@@ -33,7 +34,8 @@ import {
   SessionDeactivateResponse,
   SessionDeleteResponse,
   SessionListResponse,
-  SignResponse,
+  SignCommitResponse,
+  SignCompleteResponse,
   EcdhResponse,
 } from "./message.js"
 
@@ -353,28 +355,85 @@ export class Client {
 
   async sign(stampedEvent: StampedEvent) {
     const event = prep(stampedEvent, this.userPubkey)
-    const allMessages: Message<SignResponse>[] = []
+    const allMessages: Message<SignCompleteResponse>[] = []
 
     const result = await this.racePermutations(async (selectedCommits, signal) => {
       const members = selectedCommits.map(c => c.idx)
+
+      // Round 1: collect a fresh public nonce from every member.
+      const commitMessages = await Promise.all(
+        members.map(idx =>
+          this.rpc.post<SignCommitResponse>(
+            this.peers[idx - 1]!,
+            "/sign/commit",
+            {members},
+            {signal},
+          ),
+        ),
+      )
+
+      if (!commitMessages.every(m => m.res?.ok)) throw new Error("Round 1 failure")
+
       const template = Lib.create_session_template(members, event.id)
 
       if (!template) throw new Error("Failed to create signing template")
 
       const request = Lib.create_session_pkg(this.group, template)
+      const commits = commitMessages.map(m => m.res!.result!)
+      const commitIdByIdx = indexBy(c => c.idx, commits)
+      const pnonces = commits.map(c => ({
+        idx: c.idx,
+        hidden_pn: c.hidden_pn,
+        binder_pn: c.binder_pn,
+      }))
+
+      const completeRequest = {
+        content: request.content,
+        hash: request.hashes[0]!,
+        members: request.members,
+        stamp: request.stamp,
+        type: request.type,
+        gid: request.gid,
+        sid: request.sid,
+      }
 
       const messages = await Promise.all(
         members.map(idx =>
-          this.rpc.post<SignResponse>(this.peers[idx - 1]!, "/sign", {request}, {signal}),
+          this.rpc.post<SignCompleteResponse>(
+            this.peers[idx - 1]!,
+            "/sign/complete",
+            {commit_id: commitIdByIdx.get(idx)!.commit_id, request: completeRequest, pnonces},
+            {signal},
+          ),
         ),
       )
 
       allMessages.push(...messages)
 
-      if (!messages.every(m => m.res?.ok)) throw new Error("Signer failure")
+      if (!messages.every(m => m.res?.ok)) throw new Error("Round 2 failure")
 
-      const ctx = Lib.get_session_ctx(this.group, request)
-      const pkgs = messages.map(m => m.res!.result!)
+      const registrationByIdx = indexBy(c => c.idx, this.group.commits)
+
+      // Build the signing context from the fresh round-1 pnonces rather than the
+      // registration-time group.commits, applying the same additive per-sighash
+      // tweak as Lib.get_session_ctx via the substituted commit set.
+      const ctx = Lib.get_session_ctx(
+        {
+          ...this.group,
+          commits: pnonces.map(pn => ({
+            idx: pn.idx,
+            hidden_pn: pn.hidden_pn,
+            binder_pn: pn.binder_pn,
+            pubkey: registrationByIdx.get(pn.idx)!.pubkey,
+          })),
+        },
+        request,
+      )
+      const pkgs = messages.map(m => {
+        const {idx, psig, pubkey, sid} = m.res!.result!
+
+        return {idx, psigs: [psig], pubkey, sid}
+      })
       const sig = Lib.combine_signature_pkgs(ctx, pkgs)[0]?.[2]
 
       if (!sig) throw new Error("Failed to combine signatures")

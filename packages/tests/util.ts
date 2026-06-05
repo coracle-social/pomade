@@ -118,7 +118,7 @@ export async function setupSuite(specs: SignerKind[]): Promise<SuiteContext> {
 }
 
 export async function teardownSuite(ctx: SuiteContext) {
-  ctx.signers.forEach(s => s.stop())
+  await Promise.all(ctx.signers.map(s => s.stop()))
   ctx.challengePayloads.splice(0)
 }
 

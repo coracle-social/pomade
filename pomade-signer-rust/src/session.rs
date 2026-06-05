@@ -13,7 +13,8 @@ use frost_taproot::{
 use sha2::{Digest, Sha256};
 
 use crate::schema::{
-    Commit, EcdhRequest, EcdhResult, Group, Hex32, PsigEntry, Share, SignRequest, SignResult,
+    Commit, EcdhRequest, EcdhResult, Group, Hex32, PsigEntry, Share, SignCompleteResult,
+    SignRequest, SignResult,
 };
 
 /// Mirrors `Buff.bytes(n)` / `numToBytes(n, undefined)` from @cmdcode/buff:
@@ -83,17 +84,36 @@ fn tweak_commit_pnonces(
     session_id: &[u8; 32],
     sigvec: &[Hex32],
 ) -> Result<PublicNonce, Error> {
-    let bind_hash = get_sighash_binder(session_id, commit.idx, sigvec);
+    tweak_pnonce(
+        commit.idx,
+        &commit.hidden_pn.0,
+        &commit.binder_pn.0,
+        session_id,
+        sigvec,
+    )
+}
+
+/// Tweak a raw pair of hex public nonces for a given sighash vector.
+/// Mirrors `create_sighash_commit` in bifrost, sourcing the base nonces from
+/// either the registration commits or a round-1 fresh-nonce set.
+fn tweak_pnonce(
+    idx: u32,
+    hidden_pn: &str,
+    binder_pn: &str,
+    session_id: &[u8; 32],
+    sigvec: &[Hex32],
+) -> Result<PublicNonce, Error> {
+    let bind_hash = get_sighash_binder(session_id, idx, sigvec);
     let hidden_pn = tweak_pubkey(
-        &decode33(&commit.hidden_pn.0).map_err(|_| Error::InvalidPoint)?,
+        &decode33(hidden_pn).map_err(|_| Error::InvalidPoint)?,
         &bind_hash,
     )?;
     let binder_pn = tweak_pubkey(
-        &decode33(&commit.binder_pn.0).map_err(|_| Error::InvalidPoint)?,
+        &decode33(binder_pn).map_err(|_| Error::InvalidPoint)?,
         &bind_hash,
     )?;
     Ok(PublicNonce {
-        idx: commit.idx,
+        idx,
         hidden_pn,
         binder_pn,
     })
@@ -128,11 +148,42 @@ struct SighashCtx {
     ctx: frost_taproot::types::GroupSigningCtx,
 }
 
-/// Build all per-sighash contexts for a sign request (mirrors `get_session_ctx` in bifrost).
+/// A base (untweaked) public nonce keyed by member index.
+struct BasePnonce {
+    idx: u32,
+    hidden_pn: String,
+    binder_pn: String,
+}
+
+/// Build all per-sighash contexts for a sign request (mirrors `get_session_ctx` in bifrost),
+/// deriving each member's base public nonce from the registration commits.
 fn build_sighash_contexts(
     group: &Group,
     request: &crate::schema::SignRequestInner,
     session_id: &[u8; 32],
+) -> Result<Vec<SighashCtx>, Error> {
+    let base: Vec<BasePnonce> = request
+        .members
+        .0
+        .iter()
+        .filter_map(|&idx| group.commits.0.iter().find(|c| c.idx == idx))
+        .map(|c| BasePnonce {
+            idx: c.idx,
+            hidden_pn: c.hidden_pn.0.clone(),
+            binder_pn: c.binder_pn.0.clone(),
+        })
+        .collect();
+    build_sighash_contexts_from_pnonces(group, request, session_id, &base)
+}
+
+/// Build all per-sighash contexts from an explicit set of base public nonces.
+/// Used by the two-round flow where the base nonces are the fresh round-1 nonces
+/// rather than the registration commits.
+fn build_sighash_contexts_from_pnonces(
+    group: &Group,
+    request: &crate::schema::SignRequestInner,
+    session_id: &[u8; 32],
+    base: &[BasePnonce],
 ) -> Result<Vec<SighashCtx>, Error> {
     let group_pk = decode33(&group.group_pk.0).map_err(|_| Error::InvalidPoint)?;
     let mut result = Vec::new();
@@ -146,12 +197,11 @@ fn build_sighash_contexts(
             .collect();
 
         // Build tweaked public nonces for each member in this session
-        let pnonces: Vec<PublicNonce> = request
-            .members
-            .0
+        let pnonces: Vec<PublicNonce> = base
             .iter()
-            .filter_map(|&idx| group.commits.0.iter().find(|c| c.idx == idx))
-            .filter_map(|commit| tweak_commit_pnonces(commit, session_id, hashes).ok())
+            .filter_map(|pn| {
+                tweak_pnonce(pn.idx, &pn.hidden_pn, &pn.binder_pn, session_id, hashes).ok()
+            })
             .collect();
 
         let ctx = get_group_signing_ctx(&group_pk, &pnonces, &sighash, &tweaks)?;
@@ -229,6 +279,42 @@ pub fn verify_session_pkg(group: &Group, request: &crate::schema::SignRequestInn
     hex::encode(gid) == request.gid.0 && hex::encode(sid) == request.sid.0
 }
 
+/// Test-only: expose the group id for building wire-compatible requests.
+#[cfg(test)]
+pub fn test_group_id(group: &Group) -> [u8; 32] {
+    compute_group_id(group)
+}
+
+/// Test-only: expose the session id for building wire-compatible requests.
+#[cfg(test)]
+pub fn test_session_id(group: &Group, request: &crate::schema::SignRequestInner) -> [u8; 32] {
+    compute_session_id(group, request)
+}
+
+/// Test-only: rebuild the per-sighash signing contexts from a fresh pnonce set,
+/// so callers can aggregate the resulting partial signatures.
+#[cfg(test)]
+pub fn test_build_contexts(
+    group: &Group,
+    request: &crate::schema::SignRequestInner,
+    pnonces: &[crate::schema::PublicNonceItem],
+) -> Vec<frost_taproot::types::GroupSigningCtx> {
+    let session_id = compute_session_id(group, request);
+    let base: Vec<BasePnonce> = pnonces
+        .iter()
+        .map(|pn| BasePnonce {
+            idx: pn.idx,
+            hidden_pn: pn.hidden_pn.0.clone(),
+            binder_pn: pn.binder_pn.0.clone(),
+        })
+        .collect();
+    build_sighash_contexts_from_pnonces(group, request, &session_id, &base)
+        .unwrap()
+        .into_iter()
+        .map(|sc| sc.ctx)
+        .collect()
+}
+
 /// Create a partial signature package for a sign request (mirrors `Lib.create_psig_pkg`).
 pub fn create_psig_pkg(
     group: &Group,
@@ -272,6 +358,89 @@ pub fn create_psig_pkg(
     Ok(SignResult {
         idx: share.idx,
         psigs,
+        pubkey: crate::schema::Hex33(encode33(&pubkey)),
+        sid: crate::schema::Hex32(hex::encode(session_id)),
+    })
+}
+
+/// Tweak a fresh secret nonce for a given sighash vector.
+/// Mirrors `tweak_share_snonces` but operates on a round-1 secret nonce.
+fn tweak_secret_nonce(
+    secret: &SecretNonce,
+    session_id: &[u8; 32],
+    sigvec: &[Hex32],
+) -> SecretNonce {
+    let bind_hash = get_sighash_binder(session_id, secret.idx, sigvec);
+    SecretNonce {
+        idx: secret.idx,
+        hidden_sn: tweak_seckey(&secret.hidden_sn, &bind_hash),
+        binder_sn: tweak_seckey(&secret.binder_sn, &bind_hash),
+    }
+}
+
+/// Create a partial signature package for the two-round flow (mirrors `create_psig_pkg`
+/// but signs with a fresh round-1 secret nonce and builds contexts from the request's
+/// fresh `pnonces` rather than the registration commits).
+///
+/// `request` is the internally-wrapped single-message request (`hashes` holds
+/// exactly one sighash vector), so the signing loop runs exactly once and the
+/// single resulting partial signature is returned as `psig`.
+pub fn create_psig_pkg_with_nonce(
+    group: &Group,
+    request: &crate::schema::SignRequestInner,
+    share: &Share,
+    secret: &SecretNonce,
+    pnonces: &[crate::schema::PublicNonceItem],
+) -> Result<SignCompleteResult, Error> {
+    let session_id = compute_session_id(group, request);
+
+    let base: Vec<BasePnonce> = pnonces
+        .iter()
+        .map(|pn| BasePnonce {
+            idx: pn.idx,
+            hidden_pn: pn.hidden_pn.0.clone(),
+            binder_pn: pn.binder_pn.0.clone(),
+        })
+        .collect();
+    let sighash_ctxs = build_sighash_contexts_from_pnonces(group, request, &session_id, &base)?;
+
+    let seckey = decode32(&share.seckey.0).map_err(|_| Error::InvalidPoint)?;
+    let pubkey = get_pubkey(&seckey);
+    let secret_share = SecretShare {
+        idx: share.idx,
+        seckey,
+    };
+
+    let mut psigs: Vec<PsigEntry> = Vec::new();
+
+    let sighash_hex = sighash_ctxs
+        .iter()
+        .map(|sc| hex::encode(sc.sighash))
+        .collect::<Vec<_>>();
+    for (sc, sc_hex) in sighash_ctxs.iter().zip(sighash_hex.iter()) {
+        let sigvec = request
+            .hashes
+            .0
+            .iter()
+            .find(|v| v.0.first().map(|h| &h.0) == Some(sc_hex))
+            .map(|v| v.0.as_slice())
+            .unwrap_or_default();
+        let snonce = tweak_secret_nonce(secret, &session_id, sigvec);
+
+        let sig = sign_msg(&sc.ctx, &secret_share, &snonce)?;
+        psigs.push((
+            crate::schema::Hex32(hex::encode(sc.sighash)),
+            crate::schema::Hex32(hex::encode(sig.psig)),
+        ));
+    }
+
+    // The wrapped request always carries exactly one sighash vector, so the loop
+    // produces exactly one partial signature.
+    let psig = psigs.into_iter().next().ok_or(Error::InvalidPoint)?;
+
+    Ok(SignCompleteResult {
+        idx: share.idx,
+        psig,
         pubkey: crate::schema::Hex33(encode33(&pubkey)),
         sid: crate::schema::Hex32(hex::encode(session_id)),
     })

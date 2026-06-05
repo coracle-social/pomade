@@ -1,13 +1,17 @@
 import * as z from "zod"
 import {Lib} from "@frostr/bifrost"
-import {randomBytes} from "@noble/hashes/utils.js"
-import type {GroupPackage, SharePackage} from "@frostr/bifrost"
+import {get_pubkey} from "@frostr/bifrost/util"
+import {randomBytes, bytesToHex} from "@noble/hashes/utils.js"
+import type {GroupPackage, SharePackage, SignSessionPackage} from "@frostr/bifrost"
 import {
   now,
+  spec,
+  sort,
   filter,
   remove,
   removeUndefined,
   append,
+  pushToMapKey,
   ms,
   uniq,
   between,
@@ -45,6 +49,11 @@ import {
   SessionDeleteResponse,
   SignRequest,
   SignResponse,
+  SignCommitRequest,
+  SignCommitResponse,
+  SignCompleteRequest,
+  SignCompleteResponse,
+  SignCompleteResult,
   EcdhRequest,
   EcdhResponse,
 } from "./message.js"
@@ -104,6 +113,29 @@ export type SignerSession = {
   password_hash?: string
 }
 
+export type FreshNonce = {
+  idx: number
+  hidden_sn: string
+  binder_sn: string
+  hidden_pn: string
+  binder_pn: string
+}
+
+export type PublicNonce = {
+  idx: number
+  hidden_pn: string
+  binder_pn: string
+}
+
+export type CommitEntry = {
+  commit_id: string
+  members: number[]
+  secret: FreshNonce
+  created_at: number
+}
+
+export type SignResult = NonNullable<SignResponse["result"]>
+
 export type SignerSessionIndex = {
   clients: string[]
 }
@@ -150,6 +182,7 @@ export class Signer {
   sessionsByEmailHash: ICollection<SignerSessionIndex>
   rateLimitByEmailHash: ICollection<RateLimitBucket>
   rateLimitByClient: ICollection<RateLimitBucket>
+  commitsByClient = new Map<string, CommitEntry[]>()
 
   constructor(private options: SignerOptions) {
     this.logins = options.storage.collection("logins")
@@ -180,8 +213,18 @@ export class Signer {
           await cleanupRateLimits(this.rateLimitByEmailHash, EMAIL_RATE_LIMITS.windowSeconds)
 
           await cleanupRateLimits(this.rateLimitByClient, CLIENT_RATE_LIMITS.windowSeconds)
+
+          for (const [client, entries] of this.commitsByClient) {
+            const live = entries.filter(entry => entry.created_at >= ago(2, MINUTE))
+
+            if (live.length === 0) {
+              this.commitsByClient.delete(client)
+            } else if (live.length !== entries.length) {
+              this.commitsByClient.set(client, live)
+            }
+          }
         },
-        ms(int(5, MINUTE)),
+        ms(int(2, MINUTE)),
       ) as unknown as number,
     ]
 
@@ -219,6 +262,61 @@ export class Signer {
         return auth
       }
     }
+  }
+
+  // Atomic single-use take is crecial for avoid key material leakage
+  _takeCommit(client: string, commit_id: string): CommitEntry | undefined {
+    const entries = this.commitsByClient.get(client)
+
+    if (!entries) return undefined
+
+    const i = entries.findIndex(spec({commit_id}))
+
+    if (i === -1) return undefined
+
+    const [entry] = entries.splice(i, 1)
+
+    if (entries.length === 0) this.commitsByClient.delete(client)
+
+    return entry
+  }
+
+  // Builds the signing context from the fresh round-1 pnonces rather than the
+  // registration-time commits (group.commits). Mirrors Lib.get_session_ctx by
+  // substituting the group commits with the supplied pnonces.
+  _freshSessionCtx(group: GroupPackage, session: SignSessionPackage, pnonces: PublicNonce[]) {
+    const commitByIdx = new Map(group.commits.map(c => [c.idx, c]))
+    const commits = pnonces.map(pn => ({
+      idx: pn.idx,
+      hidden_pn: pn.hidden_pn,
+      binder_pn: pn.binder_pn,
+      pubkey: commitByIdx.get(pn.idx)!.pubkey,
+    }))
+
+    return Lib.get_session_ctx({...group, commits}, session)
+  }
+
+  // Produces a partial signature using the fresh per-session secret nonce.
+  _createPsigPkgWithNonce(
+    ctx: ReturnType<typeof Lib.get_session_ctx>,
+    session: SignSessionPackage,
+    share: SharePackage,
+    secret: FreshNonce,
+  ): SignCompleteResult {
+    const tempShare: SharePackage = {
+      idx: share.idx,
+      seckey: share.seckey,
+      hidden_sn: secret.hidden_sn,
+      binder_sn: secret.binder_sn,
+    }
+    const sigShares = Lib.create_member_shares(session, tempShare)
+    const pubkey = get_pubkey(share.seckey, "ecdsa")
+    const [sighash] = session.hashes[0]
+    const sigShare = sigShares.find(spec({sighash}))!
+    const sigCtx = ctx.sigmap.get(sighash)!
+    const psig: [string, string] = [sighash, Lib.create_partial_sig(sigCtx, sigShare)]
+
+    return {idx: share.idx, psig, pubkey, sid: session.sid}
   }
 
   async _checkAndRecordRateLimit(client: string): Promise<boolean> {
@@ -656,6 +754,169 @@ export class Signer {
     })
   }
 
+  async _handleSignCommit(
+    {pubkey: client}: SignedEvent,
+    data: SignCommitRequest,
+  ): Promise<SignCommitResponse> {
+    return this.options.storage.tx(async () => {
+      const session = await this.sessions.get(client)
+
+      if (!session) {
+        debug(`[client ${client.slice(0, 8)}]: commit failed - no session found`)
+        return {ok: false, message: "No session found for client"}
+      }
+
+      if (session.deactivated_at) {
+        debug(`[client ${client.slice(0, 8)}]: commit failed - session is deactivated`)
+        return {ok: false, message: "Session is deactivated"}
+      }
+
+      const allowed = await this._checkAndRecordRateLimit(client)
+      if (!allowed) {
+        return {ok: false, message: "Rate limit exceeded. Please try again later."}
+      }
+
+      if (!data.members.includes(session.share.idx)) {
+        debug(`[client ${client.slice(0, 8)}]: commit failed - signer index not in members`)
+        return {ok: false, message: "Signer index not present in members list"}
+      }
+
+      const hidden_sn = bytesToHex(randomBytes(32))
+      const binder_sn = bytesToHex(randomBytes(32))
+      const secret: FreshNonce = {
+        idx: session.share.idx,
+        hidden_sn,
+        binder_sn,
+        hidden_pn: get_pubkey(hidden_sn, "ecdsa"),
+        binder_pn: get_pubkey(binder_sn, "ecdsa"),
+      }
+
+      const commit_id = bytesToHex(randomBytes(32))
+
+      pushToMapKey(this.commitsByClient, client, {
+        commit_id,
+        members: data.members,
+        secret,
+        created_at: now(),
+      })
+
+      await this.sessions.set(client, {...session, last_activity: now()})
+
+      debug(`[client ${client.slice(0, 8)}]: commitment created`)
+
+      return {
+        ok: true,
+        message: "Commitment created",
+        result: {
+          commit_id,
+          idx: session.share.idx,
+          pubkey: get_pubkey(session.share.seckey, "ecdsa"),
+          hidden_pn: secret.hidden_pn,
+          binder_pn: secret.binder_pn,
+        },
+      }
+    })
+  }
+
+  async _handleSignComplete(
+    {pubkey: client}: SignedEvent,
+    data: SignCompleteRequest,
+  ): Promise<SignCompleteResponse> {
+    const entry = this._takeCommit(client, data.commit_id)
+
+    if (!entry) {
+      debug(`[client ${client.slice(0, 8)}]: complete failed - commitment not found or used`)
+      return {ok: false, message: "Commitment not found or already used"}
+    }
+
+    return this.options.storage.tx(async () => {
+      const session = await this.sessions.get(client)
+
+      if (!session) {
+        debug(`[client ${client.slice(0, 8)}]: complete failed - no session found`)
+        return {ok: false, message: "No session found for client"}
+      }
+
+      if (session.deactivated_at) {
+        debug(`[client ${client.slice(0, 8)}]: complete failed - session is deactivated`)
+        return {ok: false, message: "Session is deactivated"}
+      }
+
+      const allowed = await this._checkAndRecordRateLimit(client)
+      if (!allowed) {
+        return {ok: false, message: "Rate limit exceeded. Please try again later."}
+      }
+
+      const {request, pnonces} = data
+
+      if (request.hash.length === 0) {
+        debug(`[client ${client.slice(0, 8)}]: complete failed - missing sighash`)
+        return {ok: false, message: "Missing sighash"}
+      }
+
+      const sessionPkg: SignSessionPackage = {
+        content: request.content,
+        hashes: [request.hash],
+        members: request.members,
+        stamp: request.stamp,
+        type: request.type,
+        gid: request.gid,
+        sid: request.sid,
+      }
+
+      const members = sort(request.members)
+      const expectedMembers = sort(entry.members)
+
+      if (
+        members.length !== expectedMembers.length ||
+        members.some((m, i) => m !== expectedMembers[i])
+      ) {
+        debug(`[client ${client.slice(0, 8)}]: complete failed - members mismatch`)
+        return {ok: false, message: "Members do not match commitment"}
+      }
+
+      if (
+        pnonces.length !== request.members.length ||
+        !request.members.every(m => pnonces.filter(p => p.idx === m).length === 1) ||
+        !pnonces.every(p => session.group.commits.some(c => c.idx === p.idx))
+      ) {
+        debug(`[client ${client.slice(0, 8)}]: complete failed - invalid pnonces`)
+        return {ok: false, message: "Invalid public nonce set"}
+      }
+
+      const own = pnonces.find(p => p.idx === session.share.idx)
+
+      if (
+        !own ||
+        own.hidden_pn !== entry.secret.hidden_pn ||
+        own.binder_pn !== entry.secret.binder_pn
+      ) {
+        debug(`[client ${client.slice(0, 8)}]: complete failed - own pnonce mismatch`)
+        return {ok: false, message: "Public nonce does not match commitment"}
+      }
+
+      if (!Lib.verify_session_pkg(session.group, sessionPkg)) {
+        debug(`[client ${client.slice(0, 8)}]: complete failed - invalid session package`)
+        return {ok: false, message: "Invalid session package"}
+      }
+
+      try {
+        const ctx = this._freshSessionCtx(session.group, sessionPkg, pnonces)
+        const result = this._createPsigPkgWithNonce(ctx, sessionPkg, session.share, entry.secret)
+
+        await this.sessions.set(client, {...session, last_activity: now()})
+
+        debug(`[client ${client.slice(0, 8)}]: signing complete`)
+
+        return {result, ok: true, message: "Successfully signed event"}
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        debug(`[client ${client.slice(0, 8)}]: complete failed - ${msg}`)
+        return {ok: false, message: "Failed to sign event"}
+      }
+    })
+  }
+
   async _handleEcdh(
     {pubkey: client}: SignedEvent,
     {members, ecdh_pk}: EcdhRequest,
@@ -842,6 +1103,15 @@ export class Signer {
         )
       case "/sign":
         return this._handle(auth, body, Schema.signRequest, this._handleSign.bind(this))
+      case "/sign/commit":
+        return this._handle(auth, body, Schema.signCommitRequest, this._handleSignCommit.bind(this))
+      case "/sign/complete":
+        return this._handle(
+          auth,
+          body,
+          Schema.signCompleteRequest,
+          this._handleSignComplete.bind(this),
+        )
       default:
         return {ok: false, message: "Not found"}
     }

@@ -73,24 +73,63 @@ The same signer MUST NOT be used multiple times for multiple shares of the same 
 
 ### Signing
 
-When a client wants to sign an event, it must choose at least `threshold` signers and send a request to each signer:
+When a client wants to sign an event, it runs a two-round FROST flow against at least `threshold` signers. Each signer commits to a fresh public nonce in round 1, keeps the matching secret nonce server-side only, and consumes it exactly once in round 2.
+
+#### Round 1: Commit
+
+The client sends one request per chosen signer to collect a fresh public nonce. The signer generates a fresh nonce, stores its secret half in memory keyed by a server-issued `commit_id`, and returns only the public half.
 
 ```typescript
-POST /sign
+POST /sign/commit
 {
-  request: {
-    content: string | null   // optional metadata about the signing session
-    hashes: string[][]       // array of sighash vectors: [sighash, ...tweaks] for each message to sign
-    members: number[]        // array of participating member indices (commit indices)
-    stamp: number            // unix timestamp when the session was created
-    type: string             // session type identifier (e.g., "nostr-event", "message")
-    gid: string              // group id: 32 byte hash identifying the signing group
-    sid: string              // session id: 32 byte hash uniquely identifying this signing session
+  members: number[] // member indexes for this session
+}
+```
+
+The signer looks up the session for the authorized `client key` and responds:
+
+```typescript
+{
+  ok: boolean          // whether the flow was successful
+  message: string      // human-readable error/success message
+  result?: {
+    commit_id: string  // 32 byte hex, opaque server-issued handle for this commitment
+    idx: number        // signer index
+    pubkey: string     // signer's hex public key (compressed, 33 bytes)
+    hidden_pn: string  // 33 byte hex string: fresh public nonce (hidden)
+    binder_pn: string  // 33 byte hex string: fresh public nonce (binder)
   }
 }
 ```
 
-The signer must then look up the session corresponding to the authorized `client key` and respond:
+The `commit_id` is generated per signer, per round-1 call (not per session), is globally unique, and is treated by the client as an opaque handle that it routes back to the signer that issued it. The secret nonce is generated server-side and MUST NEVER be returned to the client or logged.
+
+#### Round 2: Complete
+
+The client builds the group signing context from the **fresh** public nonces collected in round 1, then sends one request per signer carrying the full participant public-nonce set, the chosen member set, and the signing request:
+
+```typescript
+POST /sign/complete
+{
+  commit_id: string          // the handle THIS signer returned in round 1
+  request: {
+    content: string | null   // optional metadata about the signing session
+    hash: string[]           // a SINGLE sighash vector: [sighash, ...tweaks] (one message)
+    members: number[]        // chosen member set; MUST match the round-1 members
+    stamp: number            // unix timestamp when the session was created
+    type: string             // session type identifier
+    gid: string              // group id: 32 byte hash identifying the signing group
+    sid: string              // session id: 32 byte hash uniquely identifying this signing session
+  }
+  pnonces: Array<{           // full participant public-nonce set for this permutation
+    idx: number              // member index
+    hidden_pn: string        // 33 byte hex string
+    binder_pn: string        // 33 byte hex string
+  }>
+}
+```
+
+The signer looks up the secret nonce by `commit_id`, atomically consumes it, and responds:
 
 ```typescript
 {
@@ -100,12 +139,20 @@ The signer must then look up the session corresponding to the authorized `client
     idx: number        // signer index
     pubkey: string     // signer's hex public key (compressed, 33 bytes)
     sid: string        // session id
-    psigs: string[][]  // array of partial signatures: [sighash, partial_signature]
+    psig: string[]     // a single partial signature: [sighash, partial_signature]
   }
 }
 ```
 
-The client then combines the partial signatures into an aggregated signature which can be applied to the event.
+Each signer MUST validate the round-2 request before signing:
+
+- The secret nonce MUST NOT be used more than once, and a fresh nonce signs exactly one message. The singular `hash` makes this structural: it is impossible to submit more than one message under a single fresh nonce, which is what prevents related-nonce key recovery. (Batching multiple messages under one fresh nonce would otherwise leak the secret share.) Failure to enforce single use can result in leaking key material.
+- `pnonces` has exactly one entry per member in `request.members`, and every `idx` belongs to the group.
+- The `pnonces` entry for the signer's own index matches the public nonce derived from the secret nonce stored under `commit_id`. This binds round 2 to the round-1 commitment and prevents a coordinator from substituting the signer's nonce.
+- `gid` / `sid` verify against the group and request.
+- `request.members` equals the member set stored with the commitment in round 1.
+
+The signer rebuilds the same group signing context the client used — from the supplied fresh `pnonces`, applying an additive per-sighash nonce tweak — so the resulting partial signature combines identically. The response carries a single `psig` (a `[sighash, partial_signature]` pair) for the one message bound to this fresh nonce.
 
 ### Encryption/Decryption
 
