@@ -2,6 +2,19 @@
 
 For commands, refer to the justfile.
 
+### Build dependencies (Go signer)
+
+`frost-taproot-go/ecc` uses cgo to call libsecp256k1 for constant-time scalar
+multiplication (signing and ECDH), so building or testing `frost-taproot-go` and
+`pomade-signer-go` requires the libsecp256k1 development files and pkg-config,
+with `CGO_ENABLED=1` (the default for native builds):
+
+- Debian/Ubuntu: `apt-get install libsecp256k1-dev pkg-config`
+- macOS: `brew install secp256k1 pkg-config`
+
+A `CGO_ENABLED=0` build intentionally fails to compile rather than silently
+falling back to the variable-time (timing-leaky) decred scalar multiplication.
+
 ## Coding conventions
 
 ### Return values

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -303,7 +304,7 @@ func (s *Signer) getAuthenticatedSessions(auth AuthPayload) []SignerSession {
 			if sess == nil || sess.PasswordHash == nil {
 				continue
 			}
-			if *sess.PasswordHash == auth.PasswordHash {
+			if subtle.ConstantTimeCompare([]byte(*sess.PasswordHash), []byte(auth.PasswordHash)) == 1 {
 				items = append(items, *sess)
 			}
 		}
@@ -311,7 +312,7 @@ func (s *Signer) getAuthenticatedSessions(auth AuthPayload) []SignerSession {
 		challenge := s.challenges.Get(auth.EmailHash)
 		if challenge != nil {
 			s.challenges.Delete(auth.EmailHash)
-			if challenge.OTP == auth.OTP {
+			if subtle.ConstantTimeCompare([]byte(challenge.OTP), []byte(auth.OTP)) == 1 {
 				for _, c := range idx.Clients {
 					sess := s.sessions.Get(c)
 					if sess != nil {

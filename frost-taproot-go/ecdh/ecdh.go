@@ -20,7 +20,6 @@ func CreateEcdhShare(members []uint32, share *types.SecretShare, pubkey []byte) 
 	}
 
 	idx := poly.IndexToScalar(share.ID)
-	secret := ecc.ScalarFromBytes(share.Seckey)
 	point, err := ecc.LiftX(pubkey)
 	if err != nil {
 		return types.PublicShare{}, err
@@ -30,12 +29,16 @@ func CreateEcdhShare(members []uint32, share *types.SecretShare, pubkey []byte) 
 	if err != nil {
 		return types.PublicShare{}, err
 	}
-	pCoeff := ecc.ScalarMul(lCoeff, secret)
-	ecdhPt := ecc.ScalarMulti(point, pCoeff)
+	// pCoeff = lagrange * share, and ecdhPt = pCoeff * point. Both multiplications
+	// are constant time with respect to the secret share: the lagrange coefficient
+	// is public, the input point is attacker-supplied, so a variable-time scalar
+	// mult here would leak the share to a timing attacker on the /ecdh endpoint.
+	pCoeff := ecc.ScalarMulCT(share.Seckey, ecc.ScalarToBytes(lCoeff))
+	ecdhPk := ecc.ScalarMultiCT(ecc.SerializePoint(point), pCoeff)
 
 	return types.PublicShare{
 		ID:     share.ID,
-		Pubkey: ecc.SerializePoint(ecdhPt),
+		Pubkey: ecdhPk,
 	}, nil
 }
 

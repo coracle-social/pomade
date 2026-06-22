@@ -23,8 +23,6 @@ func SignMsg(ctx *types.GroupSigningCtx, share *types.SecretShare, snonce *types
 	if err != nil {
 		return types.ShareSignature{}, err
 	}
-	bindFactor := ecc.ScalarFromBytes(bindFactorBytes)
-
 	indexes := make([]*big.Int, len(ctx.Indexes))
 	for i, idx := range ctx.Indexes {
 		indexes[i] = poly.IndexToScalar(idx)
@@ -34,35 +32,37 @@ func SignMsg(ctx *types.GroupSigningCtx, share *types.SecretShare, snonce *types
 		return types.ShareSignature{}, err
 	}
 
-	snonceH := ecc.ScalarFromBytes(snonce.HiddenSn)
-	snonceB := ecc.ScalarFromBytes(snonce.BinderSn)
-	seckey := ecc.ScalarFromBytes(share.Seckey)
-
 	rElem, err := ecc.LiftX(ctx.GroupPn[:])
 	if err != nil {
 		return types.ShareSignature{}, err
 	}
 
+	// The arithmetic below is constant time with respect to the secret share and
+	// secret nonces: every step keeps a secret as the base operand and applies
+	// only public values (parity, state, bind factor, challenge, lagrange
+	// coefficient) as tweaks. A variable-time scalar mul/add here would leak the
+	// share via the timing of /sign/complete.
+	coeff := ecc.ScalarToBytes(coefficient)
+	snonceH := snonce.HiddenSn
+	snonceB := snonce.BinderSn
 	if !ecc.HasEvenY(rElem) {
-		snonceH = ecc.ScalarNeg(snonceH)
-		snonceB = ecc.ScalarNeg(snonceB)
+		snonceH = ecc.ScalarNegCT(snonceH)
+		snonceB = ecc.ScalarNegCT(snonceB)
 	}
 
 	// sk = parity * state * seckey
-	parity := ecc.ScalarFromBytes(ctx.GroupPt.Parity)
-	state := ecc.ScalarFromBytes(ctx.GroupPt.State)
-	sk := ecc.ScalarMul(ecc.ScalarMul(parity, state), seckey)
+	sk := ecc.ScalarMulCT(ecc.ScalarMulCT(share.Seckey, ctx.GroupPt.State), ctx.GroupPt.Parity)
 
 	// nk = hidden_sn + binder_sn * bind_factor
-	nk := ecc.ScalarAdd(snonceH, ecc.ScalarMul(snonceB, bindFactor))
+	nk := ecc.ScalarAddCT(snonceH, ecc.ScalarMulCT(snonceB, bindFactorBytes))
 
 	// ps = challenge * coefficient * sk + nk
-	challenge := ecc.ScalarFromBytes(ctx.Challenge)
-	ps := ecc.ScalarAdd(ecc.ScalarMul(ecc.ScalarMul(challenge, coefficient), sk), nk)
+	psk := ecc.ScalarMulCT(ecc.ScalarMulCT(sk, ctx.Challenge), coeff)
+	ps := ecc.ScalarAddCT(psk, nk)
 
 	return types.ShareSignature{
 		ID:     share.ID,
-		Psig:   ecc.ScalarToBytes(ps),
+		Psig:   ps,
 		Pubkey: helpers.GetPubkey(share.Seckey),
 	}, nil
 }
