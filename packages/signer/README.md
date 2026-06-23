@@ -14,6 +14,12 @@ Required environment variables:
 Optional environment variables:
 - `POMADE_DATABASE`: Path to SQLite database (default: `./pomade-signer.db`)
 - `MAIL_FROM_NAME`: Sender name (default: "Pomade Signer")
+- `POMADE_SENSITIVE_MIN_MS`: Minimum response time, in milliseconds, for the
+  secret-bearing `/sign/complete` and `/ecdh` endpoints (default: `50`). This
+  floors the response time so a remote observer cannot read the secret-dependent
+  execution time of the JS FROST library's non-constant-time `BigInt` scalar
+  math off the wire. Set it comfortably above the worst-case time these
+  endpoints take in your deployment; set `0` to disable.
 
 Email provider specific variables:
 - `POSTMARK_API_TOKEN` - For Postmark

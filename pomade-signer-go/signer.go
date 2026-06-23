@@ -566,7 +566,7 @@ func (s *Signer) takeCommit(commitID string, client string) (*commitEntry, bool)
 	defer s.commitMu.Unlock()
 	entries := s.commitsByClient[client]
 	for i, entry := range entries {
-		if entry.commitID != commitID {
+		if subtle.ConstantTimeCompare([]byte(entry.commitID), []byte(commitID)) != 1 {
 			continue
 		}
 		next := append(entries[:i], entries[i+1:]...)

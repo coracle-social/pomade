@@ -28,8 +28,9 @@ func CreateShareCoeffs(secrets [][32]byte, threshold int) []*big.Int {
 func GetShareCommits(coeffs []*big.Int) [][33]byte {
 	commits := make([][33]byte, len(coeffs))
 	for i, c := range coeffs {
-		point := ecc.ScalarBaseMulti(c)
-		commits[i] = ecc.SerializePoint(point)
+		// c is a secret polynomial coefficient, so commit to it (c*G) in
+		// constant time wrt the secret (see ecc.ScalarBaseMultiCT).
+		commits[i] = ecc.ScalarBaseMultiCT(ecc.ScalarToBytes(c))
 	}
 	return commits
 }

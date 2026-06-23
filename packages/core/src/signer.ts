@@ -26,7 +26,7 @@ import type {SignedEvent} from "@welshman/util"
 import type {ISigner} from "@welshman/signer"
 import {SessionItem, Auth, isPasswordAuth, isOTPAuth, Schema} from "./schema.js"
 import {IStorage, ICollection} from "./storage.js"
-import {hashEmail, debug, context} from "./util.js"
+import {hashEmail, debug, context, timingSafeStringEqual, withMinDuration} from "./util.js"
 import {
   RegisterRequest,
   RegisterResponse,
@@ -353,7 +353,9 @@ export class Signer {
     if (index) {
       if (isPasswordAuth(auth)) {
         sessions = filter(
-          session => session?.password_hash === auth.password_hash,
+          session =>
+            session?.password_hash !== undefined &&
+            timingSafeStringEqual(session.password_hash, auth.password_hash),
           await Promise.all(index.clients.map(client => this.sessions.get(client))),
         ) as SignerSession[]
       }
@@ -364,7 +366,7 @@ export class Signer {
         if (challenge) {
           await this.challenges.delete(auth.email_hash)
 
-          if (auth.otp === challenge.otp) {
+          if (timingSafeStringEqual(auth.otp, challenge.otp)) {
             sessions = removeUndefined(
               await Promise.all(index.clients.map(client => this.sessions.get(client))),
             )
@@ -851,6 +853,7 @@ export class Signer {
 
       const own = pnonces.find(p => p.idx === session.share.idx)
 
+      // hidden_pn and binder_pn are public nonce points, so a plain compare is fine here.
       if (
         !own ||
         own.hidden_pn !== entry.secret.hidden_pn ||
@@ -1012,7 +1015,9 @@ export class Signer {
       case "/challenge":
         return this._handle(auth, body, Schema.challengeRequest, this._handleChallenge.bind(this))
       case "/ecdh":
-        return this._handle(auth, body, Schema.ecdhRequest, this._handleEcdh.bind(this))
+        return withMinDuration(context.sensitiveMinMs, () =>
+          this._handle(auth, body, Schema.ecdhRequest, this._handleEcdh.bind(this)),
+        )
       case "/login/select":
         return this._handle(
           auth,
@@ -1069,11 +1074,8 @@ export class Signer {
       case "/sign/commit":
         return this._handle(auth, body, Schema.signCommitRequest, this._handleSignCommit.bind(this))
       case "/sign/complete":
-        return this._handle(
-          auth,
-          body,
-          Schema.signCompleteRequest,
-          this._handleSignComplete.bind(this),
+        return withMinDuration(context.sensitiveMinMs, () =>
+          this._handle(auth, body, Schema.signCompleteRequest, this._handleSignComplete.bind(this)),
         )
       default:
         return {ok: false, message: "Not found"}

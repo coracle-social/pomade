@@ -9,6 +9,7 @@ use frost_taproot::types::{SecretNonce, SecretShare};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use subtle::ConstantTimeEq;
 
 use crate::nostr::{NostrAuth, parse_auth};
 use crate::ratelimit::{
@@ -270,7 +271,9 @@ impl Signer {
     fn take_commit(&self, commit_id: &str, client: &str) -> Option<CommitEntry> {
         let mut commits = self.commits_by_client.lock().unwrap();
         let pending = commits.get_mut(client)?;
-        let pos = pending.iter().position(|e| e.commit_id == commit_id)?;
+        let pos = pending
+            .iter()
+            .position(|e| ct_str_eq(&e.commit_id, commit_id))?;
         let entry = pending.swap_remove(pos);
         if pending.is_empty() {
             commits.remove(client);
@@ -301,13 +304,17 @@ impl Signer {
                         .clients
                         .iter()
                         .filter_map(|c| self.sessions.get(c))
-                        .filter(|s| s.password_hash.as_deref() == Some(&pa.password_hash))
+                        .filter(|s| {
+                            s.password_hash
+                                .as_deref()
+                                .is_some_and(|h| ct_str_eq(h, &pa.password_hash))
+                        })
                         .collect();
                 }
                 Auth::Otp(oa) => {
                     if let Some(challenge) = self.challenges.get(email_hash) {
                         self.challenges.delete(email_hash);
-                        if oa.otp == challenge.otp {
+                        if ct_str_eq(&oa.otp, &challenge.otp) {
                             sessions = index
                                 .clients
                                 .iter()
@@ -1221,6 +1228,15 @@ fn hex_to_id(hex: &str) -> [u8; 32] {
 
 fn regex_is_hex64(s: &str) -> bool {
     s.len() == 64 && s.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
+}
+
+/// Compare two strings in constant time with respect to their contents.
+///
+/// `subtle`'s `ct_eq` requires equal-length slices to avoid leaking content,
+/// so unequal lengths short-circuit to `false`. Length is not the secret here
+/// (these are fixed-length hashes / capability tokens); the byte contents are.
+fn ct_str_eq(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.as_bytes().ct_eq(b.as_bytes()).into()
 }
 
 fn hash_email(email: &str, url: &str, argon_m: u32) -> String {

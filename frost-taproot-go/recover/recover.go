@@ -43,11 +43,21 @@ func GenRecoveryShares(members []uint32, share *types.SecretShare, target uint32
 	}
 
 	randCoeffs := vss.CreateShareCoeffs(secrets, threshold-1)
-	coeffSum := big.NewInt(0)
-	for _, c := range randCoeffs {
-		coeffSum = ecc.ScalarAdd(coeffSum, c)
+	// The lagrange coefficient is public, but the share seckey and the random VSS
+	// coefficients are secret, so the multiply, the running sum and the final
+	// subtraction keep a secret as base and run in constant time wrt the secret
+	// (see ecc.ScalarMulCT / ecc.ScalarAddCT / ecc.ScalarNegCT).
+	var coeffSum [32]byte
+	for i, c := range randCoeffs {
+		if i == 0 {
+			coeffSum = ecc.ScalarToBytes(c)
+		} else {
+			coeffSum = ecc.ScalarAddCT(coeffSum, ecc.ScalarToBytes(c))
+		}
 	}
-	repairCoeff := ecc.ScalarSub(ecc.ScalarMul(lgrngCoeff, shareSeckey), coeffSum)
+	lagrangeShare := ecc.ScalarMulCT(ecc.ScalarToBytes(shareSeckey), ecc.ScalarToBytes(lgrngCoeff))
+	repairCoeffBytes := ecc.ScalarAddCT(lagrangeShare, ecc.ScalarNegCT(coeffSum))
+	repairCoeff := ecc.ScalarFromBytes(repairCoeffBytes)
 
 	repairShares := make([]*big.Int, len(randCoeffs)+1)
 	for i, c := range randCoeffs {
@@ -76,14 +86,19 @@ func GenRecoveryShares(members []uint32, share *types.SecretShare, target uint32
 	}, nil
 }
 
-// RecoverShare recovers a participant's share by summing recovery shares.
+// RecoverShare recovers a participant's share by summing recovery shares. The
+// addition runs in constant time wrt the secret recovery shares (ecc.ScalarAddCT).
 func RecoverShare(sharesList []types.SecretShare, id uint32) types.SecretShare {
-	summed := big.NewInt(0)
-	for _, s := range sharesList {
-		summed = ecc.ScalarAdd(summed, ecc.ScalarFromBytes(s.Seckey))
+	var summed [32]byte
+	for i, s := range sharesList {
+		if i == 0 {
+			summed = s.Seckey
+		} else {
+			summed = ecc.ScalarAddCT(summed, s.Seckey)
+		}
 	}
 	return types.SecretShare{
 		ID:     id,
-		Seckey: ecc.ScalarToBytes(summed),
+		Seckey: ecc.ScalarToBytes(ecc.ScalarFromBytes(summed)),
 	}
 }

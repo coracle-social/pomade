@@ -8,17 +8,24 @@ import (
 	"github.com/frost-taproot/frost-taproot-go/ecc"
 )
 
-// EvaluateX evaluates a polynomial at x using Horner's method.
+// EvaluateX evaluates a polynomial at x using Horner's method. The coefficients
+// are secret-bearing (secret shares / poly coefficients) while x is a public
+// participant index, so the per-step multiply and add run in constant time wrt
+// the secret accumulator (see ecc.ScalarMulCT / ecc.ScalarAddCT).
 func EvaluateX(coeffs []*big.Int, x *big.Int) (*big.Int, error) {
 	if x.Sign() == 0 {
 		return nil, fmt.Errorf("x is zero")
 	}
-
-	value := big.NewInt(0)
-	for i := len(coeffs) - 1; i >= 0; i-- {
-		value = ecc.ModN(new(big.Int).Add(ecc.ScalarMul(value, x), coeffs[i]))
+	if len(coeffs) == 0 {
+		return big.NewInt(0), nil
 	}
-	return value, nil
+
+	xb := ecc.ScalarToBytes(x)
+	value := ecc.ScalarToBytes(coeffs[len(coeffs)-1])
+	for i := len(coeffs) - 2; i >= 0; i-- {
+		value = ecc.ScalarAddCT(ecc.ScalarMulCT(value, xb), ecc.ScalarToBytes(coeffs[i]))
+	}
+	return ecc.ScalarFromBytes(value), nil
 }
 
 // InterpolateRoot interpolates at x=0 using Lagrange interpolation.
@@ -28,7 +35,11 @@ func InterpolateRoot(points [][2]*big.Int) (*big.Int, error) {
 		xs[i] = p[0]
 	}
 
-	p := big.NewInt(0)
+	// delta is a public Lagrange basis value over public indices, but y is a
+	// secret share, so the multiply and the running sum keep a secret as base and
+	// run in constant time wrt the secret (see ecc.ScalarMulCT / ecc.ScalarAddCT).
+	var p [32]byte
+	first := true
 	for _, point := range points {
 		x := point[0]
 		y := point[1]
@@ -36,9 +47,15 @@ func InterpolateRoot(points [][2]*big.Int) (*big.Int, error) {
 		if err != nil {
 			return nil, err
 		}
-		p = ecc.ScalarAdd(p, ecc.ScalarMul(delta, y))
+		term := ecc.ScalarMulCT(ecc.ScalarToBytes(y), ecc.ScalarToBytes(delta))
+		if first {
+			p = term
+			first = false
+		} else {
+			p = ecc.ScalarAddCT(p, term)
+		}
 	}
-	return p, nil
+	return ecc.ScalarFromBytes(p), nil
 }
 
 // InterpolateX computes Lagrange basis at x=0.

@@ -83,6 +83,7 @@ export async function hashPassword(email: string, password: string, signerUrl: s
 export type Context = {
   debug: boolean
   registerPow: number
+  sensitiveMinMs: number
   argonOptions: ArgonOptions
   signerUrls: string[]
   argonImpl: ArgonImpl
@@ -93,6 +94,7 @@ export type Context = {
 export const context: Context = {
   debug: false,
   registerPow: 20,
+  sensitiveMinMs: 0,
   argonOptions: {t: 3, m: 64 * 1024, p: 2},
   signerUrls: [],
   argonImpl: defaultArgonImpl,
@@ -136,6 +138,51 @@ export function permutations<T>(items: T[], k: number): T[][] {
   if (k === items.length) return [items]
   const [head, ...rest] = items
   return [...permutations(rest, k - 1).map(combo => [head, ...combo]), ...permutations(rest, k)]
+}
+
+// Compares two strings for equality without short-circuiting on the first
+// differing byte, so the time taken does not depend on how many leading bytes
+// match. Used for secret-bearing comparisons (auth hashes, OTPs). The byte
+// length is not treated as secret, but a length mismatch still yields a
+// non-equal result via the accumulated difference.
+export function timingSafeStringEqual(a: string, b: string): boolean {
+  const aBytes = textEncoder.encode(a)
+  const bBytes = textEncoder.encode(b)
+
+  let mismatch = aBytes.length ^ bBytes.length
+
+  for (let i = 0; i < aBytes.length; i++) {
+    mismatch |= aBytes[i] ^ bBytes[i % bBytes.length]
+  }
+
+  return mismatch === 0
+}
+
+// Runs `fn` and, if it finishes faster than `minMs`, waits out the remainder so
+// the total elapsed time is at least `minMs`. This decouples the externally
+// observable response time from the secret-dependent execution time of
+// variable-time operations — notably the native-BigInt scalar arithmetic in the
+// FROST sign/ecdh paths, which is not constant time. The wait runs in `finally`
+// so the success and error paths take the same minimum, masking ok-vs-error
+// timing as well.
+//
+// This only masks wall-clock response time against a remote observer; it does
+// not make the underlying computation constant time, and the masking only holds
+// when `minMs` exceeds the worst-case runtime of `fn` (otherwise a slow tail
+// still leaks). Choose `minMs` by benchmarking the worst case and adding margin.
+export async function withMinDuration<T>(minMs: number, fn: () => Promise<T>): Promise<T> {
+  if (minMs <= 0) return fn()
+
+  const deadline = Date.now() + minMs
+
+  try {
+    return await fn()
+  } finally {
+    const remaining = deadline - Date.now()
+    if (remaining > 0) {
+      await new Promise<void>(resolve => setTimeout(resolve, remaining))
+    }
+  }
 }
 
 export function delay(ms: number, signal: AbortSignal): Promise<void> {

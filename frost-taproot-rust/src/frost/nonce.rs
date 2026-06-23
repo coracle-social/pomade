@@ -74,7 +74,9 @@ pub fn verify_nonce_code(share_secret: &[u8; 32], nonce: &MemberNonce) -> bool {
     let derived = derive_secret_nonce(share_secret, &nonce.code);
     let binder_pn = get_pubkey(&derived.binder_sn);
     let hidden_pn = get_pubkey(&derived.hidden_sn);
-    // Constant-time comparison
+    // Plain equality is fine here: both sides are public nonce points
+    // (the re-derived points and the peer-supplied ones), not secrets, so
+    // there is no secret-dependent timing to leak.
     binder_pn == nonce.binder_pn && hidden_pn == nonce.hidden_pn
 }
 

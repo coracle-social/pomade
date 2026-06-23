@@ -27,13 +27,17 @@ func CreateShares(coeffs []*big.Int, count uint32) ([]types.SecretShare, error) 
 	return shares, nil
 }
 
-// CombineShares sums a list of secret shares into a single scalar.
+// CombineShares sums a list of secret shares into a single scalar. The addition
+// runs in constant time wrt the secret shares (see ecc.ScalarAddCT).
 func CombineShares(shares []types.SecretShare) [32]byte {
-	secret := big.NewInt(0)
-	for _, s := range shares {
-		secret = ecc.ScalarAdd(secret, ecc.ScalarFromBytes(s.Seckey))
+	if len(shares) == 0 {
+		return [32]byte{}
 	}
-	return ecc.ScalarToBytes(secret)
+	secret := shares[0].Seckey
+	for _, s := range shares[1:] {
+		secret = ecc.ScalarAddCT(secret, s.Seckey)
+	}
+	return ecc.ScalarToBytes(ecc.ScalarFromBytes(secret))
 }
 
 // CombineSet combines shares with the same ID into one share.
@@ -79,8 +83,13 @@ func MergeShares(sharesA, sharesB []types.SecretShare) ([]types.SecretShare, err
 
 // VerifyShare verifies a secret share against VSS commitments.
 func VerifyShare(commits [][33]byte, share *types.SecretShare, threshold int) (bool, error) {
-	scalar := ecc.ScalarFromBytes(share.Seckey)
-	si := ecc.ScalarBaseMulti(scalar)
+	// share.Seckey is secret, so derive its public point (seckey*G) in constant
+	// time wrt the secret (see ecc.ScalarBaseMultiCT).
+	siBytes := ecc.ScalarBaseMultiCT(share.Seckey)
+	si, err := ecc.LiftX(siBytes[:])
+	if err != nil {
+		return false, err
+	}
 
 	if threshold == 0 {
 		return false, &util.AssertionError{Message: "no commits"}

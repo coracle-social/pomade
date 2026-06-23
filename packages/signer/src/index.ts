@@ -16,6 +16,14 @@ if (process.env.TEST_MODE) {
   context.argonOptions = {...context.argonOptions, m: 1024}
 }
 
+// Floor the response time of the secret-bearing endpoints (/sign/complete and
+// /ecdh) to mask the non-constant-time BigInt scalar math in the JS FROST
+// library from remote timing observation. Disabled under test. Tune
+// POMADE_SENSITIVE_MIN_MS above the worst-case op time in your deployment.
+context.sensitiveMinMs = process.env.TEST_MODE
+  ? 0
+  : parseInt(process.env.POMADE_SENSITIVE_MIN_MS || "50", 10)
+
 // Load configuration from environment variables
 const secret = process.env.POMADE_SECRET
 const url = process.env.POMADE_URL

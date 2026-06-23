@@ -694,7 +694,7 @@ dependencies = [
 
 [[package]]
 name = "frost-taproot"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "hmac",
  "k256",
@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "pomade-signer"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "argon2",
  "axum",
@@ -1586,6 +1586,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sled",
+ "subtle",
  "tempfile",
  "tokio",
  "tower-http",

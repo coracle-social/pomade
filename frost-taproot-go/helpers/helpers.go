@@ -39,11 +39,10 @@ func GetPubkey(secret [32]byte) [33]byte {
 	return ecc.ScalarBaseMultiCT(secret)
 }
 
-// TweakSeckey tweaks a secret key: (seckey + tweak) mod N.
+// TweakSeckey tweaks a secret key: (seckey + tweak) mod N. The addition is
+// constant time with respect to the secret key (see ecc.ScalarAddCT).
 func TweakSeckey(seckey, tweak [32]byte) [32]byte {
-	tweakScalar := ecc.ScalarFromBytes(tweak)
-	secret := ecc.ScalarFromBytes(seckey)
-	return ecc.ScalarToBytes(ecc.ScalarAdd(secret, tweakScalar))
+	return ecc.ScalarAddCT(seckey, tweak)
 }
 
 // TweakPubkey tweaks a public key: pubkey_point + tweak*G.
