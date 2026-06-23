@@ -93,7 +93,7 @@ export type Context = {
 
 export const context: Context = {
   debug: false,
-  registerPow: 20,
+  registerPow: 16,
   sensitiveMinMs: 0,
   argonOptions: {t: 3, m: 64 * 1024, p: 2},
   signerUrls: [],

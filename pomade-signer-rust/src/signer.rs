@@ -415,7 +415,7 @@ impl Signer {
             log::debug!("[client {}]: insufficient proof of work", &client[..8]);
             return RegisterResponse {
                 ok: false,
-                message: "Registration requires 20 bits of proof of work (NIP-13).".into(),
+                message: "Registration requires 16 bits of proof of work (NIP-13).".into(),
             };
         }
 

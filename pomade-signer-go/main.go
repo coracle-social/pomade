@@ -75,7 +75,7 @@ func main() {
 	}
 	testMode := os.Getenv("TEST_MODE") != ""
 
-	registerPow := uint32(20)
+	registerPow := uint32(16)
 	if testMode {
 		registerPow = 0
 	}

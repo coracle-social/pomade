@@ -339,7 +339,7 @@ func (s *Signer) handleRegister(auth NostrAuth, data RegisterRequest) RegisterRe
 	}
 	idBytes := auth.Event.ID
 	if getPow(idBytes) < s.options.RegisterPow {
-		return RegisterResponse{OK: false, Message: "Registration requires 20 bits of proof of work (NIP-13)."}
+		return RegisterResponse{OK: false, Message: "Registration requires 16 bits of proof of work (NIP-13)."}
 	}
 	threshold := int(data.Group.Threshold)
 	total := len(data.Group.Commits)

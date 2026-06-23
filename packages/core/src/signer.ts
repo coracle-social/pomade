@@ -460,7 +460,7 @@ export class Signer {
 
       if (getPow(auth) < context.registerPow) {
         debug(`[client ${client.slice(0, 8)}]: insufficient proof of work`)
-        return {ok: false, message: "Registration requires 20 bits of proof of work (NIP-13)."}
+        return {ok: false, message: "Registration requires 16 bits of proof of work (NIP-13)."}
       }
 
       if (!between([0, group.commits.length], group.threshold)) {
