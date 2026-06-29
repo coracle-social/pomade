@@ -2,6 +2,8 @@
 package frost
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"math/big"
 	"slices"
 
@@ -13,17 +15,96 @@ import (
 	"github.com/frost-taproot/frost-taproot-go/vss"
 )
 
+// Domain separation tags for the DKG proof of possession.
+var (
+	dkgPopChallengeDST = []byte("frost-taproot/dkg-pop/challenge/v1")
+	dkgPopNonceDST     = []byte("frost-taproot/dkg-pop/nonce/v1")
+)
+
+// dkgPopChallenge computes e = H(DST || idx || C0 || R) mod N. Binding the index
+// and the commitment ties each proof to its participant and its commitment, so a
+// proof cannot be replayed for a different index or commitment.
+func dkgPopChallenge(idx uint32, c0 [33]byte, r [33]byte) *big.Int {
+	h := sha256.New()
+	h.Write(dkgPopChallengeDST)
+	var idxBuf [4]byte
+	binary.BigEndian.PutUint32(idxBuf[:], idx)
+	h.Write(idxBuf[:])
+	h.Write(c0[:])
+	h.Write(r[:])
+	var digest [32]byte
+	h.Sum(digest[:0])
+	return ecc.ScalarFromBytes(digest)
+}
+
+// createDkgPop builds a Schnorr proof of possession of a0 where C0 = a0*G.
+//
+// Uses a deterministic, secret-dependent nonce so Round 1 stays reproducible and
+// never depends on an RNG for this step.
+func createDkgPop(idx uint32, a0 *big.Int, c0 [33]byte) DkgPop {
+	// Deterministic nonce k = H(DST || a0 || idx) mod N. Secret-derived, so it is
+	// unpredictable to anyone who does not know a0.
+	a0Bytes := ecc.ScalarToBytes(a0)
+	h := sha256.New()
+	h.Write(dkgPopNonceDST)
+	h.Write(a0Bytes[:])
+	var idxBuf [4]byte
+	binary.BigEndian.PutUint32(idxBuf[:], idx)
+	h.Write(idxBuf[:])
+	var nonceDigest [32]byte
+	h.Sum(nonceDigest[:0])
+	k := ecc.ScalarFromBytes(nonceDigest)
+	if k.Sign() == 0 {
+		k = big.NewInt(1)
+	}
+
+	// R = k*G via the constant-time path (k is secret-derived).
+	r := ecc.ScalarBaseMultiCT(ecc.ScalarToBytes(k))
+	e := dkgPopChallenge(idx, c0, r)
+	z := ecc.ScalarAdd(k, ecc.ScalarMul(e, a0))
+
+	return DkgPop{R: r, Z: ecc.ScalarToBytes(z)}
+}
+
+// VerifyDkgPop verifies a proof of possession against C0 = VssCommits[0].
+//
+// Checks z*G == R + e*C0. Returns false when the proof does not verify (e.g. a
+// crafted commitment whose discrete log the author does not know), and an error
+// only on a point-decoding failure.
+func VerifyDkgPop(idx uint32, c0 [33]byte, pop DkgPop) (bool, error) {
+	rPoint, err := ecc.LiftX(pop.R[:])
+	if err != nil {
+		return false, err
+	}
+	c0Point, err := ecc.LiftX(c0[:])
+	if err != nil {
+		return false, err
+	}
+	e := dkgPopChallenge(idx, c0, pop.R)
+	z := ecc.ScalarFromBytes(pop.Z)
+
+	// All inputs here are public, so variable-time multiplication is fine.
+	lhs := ecc.ScalarBaseMulti(z)
+	rhs := ecc.PointAdd(rPoint, ecc.ScalarMulti(c0Point, e))
+	return ecc.SerializePoint(lhs) == ecc.SerializePoint(rhs), nil
+}
+
 // DkgRound1 generates Round 1 polynomial and commitments.
 func DkgRound1(idx uint32, threshold int, secrets [][32]byte) ([][32]byte, DkgCommitPackage) {
 	coeffs := vss.CreateShareCoeffs(secrets, threshold)
 	vssCommits := vss.GetShareCommits(coeffs)
+
+	// Prove possession of the constant-term secret a_i0 behind VssCommits[0].
+	// This is what later lets every participant reject a rogue commitment whose
+	// discrete log its author does not actually know.
+	pop := createDkgPop(idx, coeffs[0], vssCommits[0])
 
 	secretCoeffs := make([][32]byte, len(coeffs))
 	for i, c := range coeffs {
 		secretCoeffs[i] = ecc.ScalarToBytes(c)
 	}
 
-	return secretCoeffs, DkgCommitPackage{Idx: idx, VssCommits: vssCommits}
+	return secretCoeffs, DkgCommitPackage{Idx: idx, VssCommits: vssCommits, Pop: pop}
 }
 
 // DkgRound2 generates the private share for one recipient.
@@ -58,6 +139,25 @@ func VerifyDkgShare(share *DkgSharePackage, senderCommits *DkgCommitPackage, thr
 
 // DkgFinalize finalizes DKG and derives the group key.
 func DkgFinalize(myIdx uint32, myCoeffs [][32]byte, received []DkgSharePackage, allCommits []DkgCommitPackage, threshold int) (DkgOutput, error) {
+	// Verify every participant's proof of possession before trusting any of their
+	// commitments. This closes the rogue-key attack: a participant broadcasting
+	// last cannot fold a crafted VssCommits[0] (chosen to cancel the honest
+	// contributions and steer the group key) into the sum, because it cannot
+	// produce a valid PoP for a point whose discrete log it does not know.
+	for i := range allCommits {
+		c := &allCommits[i]
+		if len(c.VssCommits) == 0 {
+			return DkgOutput{}, &util.AssertionError{Message: "participant has no VSS commits"}
+		}
+		ok, err := VerifyDkgPop(c.Idx, c.VssCommits[0], c.Pop)
+		if err != nil {
+			return DkgOutput{}, err
+		}
+		if !ok {
+			return DkgOutput{}, &util.AssertionError{Message: "DKG proof of possession failed"}
+		}
+	}
+
 	// Validate all received shares
 	for _, pkg := range received {
 		var senderCommits *DkgCommitPackage

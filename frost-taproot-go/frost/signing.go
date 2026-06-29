@@ -15,6 +15,16 @@ import (
 
 // CreateSignSession creates a signing session.
 func CreateSignSession(grp *GroupPackage, members []uint32, messages []SignMessage, nonces []MemberNonce) (SignSession, error) {
+	// A FROST nonce is single-use: it may sign exactly one message. The session
+	// carries only one nonce per member, so allowing more than one message would
+	// sign every message under the same nonce — the classic related-nonce flaw
+	// that lets a co-signer or coordinator solve for the victim's secret share
+	// (3 messages give a solvable 3-unknown linear system). Making the session
+	// structurally single-message is what prevents that; see PROTOCOL.md.
+	if len(messages) != 1 {
+		return SignSession{}, &util.AssertionError{Message: "a signing session must contain exactly one message; a fresh nonce signs exactly one message"}
+	}
+
 	if len(nonces) != len(members) {
 		return SignSession{}, &util.AssertionError{Message: "nonce count must equal member count"}
 	}

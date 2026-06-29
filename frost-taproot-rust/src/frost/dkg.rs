@@ -23,15 +23,83 @@ use crate::Error;
 ///   all received DkgSharePackages, and all Round 1 DkgCommitPackages.
 ///   Returns DkgOutput containing their aggregate share and the GroupPackage.
 /// ```
-use crate::ecc::group::{scalar_multi, serialize_element};
-use crate::ecc::util::{lift_x, pow_n};
+use k256::{Scalar, U256};
+use sha2::{Digest, Sha256};
+
+use crate::ecc::group::{element_add, scalar_base_multi, scalar_multi, serialize_element};
+use crate::ecc::util::{lift_x, mod_n, pow_n, scalar_from_bytes, scalar_to_bytes};
 use crate::shares::{combine_set, verify_share};
 use crate::types::SecretShare;
 use crate::vss::{create_share_coeffs, get_share_commits, merge_share_commits};
 
 use super::types::{
-    DkgCommitPackage, DkgOutput, DkgSharePackage, GroupPackage, MemberPackage, SharePackage,
+    DkgCommitPackage, DkgOutput, DkgPop, DkgSharePackage, GroupPackage, MemberPackage, SharePackage,
 };
+
+/// Domain separation tag for the DKG proof-of-possession challenge.
+const DKG_POP_CHALLENGE_DST: &[u8] = b"frost-taproot/dkg-pop/challenge/v1";
+/// Domain separation tag for the deterministic PoP nonce.
+const DKG_POP_NONCE_DST: &[u8] = b"frost-taproot/dkg-pop/nonce/v1";
+
+/// Challenge scalar for the proof of possession: `e = H(DST || idx || C0 || R)`.
+///
+/// Binding the index in (and the commitment itself) ties each proof to its
+/// participant and its commitment, so a proof cannot be replayed for a different
+/// index or a different commitment.
+fn dkg_pop_challenge(idx: u32, c0: &[u8; 33], r: &[u8; 33]) -> Scalar {
+    let mut hasher = Sha256::new();
+    hasher.update(DKG_POP_CHALLENGE_DST);
+    hasher.update(idx.to_be_bytes());
+    hasher.update(c0);
+    hasher.update(r);
+    let digest: [u8; 32] = hasher.finalize().into();
+    mod_n(U256::from_be_slice(&digest))
+}
+
+/// Build a Schnorr proof of possession of `a0` where `c0 = a0 * G`.
+///
+/// Uses a deterministic, secret-dependent nonce so Round 1 stays reproducible
+/// and never depends on an RNG for this step.
+fn create_dkg_pop(idx: u32, a0: &Scalar, c0: &[u8; 33]) -> DkgPop {
+    // Deterministic nonce k = H(DST || a0 || idx), reduced mod n. Secret-derived,
+    // so it is unpredictable to anyone who does not know a0.
+    let mut hasher = Sha256::new();
+    hasher.update(DKG_POP_NONCE_DST);
+    hasher.update(scalar_to_bytes(a0));
+    hasher.update(idx.to_be_bytes());
+    let nonce_digest: [u8; 32] = hasher.finalize().into();
+    let mut k = mod_n(U256::from_be_slice(&nonce_digest));
+    if k == Scalar::ZERO {
+        k = Scalar::ONE;
+    }
+
+    let r_point = scalar_base_multi(&k);
+    let r = serialize_element(&r_point);
+    let e = dkg_pop_challenge(idx, c0, &r);
+    let z = k + e * a0;
+
+    DkgPop {
+        r,
+        z: scalar_to_bytes(&z),
+    }
+}
+
+/// Verify a proof of possession against the committed point `c0 = vss_commits[0]`.
+///
+/// Checks `z * G == R + e * C0`. Returns `Ok(false)` when the proof does not
+/// verify (e.g. a crafted commitment whose discrete log the author does not
+/// know), `Err` only on a point-decoding failure.
+pub fn verify_dkg_pop(idx: u32, c0: &[u8; 33], pop: &DkgPop) -> Result<bool, Error> {
+    let r_point = lift_x(&pop.r)?;
+    let c0_point = lift_x(c0)?;
+    let e = dkg_pop_challenge(idx, c0, &pop.r);
+    let z = scalar_from_bytes(&pop.z);
+
+    let lhs = scalar_base_multi(&z);
+    let rhs = element_add(Some(r_point), Some(scalar_multi(&c0_point, &e)))?;
+    // Both sides are public points; compare their canonical serializations.
+    Ok(serialize_element(&lhs) == serialize_element(&rhs))
+}
 
 /// Round 1: generate this participant's polynomial and VSS commitments.
 ///
@@ -50,10 +118,22 @@ pub fn dkg_round1(
     let coeffs = create_share_coeffs(secrets, threshold);
     let vss_commits = get_share_commits(&coeffs);
 
+    // Prove possession of the constant-term secret `a_i0` behind `vss_commits[0]`.
+    // This is what later lets every participant reject a rogue commitment whose
+    // discrete log its author does not actually know.
+    let pop = create_dkg_pop(idx, &coeffs[0], &vss_commits[0]);
+
     // Serialize coefficients for storage/transport.
     let secret_coeffs: Vec<[u8; 32]> = coeffs.iter().map(|c| c.to_bytes().into()).collect();
 
-    (secret_coeffs, DkgCommitPackage { idx, vss_commits })
+    (
+        secret_coeffs,
+        DkgCommitPackage {
+            idx,
+            vss_commits,
+            pop,
+        },
+    )
 }
 
 /// Round 2: generate the private share for one recipient.
@@ -121,6 +201,24 @@ pub fn dkg_finalize(
     all_commits: &[DkgCommitPackage],
     threshold: usize,
 ) -> Result<DkgOutput, Error> {
+    // Verify every participant's proof of possession before trusting any of their
+    // commitments. This closes the rogue-key attack: a participant broadcasting
+    // last cannot fold a crafted `vss_commits[0]` (chosen to cancel the honest
+    // contributions and steer the group key) into the sum, because it cannot
+    // produce a valid PoP for a point whose discrete log it does not know.
+    for c in all_commits {
+        let c0 = c
+            .vss_commits
+            .first()
+            .ok_or_else(|| Error::Assertion(format!("participant {} has no VSS commits", c.idx)))?;
+        if !verify_dkg_pop(c.idx, c0, &c.pop)? {
+            return Err(Error::Assertion(format!(
+                "DKG proof of possession failed for participant {}",
+                c.idx
+            )));
+        }
+    }
+
     // Validate all received shares against their senders' VSS commitments.
     for pkg in received {
         let sender_commits = all_commits

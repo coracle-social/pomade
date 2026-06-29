@@ -482,7 +482,10 @@ mod signing_tests {
     }
 
     #[test]
-    fn create_partial_sig_package_multi_message() {
+    fn create_sign_session_rejects_multi_message() {
+        // A nonce is single-use: a session signing more than one message would
+        // reuse one nonce across messages, which leaks the secret share. The
+        // session must reject multi-message inputs structurally.
         let secrets = [s32(S0), s32(S1)];
         let pkg = generate_dealer_package(2, 3, &secrets).unwrap();
         let nonce_pairs: Vec<_> = pkg.shares[..2]
@@ -494,20 +497,16 @@ mod signing_tests {
             .zip(nonce_pairs.iter())
             .map(|(s, n)| to_member_nonce(n.clone(), s.idx))
             .collect();
-        let secret_nonces: Vec<SecretNoncePair> = pkg.shares[..2]
-            .iter()
-            .zip(nonce_pairs.iter())
-            .map(|(s, n)| derive_secret_nonce(&s.seckey, &n.code))
-            .collect();
 
         let messages = vec![
             (b"message one".to_vec(), vec![]),
             (b"message two".to_vec(), vec![]),
         ];
-        let session = create_sign_session(&pkg.group, vec![1, 2], messages, member_nonces).unwrap();
-
-        let psig = create_partial_sig_package(&session, &pkg.shares[0], &secret_nonces[0]).unwrap();
-        assert_eq!(psig.psigs.len(), 2);
+        let result = create_sign_session(&pkg.group, vec![1, 2], messages, member_nonces);
+        assert!(
+            result.is_err(),
+            "multi-message session must be rejected to prevent nonce reuse"
+        );
     }
 
     // ── verify_partial_sig_package ────────────────────────────────────────────
@@ -590,7 +589,9 @@ mod signing_tests {
     }
 
     #[test]
-    fn combine_signatures_multi_message() {
+    fn combine_signatures_single_message_roundtrip() {
+        // A session signs exactly one message: combine returns exactly one
+        // signature, carrying that message.
         let secrets = [s32(S0), s32(S1)];
         let pkg = generate_dealer_package(2, 3, &secrets).unwrap();
         let nonce_pairs: Vec<_> = pkg.shares[..2]
@@ -608,10 +609,7 @@ mod signing_tests {
             .map(|(s, n)| derive_secret_nonce(&s.seckey, &n.code))
             .collect();
 
-        let messages = vec![
-            (b"first message".to_vec(), vec![]),
-            (b"second message".to_vec(), vec![]),
-        ];
+        let messages = vec![(b"first message".to_vec(), vec![])];
         let session =
             create_sign_session(&pkg.group, vec![1, 2], messages.clone(), member_nonces).unwrap();
 
@@ -621,9 +619,8 @@ mod signing_tests {
             create_partial_sig_package(&session, &pkg.shares[1], &secret_nonces[1]).unwrap();
 
         let sigs = combine_signatures(&session, &pkg.group, &[psig1, psig2]).unwrap();
-        assert_eq!(sigs.len(), 2);
+        assert_eq!(sigs.len(), 1);
         assert_eq!(sigs[0].message, messages[0].0);
-        assert_eq!(sigs[1].message, messages[1].0);
     }
 
     #[test]

@@ -142,10 +142,8 @@ fn dealer_full_flow() {
         .map(|(s, n)| derive_secret_nonce(&s.seckey, &n.code))
         .collect();
 
-    let messages = vec![
-        (b"first message".to_vec(), vec![]),
-        (b"second message".to_vec(), vec![]),
-    ];
+    // A session signs exactly one message under each member's single-use nonce.
+    let messages = vec![(b"first message".to_vec(), vec![])];
     let session = create_sign_session(group, vec![1, 2], messages.clone(), member_nonces).unwrap();
     let psigs: Vec<_> = shares[..2]
         .iter()
@@ -153,9 +151,8 @@ fn dealer_full_flow() {
         .map(|(s, sn)| create_partial_sig_package(&session, s, sn).unwrap())
         .collect();
     let multi_sigs = combine_signatures(&session, group, &psigs).unwrap();
-    assert_eq!(multi_sigs.len(), 2);
+    assert_eq!(multi_sigs.len(), 1);
     assert_eq!(multi_sigs[0].message, messages[0].0);
-    assert_eq!(multi_sigs[1].message, messages[1].0);
 
     // ── ECDH ─────────────────────────────────────────────────────────────────
 

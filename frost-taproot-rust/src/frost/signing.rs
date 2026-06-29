@@ -32,6 +32,20 @@ pub fn create_sign_session(
     messages: Vec<(Vec<u8>, Vec<[u8; 32]>)>,
     nonces: Vec<MemberNonce>,
 ) -> Result<SignSession, Error> {
+    // A FROST nonce is single-use: it may sign exactly one message. The session
+    // carries only one nonce per member, so allowing more than one message would
+    // sign every message under the same nonce — the classic related-nonce flaw
+    // that lets a co-signer or coordinator solve for the victim's secret share
+    // (3 messages give a solvable 3-unknown linear system). Making the session
+    // structurally single-message is what prevents that; see PROTOCOL.md.
+    if messages.len() != 1 {
+        return Err(Error::Assertion(format!(
+            "a signing session must contain exactly one message (got {}); \
+             a fresh nonce signs exactly one message",
+            messages.len()
+        )));
+    }
+
     if nonces.len() != members.len() {
         return Err(Error::Assertion(format!(
             "nonce count ({}) must equal member count ({})",

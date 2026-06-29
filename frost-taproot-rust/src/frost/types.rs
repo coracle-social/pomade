@@ -133,6 +133,21 @@ pub struct Signature {
     pub sig: [u8; 64],
 }
 
+/// A Schnorr proof of possession of the secret behind `vss_commits[0]`.
+///
+/// Proves knowledge of `a_i0` such that `vss_commits[0] = a_i0 * G`, binding the
+/// proof to the participant index. Without it, a participant broadcasting last
+/// can choose `vss_commits[0]` as a function of the others' commitments (a point
+/// whose discrete log it does not know) and steer the summed group key — a
+/// rogue-key attack. A crafted commitment has no valid proof, so DKG rejects it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DkgPop {
+    /// 33-byte compressed commitment point `R = k * G`.
+    pub r: [u8; 33],
+    /// 32-byte response scalar `z = k + e * a_i0 (mod n)`.
+    pub z: [u8; 32],
+}
+
 /// One participant's Round 1 broadcast: their VSS commitments.
 /// Keep the corresponding secret coefficients private; broadcast this.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,6 +156,10 @@ pub struct DkgCommitPackage {
     pub idx: u32,
     /// VSS commitments: one compressed point per polynomial coefficient.
     pub vss_commits: Vec<[u8; 33]>,
+    /// Proof of possession of the constant-term secret `a_i0` behind
+    /// `vss_commits[0]`. Verified before the commitment is folded into the
+    /// group key, which is what closes the rogue-key attack.
+    pub pop: DkgPop,
 }
 
 /// One participant's Round 2 private message to a specific recipient.

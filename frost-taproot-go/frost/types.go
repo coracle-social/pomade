@@ -91,10 +91,26 @@ type Signature struct {
 	Sig     [64]byte
 }
 
+// DkgPop is a Schnorr proof of possession of the secret behind VssCommits[0].
+//
+// It proves knowledge of a_i0 such that VssCommits[0] = a_i0*G, bound to the
+// participant index. Without it, a participant broadcasting last can choose
+// VssCommits[0] as a function of the others' commitments (a point whose discrete
+// log it does not know) and steer the summed group key — a rogue-key attack. A
+// crafted commitment has no valid proof, so DKG rejects it.
+type DkgPop struct {
+	R [33]byte // compressed commitment point R = k*G
+	Z [32]byte // response scalar z = k + e*a_i0 (mod n)
+}
+
 // DkgCommitPackage represents Round 1 broadcast.
 type DkgCommitPackage struct {
 	Idx        uint32
 	VssCommits [][33]byte
+	// Pop proves possession of the constant-term secret a_i0 behind
+	// VssCommits[0]. Verified before the commitment is folded into the group
+	// key, which is what closes the rogue-key attack.
+	Pop DkgPop
 }
 
 // DkgSharePackage represents Round 2 private message.

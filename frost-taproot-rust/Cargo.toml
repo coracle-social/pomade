@@ -1,6 +1,6 @@
 [package]
 name = "frost-taproot"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 
 [dependencies]
@@ -25,3 +25,11 @@ path = "tests/integration/flows.rs"
 [[test]]
 name = "primitives"
 path = "tests/integration/primitives.rs"
+
+[[test]]
+name = "regression_nonce_reuse"
+path = "tests/integration/regression_nonce_reuse.rs"
+
+[[test]]
+name = "regression_dkg_rogue"
+path = "tests/integration/regression_dkg_rogue.rs"
