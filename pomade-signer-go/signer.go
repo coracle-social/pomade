@@ -27,7 +27,7 @@ var challengeHTML string
 const monthSecs uint64 = 30 * 24 * 3600
 const minuteSecs uint64 = 60
 
-var clientRateLimits = RateLimitConfig{MaxAttempts: 100, WindowSeconds: 60}
+var clientRateLimits = RateLimitConfig{MaxAttempts: 500, WindowSeconds: 60}
 var emailRateLimits = RateLimitConfig{MaxAttempts: 5, WindowSeconds: 120}
 
 const commitTTLSecs uint64 = 2 * 60

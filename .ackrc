@@ -1,3 +1,4 @@
+--ignore-dir=dist
 --ignore-dir=target
 --ignore-dir=context
 --ignore-dir=test-runner-profile

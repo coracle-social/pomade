@@ -30,7 +30,7 @@ use crate::storage::{Collection, Storage, StorageBackend};
 const GENERATOR_X: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 
 const CLIENT_RATE_LIMITS: RateLimitConfig = RateLimitConfig {
-    max_attempts: 100,
+    max_attempts: 500,
     window_seconds: 60,
 };
 
@@ -1500,12 +1500,12 @@ mod tests {
 
         let client = "rate_limited_client";
 
-        // First 100 attempts should succeed
-        for _ in 0..100 {
+        // First 500 attempts should succeed
+        for _ in 0..500 {
             assert!(signer.check_and_record_rate_limit(client));
         }
 
-        // 101st attempt should fail (rate limited)
+        // 501st attempt should fail (rate limited)
         assert!(!signer.check_and_record_rate_limit(client));
     }
 

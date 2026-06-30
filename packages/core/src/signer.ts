@@ -67,7 +67,7 @@ import {
 const GENERATOR_X = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 
 const CLIENT_RATE_LIMITS: RateLimitConfig = {
-  maxAttempts: 100,
+  maxAttempts: 500,
   windowSeconds: int(1, MINUTE),
 }
 
