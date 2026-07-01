@@ -66,6 +66,7 @@ const service = new Signer({
     if (process.env.TEST_MODE) {
       console.log(`[challenge] otp=${payload.otp} to=${payload.email}`)
     } else {
+      console.log(`[challenge] sending challenge email`)
       try {
         await emailProvider.sendChallenge(payload.email, payload.otp)
       } catch (error) {

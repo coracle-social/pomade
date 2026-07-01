@@ -520,14 +520,14 @@ export class Signer {
         return {ok: false, message: "Recovery is disabled on this session."}
       }
 
-      if (session.created_at < ago(15, MINUTE)) {
-        debug(`[client ${client.slice(0, 8)}]: recovery method set too late`)
-        return {ok: false, message: "Recovery method must be set within 15 minutes of session."}
-      }
-
       if (session.email) {
         debug(`[client ${client.slice(0, 8)}]: recovery is already set`)
         return {ok: false, message: "Recovery has already been initialized."}
+      }
+
+      if (session.created_at < ago(15, MINUTE)) {
+        debug(`[client ${client.slice(0, 8)}]: recovery method set too late`)
+        return {ok: false, message: "Recovery method must be set within 15 minutes of session."}
       }
 
       if (!data.password_hash.match(/^[a-f0-9]{64}$/)) {
@@ -561,6 +561,7 @@ export class Signer {
     const bucket = await this.rateLimitByEmailHash.get(data.email_hash)
 
     if (isRateLimited(bucket, EMAIL_RATE_LIMITS)) {
+      debug(`[challenge]: rate limited for ${data.email_hash}`)
       return {ok: true, message: "Please check your email inbox for a one-time password."}
     }
 
@@ -582,6 +583,8 @@ export class Signer {
         this.options.sendChallenge({email: session.email, otp})
 
         debug(`[challenge]: sent for ${data.email_hash}`)
+      } else {
+        debug(`[challenge]: session ${data.email_hash} found but had no email`)
       }
     } else {
       debug(`[challenge]: no session found for ${data.email_hash}`)

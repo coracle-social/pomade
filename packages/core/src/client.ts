@@ -174,7 +174,7 @@ export class Client {
 
   async setupRecovery(email: string, password: string) {
     const messages = await Promise.all(
-      this.peers.map(async url => {
+      this.peers.filter(identity).map(async url => {
         const password_hash = await hashPassword(email, password, url)
 
         return this.rpc.post<RecoverySetupResponse>(url, "/recovery/setup", {email, password_hash})
@@ -489,7 +489,7 @@ export class Client {
 
     // Sign auth before sending since we might be deactivating our own session
     const requests = await Promise.all(
-      peers.map(url => userRpc.prep(url, "/session/deactivate", {client})),
+      peers.filter(identity).map(url => userRpc.prep(url, "/session/deactivate", {client})),
     )
 
     const messages = await Promise.all(
@@ -504,7 +504,7 @@ export class Client {
 
     // Sign auth before sending since we might be deleting our own session
     const requests = await Promise.all(
-      peers.map(url => userRpc.prep(url, "/session/delete", {client})),
+      peers.filter(identity).map(url => userRpc.prep(url, "/session/delete", {client})),
     )
 
     const messages = await Promise.all(
