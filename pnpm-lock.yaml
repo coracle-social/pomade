@@ -36,14 +36,14 @@ importers:
         specifier: workspace:*
         version: link:../packages/core
       '@welshman/lib':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2
       '@welshman/signer':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.0-pre.1)(@welshman/net@0.8.0-pre.1(@welshman/lib@0.8.0-pre.1)(@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.5(@capacitor/core@7.4.5))(nostr-tools@2.19.4(typescript@5.9.3))
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.9.0-pre2)(@welshman/net@0.9.0-pre2(@welshman/lib@0.9.0-pre2)(@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.5(@capacitor/core@7.4.5))(nostr-tools@2.19.4(typescript@5.9.3))
       '@welshman/util':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3))
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3))
       mithril:
         specifier: ^2.2.12
         version: 2.3.8
@@ -67,17 +67,17 @@ importers:
         specifier: ^1.14.3
         version: 1.14.3
       '@welshman/lib':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2
       '@welshman/net':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1(@welshman/lib@0.8.0-pre.1)(@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0)
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2(@welshman/lib@0.9.0-pre2)(@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0)
       '@welshman/signer':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.0-pre.1)(@welshman/net@0.8.0-pre.1(@welshman/lib@0.8.0-pre.1)(@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.5(@capacitor/core@7.4.5))(nostr-tools@2.19.4(typescript@5.9.3))
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.9.0-pre2)(@welshman/net@0.9.0-pre2(@welshman/lib@0.9.0-pre2)(@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.5(@capacitor/core@7.4.5))(nostr-tools@2.19.4(typescript@5.9.3))
       '@welshman/util':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3))
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3))
       cbor-x:
         specifier: ^1.6.0
         version: 1.6.0
@@ -122,14 +122,14 @@ importers:
         specifier: workspace:*
         version: link:../core
       '@welshman/lib':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2
       '@welshman/signer':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.0-pre.1)(@welshman/net@0.8.0-pre.1(@welshman/lib@0.8.0-pre.1)(@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.5(@capacitor/core@7.4.5))(nostr-tools@2.19.4(typescript@5.9.3))
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.9.0-pre2)(@welshman/net@0.9.0-pre2(@welshman/lib@0.9.0-pre2)(@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.5(@capacitor/core@7.4.5))(nostr-tools@2.19.4(typescript@5.9.3))
       '@welshman/util':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3))
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3))
       bcrypt:
         specifier: ^6.0.0
         version: 6.0.0
@@ -180,11 +180,11 @@ importers:
         specifier: workspace:*
         version: link:../core
       '@welshman/lib':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2
       '@welshman/util':
-        specifier: ^0.8.0-pre.1
-        version: 0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3))
+        specifier: ^0.9.0-pre2
+        version: 0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3))
       nostr-tools:
         specifier: ^2.19.3
         version: 2.19.4(typescript@5.9.3)
@@ -1134,32 +1134,32 @@ packages:
   '@vitest/utils@4.0.16':
     resolution: {integrity: sha512-h8z9yYhV3e1LEfaQ3zdypIrnAg/9hguReGZoS7Gl0aBG5xgA410zBqECqmaF/+RkTggRsfnzc1XaAHA6bmUufA==}
 
-  '@welshman/lib@0.8.0-pre.1':
-    resolution: {integrity: sha512-PRadNJrS9hxM5gIRR8rLOmRabQKtWA4bZmIirtMugZDqDid/Yr0COcizyd4ZleYCWGjHGyhbYnaZbI3y75tWvg==}
+  '@welshman/lib@0.9.0-pre2':
+    resolution: {integrity: sha512-7CBMm7uMx1sS5a0Wdh/k3ZUVqu4KaJO4ycSo9IkSQDkpj80VP12km3C/r3HL3WlfwE7s87b60en7NkoEnUwAfw==}
     engines: {node: '>=12.0.0'}
 
-  '@welshman/net@0.8.0-pre.1':
-    resolution: {integrity: sha512-Y1j9olgtXFpMUis7E+fAvWq3fjGxJOPZncAho0Y4Xshta90x/5QPKpd3EKj6xxCH6TRRdJthYI3Aya5z1Ko5KA==}
+  '@welshman/net@0.9.0-pre2':
+    resolution: {integrity: sha512-J/vA/GlgRFL02hNOQE5RL7kr9Lu7fezr+kNm26oUBUOM5xsnHcLFhuTzHLYWdCc1QytpfAfOldJsF0PFOFoa/g==}
     peerDependencies:
-      '@welshman/lib': 0.8.0-pre.1
-      '@welshman/util': 0.8.0-pre.1
+      '@welshman/lib': 0.9.0-pre2
+      '@welshman/util': 0.9.0-pre2
 
-  '@welshman/signer@0.8.0-pre.1':
-    resolution: {integrity: sha512-kLuqqhQCfMdg1ZKtLUrpfQXhKOfrwu1Xi207zX+w1JGz8LmmQpoGNM4T108avHomZQ/2A1Eth/7SCu5xqre22g==}
+  '@welshman/signer@0.9.0-pre2':
+    resolution: {integrity: sha512-arwNeiQO5i0PriwjC530Hn1kO2IZVszbx8QL4rGZFihfMbBKpN+MMp+M2lOXgtW9s1iaIcJfC104DieMRrRlhA==}
     peerDependencies:
       '@noble/curves': ^1.9.7
       '@noble/hashes': ^2.0.1
-      '@welshman/lib': 0.8.0-pre.1
-      '@welshman/net': 0.8.0-pre.1
-      '@welshman/util': 0.8.0-pre.1
-      nostr-signer-capacitor-plugin: ~0.0.4
+      '@welshman/lib': 0.9.0-pre2
+      '@welshman/net': 0.9.0-pre2
+      '@welshman/util': 0.9.0-pre2
+      nostr-signer-capacitor-plugin: '*'
       nostr-tools: ^2.19.4
 
-  '@welshman/util@0.8.0-pre.1':
-    resolution: {integrity: sha512-0ezVaOaZ8UULvJ2Qw5jkNf0RmXtF7BSqLmjsH1ynM2ygMEU0EpyIJ6tS0AKXD+ciMO7qqFeRK89DZzztVyhNoQ==}
+  '@welshman/util@0.9.0-pre2':
+    resolution: {integrity: sha512-/L1AwwbGagpZLeEUG48c6OCgIV/kFoEPJzPR8aGFkqpyILSpiTTZ1nEJ1DHr5jNZHYd/eqQmxFuomWkPBJHQUQ==}
     peerDependencies:
       '@noble/curves': ^1.9.7
-      '@welshman/lib': 0.8.0-pre.1
+      '@welshman/lib': 0.9.0-pre2
       nostr-tools: ^2.19.4
 
   abbrev@1.1.1:
@@ -3597,36 +3597,36 @@ snapshots:
       '@vitest/pretty-format': 4.0.16
       tinyrainbow: 3.0.3
 
-  '@welshman/lib@0.8.0-pre.1':
+  '@welshman/lib@0.9.0-pre2':
     dependencies:
       '@scure/base': 1.2.6
       '@types/events': 3.0.3
       events: 3.3.0
 
-  '@welshman/net@0.8.0-pre.1(@welshman/lib@0.8.0-pre.1)(@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0)':
+  '@welshman/net@0.9.0-pre2(@welshman/lib@0.9.0-pre2)(@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0)':
     dependencies:
-      '@welshman/lib': 0.8.0-pre.1
-      '@welshman/util': 0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3))
+      '@welshman/lib': 0.9.0-pre2
+      '@welshman/util': 0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3))
       events: 3.3.0
       isomorphic-ws: 5.0.0(ws@8.19.0)
     transitivePeerDependencies:
       - ws
 
-  '@welshman/signer@0.8.0-pre.1(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.0-pre.1)(@welshman/net@0.8.0-pre.1(@welshman/lib@0.8.0-pre.1)(@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.5(@capacitor/core@7.4.5))(nostr-tools@2.19.4(typescript@5.9.3))':
+  '@welshman/signer@0.9.0-pre2(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.9.0-pre2)(@welshman/net@0.9.0-pre2(@welshman/lib@0.9.0-pre2)(@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.5(@capacitor/core@7.4.5))(nostr-tools@2.19.4(typescript@5.9.3))':
     dependencies:
       '@noble/curves': 1.9.7
       '@noble/hashes': 2.0.1
-      '@welshman/lib': 0.8.0-pre.1
-      '@welshman/net': 0.8.0-pre.1(@welshman/lib@0.8.0-pre.1)(@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0)
-      '@welshman/util': 0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3))
+      '@welshman/lib': 0.9.0-pre2
+      '@welshman/net': 0.9.0-pre2(@welshman/lib@0.9.0-pre2)(@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3)))(ws@8.19.0)
+      '@welshman/util': 0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3))
       nostr-signer-capacitor-plugin: 0.0.5(@capacitor/core@7.4.5)
       nostr-tools: 2.19.4(typescript@5.9.3)
 
-  '@welshman/util@0.8.0-pre.1(@noble/curves@1.9.7)(@welshman/lib@0.8.0-pre.1)(nostr-tools@2.19.4(typescript@5.9.3))':
+  '@welshman/util@0.9.0-pre2(@noble/curves@1.9.7)(@welshman/lib@0.9.0-pre2)(nostr-tools@2.19.4(typescript@5.9.3))':
     dependencies:
       '@noble/curves': 1.9.7
       '@types/ws': 8.18.1
-      '@welshman/lib': 0.8.0-pre.1
+      '@welshman/lib': 0.9.0-pre2
       js-base64: 3.7.8
       nostr-tools: 2.19.4(typescript@5.9.3)
       nostr-wasm: 0.1.0

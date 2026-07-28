@@ -3,7 +3,7 @@ import {
   groupBy,
   removeUndefined,
   shuffle,
-  randomId,
+  randomInt,
   sortBy,
   first,
   last,
@@ -57,6 +57,9 @@ export type ClientOptionsResult<T> = {
   messages: Message<T>[]
   clientSecret: string
 }
+
+// Signers require a two-digit prefix so that OTPs can be routed back to the peer that issued them
+const makeOTPPrefix = () => randomInt(0, 99).toString().padStart(2, "0")
 
 export class Client {
   rpc: RPC
@@ -191,9 +194,9 @@ export class Client {
 
     const results = await Promise.all(
       peers.map(async url => {
-        let prefix = randomId().slice(-2)
+        let prefix = makeOTPPrefix()
         while (peersByPrefix.has(prefix)) {
-          prefix = randomId().slice(-2)
+          prefix = makeOTPPrefix()
         }
 
         peersByPrefix.set(prefix, url)

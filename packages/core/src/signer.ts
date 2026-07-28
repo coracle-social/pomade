@@ -21,7 +21,7 @@ import {
   MINUTE,
   MONTH,
 } from "@welshman/lib"
-import {verifyEvent, getTagValue, getPow, HTTP_AUTH} from "@welshman/util"
+import {verifyEvent, tagSpec, tagValue, getPow, HTTP_AUTH} from "@welshman/util"
 import type {SignedEvent} from "@welshman/util"
 import type {ISigner} from "@welshman/signer"
 import {SessionItem, Auth, isPasswordAuth, isOTPAuth, Schema} from "./schema.js"
@@ -257,8 +257,8 @@ export class Signer {
         auth.kind === HTTP_AUTH &&
         auth.created_at >= ago(60) &&
         auth.created_at <= now() + 5 &&
-        getTagValue("u", auth.tags) === `${this.options.url}${path}` &&
-        getTagValue("method", auth.tags) === "POST"
+        tagValue(tagSpec("u"), auth.tags) === `${this.options.url}${path}` &&
+        tagValue(tagSpec("method"), auth.tags) === "POST"
       ) {
         return auth
       }
